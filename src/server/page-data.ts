@@ -1,4 +1,5 @@
 import "server-only";
+import { connection } from "next/server";
 import { withTenant, type Tx } from "@/server/db";
 import { requireActor, type Actor } from "@/server/auth/session";
 import { addDaysISO, eachDay, todayIn } from "@/lib/dates";
@@ -8,6 +9,7 @@ import type { DayMark } from "@/ui/calendar";
 
 /** Read-only page loader: the signed-in actor + a tenant-scoped transaction. */
 export async function load<T>(fn: (tx: Tx, actor: Actor) => Promise<T>) {
+  await connection();   // signed-in pages always render per request; reading the clock after this is fine
   const actor = await requireActor();
   return withTenant(actor.tenant.id, (tx) => fn(tx, actor));
 }

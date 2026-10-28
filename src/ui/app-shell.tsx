@@ -1,9 +1,9 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
-  Bell, BriefcaseBusiness, CalendarDays, ChevronsLeft, Clock, FileText, Home, Inbox, LayoutGrid, LifeBuoy,
+  Bell, BriefcaseBusiness, LayoutDashboard, CalendarDays, ChevronsLeft, Clock, FileText, Home, Inbox, LayoutGrid, LifeBuoy,
   Menu as MenuIcon, Receipt, Search, Settings, Target, User, Users, Wallet, X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -11,6 +11,8 @@ import { Avatar } from "./avatar";
 import { IconButton } from "./button";
 import { Menu } from "./overlay";
 import { ThemeToggle } from "./theme";
+
+export type ShellData = { tenant: string; user: { name: string; title: string }; isAdmin: boolean; inboxCount: number; unread: number };
 
 export type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number };
 export type NavGroup = { label?: string; items: NavItem[] };
@@ -29,6 +31,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/me/helpdesk", label: "Helpdesk", icon: LifeBuoy },
   ] },
   { label: "Organisation", items: [
+    { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/team", label: "My team", icon: Users },
     { href: "/org/employees", label: "People", icon: LayoutGrid },
     { href: "/org/documents", label: "Documents", icon: FileText },
@@ -85,17 +88,29 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard"]);
 
-/** Nav is built here (icons are components and can't cross the server→client boundary); the server sends flags and counts. */
-export function AppShell({ children, isAdmin = true, tenant = "Acme Pvt Ltd", user = { name: "Asha Verma", title: "HR Manager" }, unread = 0, inboxCount = 0, logout }: {
-  children: React.ReactNode; isAdmin?: boolean; tenant?: string; user?: { name: string; title: string };
-  unread?: number; inboxCount?: number; logout?: () => Promise<{ redirectTo: string }>;
-}) {
-  const nav: NavGroup[] = DEFAULT_NAV.map((g) => ({
+function navFor(d: ShellData | null): NavGroup[] {
+  return DEFAULT_NAV.map((g) => ({
     ...g,
-    items: g.items.filter((i) => isAdmin || !ADMIN_ONLY.has(i.href)).map((i) => (i.href === "/inbox" ? { ...i, badge: inboxCount || undefined } : i)),
+    items: g.items.filter((i) => d?.isAdmin || !ADMIN_ONLY.has(i.href)).map((i) => (i.href === "/inbox" ? { ...i, badge: d?.inboxCount || undefined } : i)),
   }));
+}
+
+/** Reads the shell data promise; only ever rendered inside a Suspense boundary. */
+function useShell(data: Promise<ShellData | null> | ShellData | null | undefined) {
+  return data instanceof Promise ? React.use(data) : (data ?? null);
+}
+
+/**
+ * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
+ * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
+ * `data` may be a promise: everything user-specific streams in behind small Suspense boundaries,
+ * while the page content renders straight away.
+ */
+export function AppShell({ children, data, logout }: {
+  children: React.ReactNode; data?: Promise<ShellData | null> | ShellData | null; logout?: () => Promise<{ redirectTo: string }>;
+}) {
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   return (
@@ -104,7 +119,7 @@ export function AppShell({ children, isAdmin = true, tenant = "Acme Pvt Ltd", us
 
       <aside className={cn("fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-border bg-sidebar transition-[width] duration-base lg:flex",
         collapsed ? "w-(--size-sidebar-collapsed)" : "w-(--size-sidebar)")}>
-        <SidebarContent nav={nav} collapsed={collapsed} tenant={tenant} />
+        <React.Suspense fallback={<SidebarContent nav={navFor(null)} collapsed={collapsed} tenant="" />}><ShellSidebar data={data} collapsed={collapsed} /></React.Suspense>
         <div className="border-t border-border p-3">
           <button type="button" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className={cn("flex h-9 w-full items-center gap-3 rounded-md px-3 text-base text-text-muted hover:bg-surface-hover hover:text-text", collapsed && "justify-center px-0")}>
@@ -118,7 +133,7 @@ export function AppShell({ children, isAdmin = true, tenant = "Acme Pvt Ltd", us
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal aria-label="Navigation">
           <div className="absolute inset-0 bg-overlay/45 animate-fade-in" onClick={() => setMobileOpen(false)} />
           <aside className="absolute inset-y-0 left-0 flex w-(--size-sidebar) flex-col bg-sidebar shadow-modal animate-pop-in">
-            <SidebarContent nav={nav} tenant={tenant} onNavigate={() => setMobileOpen(false)} />
+            <React.Suspense fallback={<SidebarContent nav={navFor(null)} tenant="" />}><ShellSidebar data={data} onNavigate={() => setMobileOpen(false)} /></React.Suspense>
             <IconButton label="Close navigation" className="absolute right-2 top-3" onClick={() => setMobileOpen(false)}><X /></IconButton>
           </aside>
         </div>
@@ -134,15 +149,8 @@ export function AppShell({ children, isAdmin = true, tenant = "Acme Pvt Ltd", us
           </button>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
-            <IconButton label={unread ? `Notifications, ${unread} unread` : "Notifications"} className="relative">
-              <Bell />{unread > 0 && <span aria-hidden className="absolute right-2 top-2 size-2 rounded-pill bg-danger ring-2 ring-surface" />}
-            </IconButton>
-            <Menu trigger={
-              <button type="button" aria-label={`Account menu for ${user.name}`} className="ml-1 flex items-center gap-2 rounded-pill p-0.5 pr-2 hover:bg-surface-hover">
-                <Avatar name={user.name} size="sm" />
-                <span className="hidden text-left leading-tight md:block"><span className="block text-sm font-medium">{user.name}</span><span className="block text-xs text-text-muted">{user.title}</span></span>
-              </button>
-            } items={[{ label: "My profile", icon: <User /> }, { label: "Settings", icon: <Settings /> }, "separator", { label: "Sign out", danger: true, onSelect: () => { void logout?.().then((r) => window.location.assign(r.redirectTo)); } }]} />
+            <React.Suspense fallback={<IconButton label="Notifications"><Bell /></IconButton>}><NotificationsButton data={data} /></React.Suspense>
+            <React.Suspense fallback={<span className="ml-1 size-8 rounded-pill bg-surface-hover" aria-hidden />}><AccountMenu data={data} logout={logout} /></React.Suspense>
           </div>
         </header>
 
@@ -150,7 +158,7 @@ export function AppShell({ children, isAdmin = true, tenant = "Acme Pvt Ltd", us
       </div>
 
       <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex h-(--size-bottom-nav) border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
-        {MOBILE_NAV.map((it) => <BottomLink key={it.href} item={it.href === "/inbox" ? { ...it, badge: inboxCount || undefined } : it} />)}
+        <React.Suspense fallback={MOBILE_NAV.map((it) => <BottomLink key={it.href} item={it} />)}><BottomLinks data={data} /></React.Suspense>
       </nav>
     </div>
   );
@@ -197,4 +205,41 @@ export function ShellSkeleton() {
       </div>
     </div>
   );
+}
+
+function ShellSidebar({ data, collapsed, onNavigate }: { data: Promise<ShellData | null> | ShellData | null | undefined; collapsed?: boolean; onNavigate?: () => void }) {
+  const d = useShell(data);
+  return <SidebarContent nav={navFor(d)} collapsed={collapsed} tenant={d?.tenant ?? ""} onNavigate={onNavigate} />;
+}
+
+function NotificationsButton({ data }: { data: Promise<ShellData | null> | ShellData | null | undefined }) {
+  const unread = useShell(data)?.unread ?? 0;
+  return (
+    <IconButton label={unread ? `Notifications, ${unread} unread` : "Notifications"} className="relative">
+      <Bell />{unread > 0 && <span aria-hidden className="absolute right-2 top-2 size-2 rounded-pill bg-danger ring-2 ring-surface" />}
+    </IconButton>
+  );
+}
+
+function AccountMenu({ data, logout }: { data: Promise<ShellData | null> | ShellData | null | undefined; logout?: () => Promise<{ redirectTo: string }> }) {
+  const user = useShell(data)?.user ?? { name: "", title: "" };
+  const router = useRouter();
+  return (
+    <Menu trigger={
+      <button type="button" aria-label={`Account menu for ${user.name}`} className="ml-1 flex items-center gap-2 rounded-pill p-0.5 pr-2 hover:bg-surface-hover">
+        <Avatar name={user.name || "?"} size="sm" />
+        <span className="hidden text-left leading-tight md:block"><span className="block text-sm font-medium">{user.name}</span><span className="block text-xs text-text-muted">{user.title}</span></span>
+      </button>
+    } items={[
+      { label: "My profile", icon: <User />, onSelect: () => router.push("/me") },
+      { label: "Settings", icon: <Settings />, onSelect: () => router.push("/settings") },
+      "separator",
+      { label: "Sign out", danger: true, onSelect: () => { void logout?.().then((r) => window.location.assign(r.redirectTo)); } },
+    ]} />
+  );
+}
+
+function BottomLinks({ data }: { data: Promise<ShellData | null> | ShellData | null | undefined }) {
+  const inboxCount = useShell(data)?.inboxCount ?? 0;
+  return <>{MOBILE_NAV.map((it) => <BottomLink key={it.href} item={it.href === "/inbox" ? { ...it, badge: inboxCount || undefined } : it} />)}</>;
 }

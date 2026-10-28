@@ -101,7 +101,7 @@ export default function DesignPage() {
   const marks = { "2026-11-01": "weekly_off", "2026-11-08": "weekly_off", "2026-11-14": "weekly_off", "2026-11-15": "weekly_off", "2026-11-09": "holiday", "2026-11-20": "leave" } as const;
 
   return (
-    <AppShell>
+    <AppShell data={{ tenant: "Acme Pvt Ltd", user: { name: "Asha Verma", title: "HR Manager" }, isAdmin: true, inboxCount: 6, unread: 3 }}>
       <PageHeader title="Design system" description="Every erp primitive, in every state. Tokens: replica/design/tokens.json."
         breadcrumb="Internal" actions={<><Button variant="secondary"><Download />Export</Button><Button><Plus />New request</Button></>} />
 

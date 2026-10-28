@@ -20,6 +20,7 @@ import { buildTemplate, commitImport, previewImport } from "@/server/modules/emp
 import { invite, requestReset, setPasswordWithToken, tokenInfo } from "@/server/modules/auth/flows";
 import { deliverQueued } from "@/server/email";
 import { createEmployee } from "@/server/modules/employees/service";
+import { orgDashboard } from "@/server/modules/org/dashboard";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 import { DEMO_PASSWORD, DEMO_SUBDOMAIN } from "./demo";
@@ -234,6 +235,22 @@ async function main() {
     await admin`delete from employees where work_email = ${inviteeEmail}`;
     await admin`delete from users where email = ${inviteeEmail}`;
   }
+
+  // M1: dashboard respects scope
+  await withTenant(tenant.id, async (tx) => {
+    const [{ total, eng }] = await tx<{ total: number; eng: number }[]>`
+      select count(*)::int as total, count(*) filter (where d.name = 'Engineering')::int as eng
+      from employees e left join departments d on d.id = e.department_id where e.status <> 'relieved'`;
+    const [engDept] = await tx<{ id: string }[]>`select id from departments where name = 'Engineering'`;
+    const full = await orgDashboard(tx, asha.a);
+    assert.equal(full.scoped, false); assert.equal(full.headcount.total, total);
+    const scopedMeera = { ...meera.a, grants: [{ permissions: ["employees.write"], scopes: [{ type: "department" as const, ids: [engDept.id] }] }] };
+    const part = await orgDashboard(tx, scopedMeera);
+    assert.equal(part.scoped, true); assert.equal(part.headcount.total, eng);
+    assert.deepEqual(part.byDepartment.map((x) => x.name), ["Engineering"]);
+    await assert.rejects(orgDashboard(tx, arjun.a), /for HR and admins/);
+  });
+  ok("dashboard: admins see the company, scoped HR only their departments, employees can't open it");
 
   // tenant isolation: a second tenant sees nothing of Acme
   const otherId = randomUUID();
