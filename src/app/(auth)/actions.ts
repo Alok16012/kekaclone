@@ -6,6 +6,7 @@ import { AppError } from "@/server/db";
 import { createSession, currentSubdomain, destroySession, resolveTenant } from "@/server/auth/session";
 import { provisionTenant } from "@/server/modules/tenants/provision";
 import { createHandoff, passwordLogin } from "@/server/modules/auth/service";
+import { requestReset, setPasswordWithToken } from "@/server/modules/auth/flows";
 
 /**
  * Auth actions return `redirectTo` instead of calling redirect(): a redirect inside a server action is rendered
@@ -73,4 +74,30 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
 export async function logoutAction() {
   await destroySession();
   return { redirectTo: "/login" };
+}
+
+/** Invite acceptance and password reset share one form: token + new password (twice). */
+export async function setPasswordAction(_: FormState, form: FormData): Promise<FormState> {
+  const token = String(form.get("token") ?? ""), purpose = form.get("purpose") === "invite" ? "invite" : "reset_password";
+  const password = String(form.get("password") ?? ""), confirm = String(form.get("confirm") ?? "");
+  if (password !== confirm) return { fields: { confirm: "The two passwords don't match." } };
+  const tenant = await resolveTenant(await currentSubdomain());
+  if (!tenant) return { error: "This workspace doesn't exist." };
+  try {
+    const userId = await setPasswordWithToken(tenant, token, purpose, password);
+    await createSession(tenant.id, userId);
+  } catch (e) {
+    if (e instanceof AppError) return e.field ? { fields: { [e.field]: e.message } } : { error: e.message };
+    console.error(e);
+    return { error: "We couldn't save your password. Please try again." };
+  }
+  return { redirectTo: purpose === "invite" ? "/home?welcome=1" : "/home" };
+}
+
+export async function requestResetAction(_: FormState, form: FormData): Promise<FormState & { sent?: boolean }> {
+  const email = String(form.get("email") ?? "").trim();
+  if (!z.email().safeParse(email).success) return { fields: { email: "Enter your work email." }, values: { email } };
+  const tenant = await resolveTenant(await currentSubdomain());
+  if (tenant) await requestReset(tenant, email).catch((e) => console.error(e));
+  return { sent: true, values: { email } };
 }

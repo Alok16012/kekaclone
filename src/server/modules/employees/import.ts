@@ -128,5 +128,5 @@ export async function commitImport(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
     created.set(r.workEmail, e.employeeId);
   }
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, action, diff) values (${actor.tenant.id}, ${actor.userId}, 'employee', 'bulk_import', ${tx.json({ count: created.size })})`;
-  return { created: created.size };
+  return { created: created.size, ids: [...created.values()] };
 }

@@ -7,6 +7,7 @@ import { Select } from "@/ui/select";
 import { Card, CardBody, CardHeader } from "@/ui/card";
 import { EmployeePicker, type Person } from "@/ui/employee-picker";
 import { Banner } from "@/ui/feedback";
+import { Checkbox } from "@/ui/choice";
 import { toast } from "@/ui/toast";
 import { createEmployeeAction } from "@/app/(app)/actions";
 
@@ -17,6 +18,7 @@ export function AddEmployeeForm({ departments, designations, locations, people, 
   const router = useRouter();
   const [pending, start] = React.useTransition();
   const [error, setError] = React.useState<{ message: string; field?: string } | null>(null);
+  const [sendInvite, setSendInvite] = React.useState(true);
   const [v, setV] = React.useState({ firstName: "", lastName: "", workEmail: "", mobile: "", employeeNumber: "", joiningDate: today, departmentId: "", designationId: "", locationId: locations[0]?.id ?? "", managerId: "" });
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => setV((s) => ({ ...s, [k]: e.target.value }));
   const err = (f: string) => (error?.field === f ? error.message : undefined);
@@ -27,9 +29,10 @@ export function AddEmployeeForm({ departments, designations, locations, people, 
       const r = await createEmployeeAction({
         ...v, lastName: v.lastName || undefined, mobile: v.mobile || undefined, employeeNumber: v.employeeNumber || undefined,
         departmentId: v.departmentId || undefined, designationId: v.designationId || undefined, locationId: v.locationId || undefined, managerId: v.managerId || undefined,
+        sendInvite,
       });
       if (!r.ok) { setError({ message: r.error, field: r.field }); return; }
-      toast.success(`${v.firstName} added`, { description: `Employee number ${r.data!.employeeNumber}` });
+      toast.success(`${v.firstName} added`, { description: `Employee number ${r.data!.employeeNumber}${r.data!.invited ? " · invite emailed" : ""}` });
       router.push("/org/employees");
     });
   };
@@ -57,9 +60,12 @@ export function AddEmployeeForm({ departments, designations, locations, people, 
           <Field label="Reporting manager" help="Approves their leave and attendance requests"><EmployeePicker people={people} value={v.managerId ? [v.managerId] : []} onChange={(ids) => setV((s) => ({ ...s, managerId: ids[0] ?? "" }))} placeholder="Choose a manager" /></Field>
         </CardBody>
       </Card>
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Checkbox label="Email them an invite to set their password" checked={sendInvite} onCheckedChange={(c) => setSendInvite(!!c)} />
+        <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={() => router.back()}>Cancel</Button>
         <Button type="submit" loading={pending}>Add employee</Button>
+        </div>
       </div>
     </form>
   );

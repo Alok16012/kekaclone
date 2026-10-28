@@ -3,6 +3,7 @@ import * as React from "react";
 import { Button } from "@/ui/button";
 import { Field, Input } from "@/ui/field";
 import { Banner } from "@/ui/feedback";
+import Link from "next/link";
 import { loginAction, type FormState } from "../actions";
 
 export function LoginForm({ next }: { next?: string }) {
@@ -15,6 +16,7 @@ export function LoginForm({ next }: { next?: string }) {
       <input type="hidden" name="next" value={next ?? ""} />
       <Field label="Work email" error={f.email}><Input name="email" type="email" autoComplete="username" defaultValue={state.values?.email} autoFocus required /></Field>
       <Field label="Password" error={f.password}><Input name="password" type="password" autoComplete="current-password" required /></Field>
+      <Link href="/forgot-password" className="-mt-2 self-end text-sm font-medium text-accent-text hover:underline">Forgot password?</Link>
       <Button type="submit" size="lg" block loading={pending || !!state.redirectTo}>Sign in</Button>
     </form>
   );

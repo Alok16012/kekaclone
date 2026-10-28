@@ -13,6 +13,7 @@ import { isSection } from "@/server/modules/employees/fields";
 import * as org from "@/server/modules/settings/org";
 import * as roles from "@/server/modules/settings/roles";
 import { commitImport, previewImport } from "@/server/modules/employees/import";
+import { invite } from "@/server/modules/auth/flows";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.uuid();
@@ -68,7 +69,7 @@ const employeeInput = z.object({
   employeeNumber: z.string().trim().max(30).optional(),
   joiningDate: isoDate,
   gender: z.enum(["male", "female", "non_binary", "undisclosed"]).optional(),
-  departmentId: uuid.optional(), designationId: uuid.optional(), locationId: uuid.optional(), managerId: uuid.optional(),
+  departmentId: uuid.optional(), designationId: uuid.optional(), locationId: uuid.optional(), managerId: uuid.optional(), sendInvite: z.boolean().optional(),
 });
 
 export async function createEmployeeAction(input: z.input<typeof employeeInput>) {
@@ -79,7 +80,9 @@ export async function createEmployeeAction(input: z.input<typeof employeeInput>)
   }
   return runAction(async (tx, actor) => {
     assertCan(actor, "employees.write");
-    return createEmployee(tx, actor.tenant.id, parsed.data, actor.userId);
+    const created = await createEmployee(tx, actor.tenant.id, parsed.data, actor.userId);
+    const invited = parsed.data.sendInvite ? (await invite(tx, actor, [created.employeeId])).sent > 0 : false;
+    return { ...created, invited };
   });
 }
 
@@ -181,5 +184,17 @@ export async function previewImportAction(form: FormData) {
 export async function commitImportAction(form: FormData) {
   const bytes = await fileFrom(form);
   if (!bytes) return { ok: false as const, error: "Choose an .xlsx file first." };
-  return runAction((tx, actor) => commitImport(tx, actor, bytes));
+  const sendInvites = form.get("sendInvites") === "1";
+  return runAction(async (tx, actor) => {
+    const r = await commitImport(tx, actor, bytes);
+    const invited = sendInvites ? (await invite(tx, actor, r.ids)).sent : 0;
+    return { created: r.created, invited };
+  });
+}
+
+// ---------- M1: invites ----------
+export async function inviteAction(employeeIds: string[]) {
+  const ids = z.array(uuid).min(1).max(1000).safeParse(employeeIds);
+  if (!ids.success) return { ok: false as const, error: "Choose who to invite." };
+  return runAction((tx, actor) => invite(tx, actor, ids.data));
 }

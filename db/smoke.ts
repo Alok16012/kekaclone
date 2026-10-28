@@ -17,6 +17,9 @@ import * as roles from "@/server/modules/settings/roles";
 import * as org from "@/server/modules/settings/org";
 import ExcelJS from "exceljs";
 import { buildTemplate, commitImport, previewImport } from "@/server/modules/employees/import";
+import { invite, requestReset, setPasswordWithToken, tokenInfo } from "@/server/modules/auth/flows";
+import { deliverQueued } from "@/server/email";
+import { createEmployee } from "@/server/modules/employees/service";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 import { DEMO_PASSWORD, DEMO_SUBDOMAIN } from "./demo";
@@ -185,6 +188,52 @@ async function main() {
     throw new Error("rollback");
   }).catch((e) => { if (e.message !== "rollback") throw e; });
   ok("bulk import: template round-trip, row errors reported (5 on one row), all-or-nothing, in-file manager linked, balances created");
+
+  // M1: invite → set password; forgot → reset (real commits, cleaned up at the end)
+  const lastLink = async (to: string, kind: string) => {
+    const [m] = await admin<{ html: string; status: string; provider: string }[]>`select html, status, provider from outbound_emails where to_email = ${to} and kind = ${kind} order by created_at desc limit 1`;
+    return m ? { ...m, token: m.html.match(/[?&]t=([A-Za-z0-9_-]+)/)?.[1] ?? "" } : null;
+  };
+  const inviteeEmail = "smoke.invitee@acme.test";
+  await admin`delete from employees where work_email = ${inviteeEmail}`; await admin`delete from users where email = ${inviteeEmail}`;
+  try {
+    const { employeeId } = await withTenant(tenant.id, (tx) => createEmployee(tx, tenant.id, { firstName: "Smoke", lastName: "Invitee", workEmail: inviteeEmail, joiningDate: todayIn() }, null));
+    const r1 = await withTenant(tenant.id, (tx) => invite(tx, asha.a, [employeeId, arjun.a.employeeId]));
+    assert.equal(r1.sent, 1); assert.equal(r1.skipped[0].reason, "already signed in before");
+    await deliverQueued(tenant.id);
+    const first = await lastLink(inviteeEmail, "invite");
+    assert.equal(first?.status, "sent"); assert.equal(first?.provider, "dev"); assert.ok(first?.token);
+    await withTenant(tenant.id, (tx) => invite(tx, asha.a, [employeeId]));   // re-invite kills the old link
+    assert.equal(await tokenInfo(tenant, first!.token, "invite"), null);
+    const second = await lastLink(inviteeEmail, "invite");
+    assert.deepEqual(await tokenInfo(tenant, second!.token, "invite"), { name: "Smoke Invitee", email: inviteeEmail });
+    await assert.rejects(setPasswordWithToken(tenant, second!.token, "invite", "short"), /10 characters/);
+    await assert.rejects(setPasswordWithToken(tenant, second!.token, "reset_password", "a long enough phrase"), /expired or was already used/);
+    const uid = await setPasswordWithToken(tenant, second!.token, "invite", "monsoon chai at 4pm");
+    await assert.rejects(setPasswordWithToken(tenant, second!.token, "invite", "another long phrase"), /expired or was already used/);
+    const [u] = await admin<{ status: string; password_hash: string }[]>`select status, password_hash from users where id = ${uid}`;
+    assert.equal(u.status, "active"); assert.equal(await verifyPassword("monsoon chai at 4pm", u.password_hash), true);
+    ok("invite: email queued and delivered (dev), re-invite kills old link, weak password refused, link works once, account active");
+
+    await admin`insert into sessions (tenant_id, user_id, token_hash, expires_at) values (${tenant.id}, ${uid}, ${"smoke-" + uid}, now() + interval '1 day')`;
+    await requestReset(tenant, "Nobody.Here@acme.test");
+    assert.equal(await lastLink("nobody.here@acme.test", "reset_password"), null);
+    await requestReset(tenant, inviteeEmail.toUpperCase());
+    const reset = await lastLink(inviteeEmail, "reset_password");
+    assert.ok(reset?.token);
+    await setPasswordWithToken(tenant, reset!.token, "reset_password", "new monsoon phrase 2026");
+    const [{ n }] = await admin<{ n: number }[]>`select count(*)::int as n from sessions where user_id = ${uid}`;
+    assert.equal(n, 0);
+    assert.ok(await lastLink(inviteeEmail, "password_changed"));
+    await requestReset(tenant, inviteeEmail); await requestReset(tenant, inviteeEmail); await requestReset(tenant, inviteeEmail); await requestReset(tenant, inviteeEmail);
+    const [{ c }] = await admin<{ c: number }[]>`select count(*)::int as c from auth_tokens where user_id = ${uid} and purpose = 'reset_password' and created_at > now() - interval '15 minutes'`;
+    assert.equal(c, 3);
+    ok("reset: unknown email silent, case-insensitive, signs out everywhere, 'password changed' email, max 3 links per 15 min");
+  } finally {
+    await admin`delete from outbound_emails where to_email = ${inviteeEmail}`;
+    await admin`delete from employees where work_email = ${inviteeEmail}`;
+    await admin`delete from users where email = ${inviteeEmail}`;
+  }
 
   // tenant isolation: a second tenant sees nothing of Acme
   const otherId = randomUUID();

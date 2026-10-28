@@ -71,14 +71,16 @@ export async function createEmployee(tx: Tx, tenantId: string, input: NewEmploye
   return { employeeId: emp.id, userId: user.id, employeeNumber: number };
 }
 
-export type DirectoryRow = { id: string; display_name: string; employee_number: string; work_email: string; designation: string | null; department: string | null; location: string | null; manager: string | null; status: string; joining_date: string };
+export type DirectoryRow = { id: string; display_name: string; employee_number: string; work_email: string; designation: string | null; department: string | null; location: string | null; manager: string | null; status: string; joining_date: string; login: "active" | "invited" | "not_invited" | "disabled" };
 
 export async function listEmployees(tx: Tx, q?: string) {
   const term = q?.trim() ? `%${q.trim()}%` : null;
   return tx<DirectoryRow[]>`
     select e.id, e.display_name, e.employee_number, e.work_email, d.title as designation, dp.name as department, l.name as location,
-           m.display_name as manager, e.status, e.joining_date::text
+           m.display_name as manager, e.status, e.joining_date::text,
+           case when u.status = 'active' then 'active' when u.status = 'disabled' then 'disabled' when u.invited_at is not null then 'invited' else 'not_invited' end as login
     from employees e
+    left join users u on u.id = e.user_id
     left join designations d on d.id = e.designation_id
     left join departments dp on dp.id = e.department_id
     left join locations l on l.id = e.location_id

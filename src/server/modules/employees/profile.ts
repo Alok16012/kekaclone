@@ -28,6 +28,7 @@ export type Profile = {
     designation: string | null; designation_id: string | null; department: string | null; department_id: string | null;
     location: string | null; location_id: string | null; business_unit: string | null; legal_entity: string | null; band: string | null;
     probation_status: string; probation_end_date: string | null; is_private: boolean;
+    login?: "active" | "invited" | "not_invited" | "disabled";
     // visible to self / manager / admin only
     personal?: { dob: string | null; gender: string | null; marital_status: string | null; blood_group: string | null; nationality: string | null };
     contact?: { personal_email: string | null; mobile: string | null };
@@ -42,12 +43,13 @@ export type Profile = {
 };
 
 export async function getProfile(tx: Tx, actor: Actor, employeeId: string): Promise<Profile | null> {
-  const [e] = await tx<(Omit<Profile["employee"], "personal" | "contact"> & { dob: string | null; gender: string | null; marital_status: string | null; blood_group: string | null; nationality: string | null; personal_email: string | null; mobile: string | null; manager_id: string | null; l2_manager_id: string | null; dotted_manager_id: string | null })[]>`
+  const [e] = await tx<(Omit<Profile["employee"], "personal" | "contact" | "login"> & { login: Profile["employee"]["login"]; dob: string | null; gender: string | null; marital_status: string | null; blood_group: string | null; nationality: string | null; personal_email: string | null; mobile: string | null; manager_id: string | null; l2_manager_id: string | null; dotted_manager_id: string | null })[]>`
     select e.id, e.employee_number, e.first_name, e.last_name, e.display_name, e.work_email, e.status, e.joining_date::text, e.worker_type, e.time_type,
       d.title as designation, e.designation_id, dp.name as department, e.department_id, l.name as location, e.location_id,
       bu.name as business_unit, le.name as legal_entity, b.name as band, e.probation_status, e.probation_end_date::text, e.is_private,
       e.dob::text, e.gender, e.marital_status, e.blood_group, e.nationality, e.personal_email, e.mobile, e.addresses, e.bio,
-      e.manager_id, e.l2_manager_id, e.dotted_manager_id
+      e.manager_id, e.l2_manager_id, e.dotted_manager_id,
+      (select case when u.status = 'active' then 'active' when u.status = 'disabled' then 'disabled' when u.invited_at is not null then 'invited' else 'not_invited' end from users u where u.id = e.user_id) as login
     from employees e
     left join designations d on d.id = e.designation_id left join departments dp on dp.id = e.department_id
     left join locations l on l.id = e.location_id left join business_units bu on bu.id = e.business_unit_id
@@ -71,6 +73,7 @@ export async function getProfile(tx: Tx, actor: Actor, employeeId: string): Prom
     department: e.department, department_id: e.department_id, location: e.location, location_id: e.location_id, business_unit: e.business_unit,
     legal_entity: e.legal_entity, band: e.band, probation_status: e.probation_status, probation_end_date: e.probation_end_date, is_private: e.is_private,
     bio: e.bio ?? {},
+    ...(access === "admin" ? { login: e.login } : {}),
     ...(full ? {
       personal: { dob: e.dob, gender: e.gender, marital_status: e.marital_status, blood_group: e.blood_group, nationality: e.nationality },
       contact: { personal_email: e.personal_email, mobile: e.mobile },

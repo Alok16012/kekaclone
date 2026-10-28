@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { ArrowRightLeft, BadgeCheck, Briefcase, CalendarDays, Clock3, Hash, Mail, MapPin, Pencil, Phone, UserRound } from "lucide-react";
+import { ArrowRightLeft, Send, BadgeCheck, Briefcase, CalendarDays, Clock3, Hash, Mail, MapPin, Pencil, Phone, UserRound } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
@@ -12,7 +12,7 @@ import { ConfirmDialog } from "@/ui/overlay";
 import { toast } from "@/ui/toast";
 import type { Profile } from "@/server/modules/employees/profile";
 import { FIELD_LABELS } from "@/server/modules/employees/fields";
-import { cancelJobChangeAction } from "@/app/(app)/actions";
+import { cancelJobChangeAction, inviteAction } from "@/app/(app)/actions";
 import { EditSection, JobChangeDialog, ProbationDialog } from "./edit-dialogs";
 import type { Person } from "@/ui/employee-picker";
 
@@ -83,11 +83,20 @@ export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profil
                 {probation && <Badge tone="warning">In probation{e.probation_end_date ? ` till ${fmtDate(e.probation_end_date)}` : ""}</Badge>}
                 {e.probation_status === "confirmed" && <Badge tone="accent"><BadgeCheck />Confirmed</Badge>}
                 <Badge>{LABEL[e.worker_type] ?? e.worker_type}</Badge>
+                {e.login === "invited" && <Badge tone="accent">Invited, not signed in yet</Badge>}
+                {e.login === "not_invited" && <Badge>Not invited</Badge>}
               </div>
             </div>
           </div>
           {admin && lookups && (
             <div className="flex flex-wrap gap-2">
+              {e.login && e.login !== "active" && e.login !== "disabled" && (
+                <Button variant="secondary" size="sm" onClick={async () => {
+                  const r = await inviteAction([e.id]);
+                  if (r.ok && r.data!.sent) toast.success(e.login === "invited" ? "Invite sent again" : "Invite sent", { description: e.work_email });
+                  else toast.error(r.ok ? r.data!.skipped[0]?.reason ?? "Not sent" : r.error);
+                }}><Send />{e.login === "invited" ? "Resend invite" : "Send invite"}</Button>
+              )}
               <ProbationDialog emp={e} today={today} trigger={<Button variant="secondary" size="sm"><BadgeCheck />Probation</Button>} />
               <JobChangeDialog emp={e} current={{ manager_id: currentManagerId }} lookups={lookups} today={today} trigger={<Button size="sm"><ArrowRightLeft />Change job</Button>} />
             </div>

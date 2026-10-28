@@ -8,6 +8,7 @@ import { Card, CardBody, CardHeader } from "@/ui/card";
 import { Badge } from "@/ui/badge";
 import { Banner, Skeleton } from "@/ui/feedback";
 import { Stepper } from "@/ui/flow";
+import { Checkbox } from "@/ui/choice";
 import { toast } from "@/ui/toast";
 import { cn } from "@/lib/cn";
 import { commitImportAction, previewImportAction } from "@/app/(app)/actions";
@@ -20,6 +21,7 @@ export function BulkImport() {
   const [preview, setPreview] = React.useState<ImportPreview | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [drag, setDrag] = React.useState(false);
+  const [sendInvites, setSendInvites] = React.useState(true);
   const [checking, startCheck] = React.useTransition();
   const [importing, startImport] = React.useTransition();
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -40,11 +42,11 @@ export function BulkImport() {
   };
   const doImport = () => {
     if (!file) return;
-    const fd = new FormData(); fd.set("file", file);
+    const fd = new FormData(); fd.set("file", file); if (sendInvites) fd.set("sendInvites", "1");
     startImport(async () => {
       const r = await commitImportAction(fd);
       if (!r.ok) { setError(r.error); return; }
-      toast.success(`${r.data!.created} ${r.data!.created === 1 ? "person" : "people"} added`, { description: "They have leave balances and the default shift already." });
+      toast.success(`${r.data!.created} ${r.data!.created === 1 ? "person" : "people"} added`, { description: r.data!.invited ? `${r.data!.invited} invite emails sent.` : "They have leave balances and the default shift already." });
       router.push("/org/employees");
     });
   };
@@ -85,6 +87,7 @@ export function BulkImport() {
           <CardHeader title="3. Review"
             description={preview.total === 0 ? "No people found in the file." : preview.valid ? `All ${preview.total} rows look good.` : `${bad.length} of ${preview.total} rows need fixing. Correct them in the file and upload it again.`}
             action={preview.valid && preview.total > 0 ? <Button onClick={doImport} loading={importing}>Import {preview.total} {preview.total === 1 ? "person" : "people"}</Button> : undefined} />
+          {preview.valid && preview.total > 0 && <div className="px-5 pb-4"><Checkbox label="Email everyone an invite to set their password" checked={sendInvites} onCheckedChange={(c) => setSendInvites(!!c)} /></div>}
           {preview.total > 0 && (
             <div className="overflow-x-auto border-t border-border">
               <table className="w-full text-base">
