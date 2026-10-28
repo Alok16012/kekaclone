@@ -12,6 +12,7 @@ import * as profile from "@/server/modules/employees/profile";
 import { isSection } from "@/server/modules/employees/fields";
 import * as org from "@/server/modules/settings/org";
 import * as roles from "@/server/modules/settings/roles";
+import { commitImport, previewImport } from "@/server/modules/employees/import";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.uuid();
@@ -161,4 +162,24 @@ export async function assignRoleAction(roleId: string, employeeId: string, scope
 
 export async function unassignRoleAction(assignmentId: string) {
   return runAction((tx, actor) => roles.unassign(tx, actor, uuid.parse(assignmentId)));
+}
+
+// ---------- M1: bulk import ----------
+
+async function fileFrom(form: FormData) {
+  const f = form.get("file");
+  if (!(f instanceof File) || f.size === 0) return null;
+  return f.arrayBuffer();
+}
+
+export async function previewImportAction(form: FormData) {
+  const bytes = await fileFrom(form);
+  if (!bytes) return { ok: false as const, error: "Choose an .xlsx file first." };
+  return runAction((tx, actor) => previewImport(tx, actor, bytes), { refresh: false });
+}
+
+export async function commitImportAction(form: FormData) {
+  const bytes = await fileFrom(form);
+  if (!bytes) return { ok: false as const, error: "Choose an .xlsx file first." };
+  return runAction((tx, actor) => commitImport(tx, actor, bytes));
 }

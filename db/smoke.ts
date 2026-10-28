@@ -15,6 +15,8 @@ import * as attendance from "@/server/modules/attendance/service";
 import * as profile from "@/server/modules/employees/profile";
 import * as roles from "@/server/modules/settings/roles";
 import * as org from "@/server/modules/settings/org";
+import ExcelJS from "exceljs";
+import { buildTemplate, commitImport, previewImport } from "@/server/modules/employees/import";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 import { DEMO_PASSWORD, DEMO_SUBDOMAIN } from "./demo";
@@ -148,6 +150,41 @@ async function main() {
   }).catch((e) => { if (e.message !== "rollback") throw e; });
   ok("scoped role: Engineering HR can manage Engineering people only; unknown permissions dropped; last Global admin protected");
   ok("company structure: in-use department can't be deleted, duplicate names refused, no parent loops");
+
+  // M1: bulk import from the real template (rolled back)
+  await withTenant(tenant.id, async (tx) => {
+    const tpl = await buildTemplate(tx, asha.a);
+    const fill = async (rows: (string | Date)[][]) => {
+      const wb = new ExcelJS.Workbook(); await wb.xlsx.load(new Uint8Array(tpl).buffer);
+      const ws = wb.getWorksheet("People")!;
+      ws.spliceRows(2, 1);   // drop the example row
+      rows.forEach((r) => ws.addRow(r));
+      return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+    };
+    // columns: first, last, email, mobile, number, joining, gender, department, designation, location, manager email
+    const broken = await fill([
+      ["Neha", "Gupta", "neha@acme.test", "", "", "2026-11-02", "Female", "Engineering", "Software Engineer", "Head office", "rohan@acme.test"],
+      ["", "NoName", "not-an-email", "", "EMP-0001", "31-02-2026", "", "Marketing", "", "", ""],
+    ]);
+    const p1 = await previewImport(tx, asha.a, broken);
+    assert.equal(p1.valid, false); assert.equal(p1.ok, 1); assert.equal(p1.results.find((r) => r.rowNumber === 3)!.errors.length, 5);
+    await assert.rejects(commitImport(tx, asha.a, broken), /Some rows have problems/);
+    const good = await fill([
+      ["Kabir", "Das", "kabir@acme.test", "", "", new Date(Date.UTC(2026, 10, 2)), "Male", "Engineering", "Software Engineer", "Head office", "lead@acme.test"],
+      ["Lata", "Menon", "lead@acme.test", "", "ENG-LEAD-1", "02-11-2026", "", "Engineering", "Software Engineer", "Head office", "rohan@acme.test"],
+    ]);
+    const p2 = await previewImport(tx, asha.a, good);
+    assert.equal(p2.valid, true, JSON.stringify(p2.results));
+    await assert.rejects(previewImport(tx, arjun.a, good), /access/);
+    const r = await commitImport(tx, asha.a, good);
+    assert.equal(r.created, 2);
+    const [k] = await tx<{ mgr: string; doj: string; n: string }[]>`
+      select m.work_email as mgr, e.joining_date::text as doj, (select count(*) from leave_ledger l where l.employee_id = e.id)::text as n
+      from employees e join employees m on m.id = e.manager_id where e.work_email = 'kabir@acme.test'`;
+    assert.deepEqual(k, { mgr: "lead@acme.test", doj: "2026-11-02", n: "3" });
+    throw new Error("rollback");
+  }).catch((e) => { if (e.message !== "rollback") throw e; });
+  ok("bulk import: template round-trip, row errors reported (5 on one row), all-or-nothing, in-file manager linked, balances created");
 
   // tenant isolation: a second tenant sees nothing of Acme
   const otherId = randomUUID();
