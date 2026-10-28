@@ -40,6 +40,7 @@ export type Profile = {
   timeline: { kind: string; effective_date: string; data: Record<string, unknown>; actor: string | null }[];
   pendingChanges: { id: string; section: string; changes: Record<string, { old: unknown; new: unknown }>; created_at: Date }[];
   scheduledChanges: { id: string; kind: string; effective_date: string; changes: Record<string, unknown> }[];
+  security?: { mode: "off" | "optional" | "required"; mine: boolean };
 };
 
 export async function getProfile(tx: Tx, actor: Actor, employeeId: string): Promise<Profile | null> {
@@ -80,7 +81,12 @@ export async function getProfile(tx: Tx, actor: Actor, employeeId: string): Prom
       addresses: (e.addresses ?? {}) as Profile["employee"]["addresses"],
     } : {}),
   };
-  return { access, employee, manager, l2Manager, dottedManager, reportees, peers, timeline, pendingChanges, scheduledChanges };
+  let security: Profile["security"];
+  if (access === "self" || actor.employeeId === employeeId) {
+    const [r] = await tx<{ mode: "off" | "optional" | "required" | null; mine: boolean }[]>`select (select auth_settings->>'mfa' from tenants) as mode, mfa_enabled as mine from users where id = ${actor.userId}`;
+    security = { mode: r.mode ?? "optional", mine: r.mine };
+  }
+  return { access, employee, manager, l2Manager, dottedManager, reportees, peers, timeline, pendingChanges, scheduledChanges, security };
 }
 
 /**

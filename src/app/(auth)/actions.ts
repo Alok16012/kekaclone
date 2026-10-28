@@ -7,12 +7,13 @@ import { createSession, currentSubdomain, destroySession, resolveTenant } from "
 import { provisionTenant } from "@/server/modules/tenants/provision";
 import { createHandoff, passwordLogin } from "@/server/modules/auth/service";
 import { requestReset, setPasswordWithToken } from "@/server/modules/auth/flows";
+import { needsCode, resendChallenge, startChallenge, verifyChallenge } from "@/server/modules/auth/mfa";
 
 /**
  * Auth actions return `redirectTo` instead of calling redirect(): a redirect inside a server action is rendered
  * by Next internally without the tenant subdomain, so the browser does a full navigation on the right host instead.
  */
-export type FormState = { error?: string; fields?: Record<string, string>; values?: Record<string, string>; redirectTo?: string };
+export type FormState = { error?: string; fields?: Record<string, string>; values?: Record<string, string>; redirectTo?: string; mfa?: { maskedEmail: string; next: string }; notice?: string };
 
 const signupSchema = z.object({
   company: z.string().trim().min(2, "Enter your company name").max(120),
@@ -59,16 +60,37 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
   }
   const tenant = await resolveTenant(await currentSubdomain());
   if (!tenant) return { error: "This workspace doesn't exist.", values };
+  const raw = String(form.get("next") ?? "");
+  const next = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/home";
   try {
     const userId = await passwordLogin(tenant, parsed.data.email, parsed.data.password);
+    if (await needsCode(tenant, userId)) return { mfa: { ...(await startChallenge(tenant, userId)), next }, values };
     await createSession(tenant.id, userId);
   } catch (e) {
     if (e instanceof AppError) return { error: e.message, values };
     console.error(e);
     return { error: "We couldn't sign you in. Please try again.", values };
   }
-  const next = String(form.get("next") ?? "");
-  return { redirectTo: next.startsWith("/") && !next.startsWith("//") ? next : "/home" };
+  return { redirectTo: next };
+}
+
+/** Second step: the 6-digit code from email. Keeps the challenge on screen until it succeeds or runs out. */
+export async function verifyCodeAction(prev: FormState, form: FormData): Promise<FormState> {
+  const tenant = await resolveTenant(await currentSubdomain());
+  if (!tenant || !prev.mfa) return { error: "Your sign-in timed out. Enter your email and password again." };
+  if (form.get("intent") === "resend") {
+    try { await resendChallenge(tenant); return { ...prev, error: undefined, notice: "We've sent a new code." }; }
+    catch (e) { return { ...prev, notice: undefined, error: e instanceof AppError ? e.message : "Couldn't send a new code." }; }
+  }
+  try {
+    const userId = await verifyChallenge(tenant, String(form.get("code") ?? ""));
+    await createSession(tenant.id, userId);
+    return { redirectTo: prev.mfa.next };
+  } catch (e) {
+    const msg = e instanceof AppError ? e.message : "We couldn't check the code. Please try again.";
+    const restart = /again\.$/.test(msg) && !/tries? left/.test(msg);
+    return restart ? { error: msg, values: prev.values } : { ...prev, notice: undefined, error: msg };
+  }
 }
 
 export async function logoutAction() {

@@ -14,6 +14,7 @@ import * as org from "@/server/modules/settings/org";
 import * as roles from "@/server/modules/settings/roles";
 import { commitImport, previewImport } from "@/server/modules/employees/import";
 import { invite } from "@/server/modules/auth/flows";
+import { setMfaMode, setMyMfa } from "@/server/modules/settings/security";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.uuid();
@@ -197,4 +198,16 @@ export async function inviteAction(employeeIds: string[]) {
   const ids = z.array(uuid).min(1).max(1000).safeParse(employeeIds);
   if (!ids.success) return { ok: false as const, error: "Choose who to invite." };
   return runAction((tx, actor) => invite(tx, actor, ids.data));
+}
+
+// ---------- M1: sign-in security ----------
+
+export async function setMfaModeAction(mode: string) {
+  const m = z.enum(["off", "optional", "required"]).safeParse(mode);
+  if (!m.success) return { ok: false as const, error: "Unknown setting." };
+  return runAction((tx, actor) => setMfaMode(tx, actor, m.data));
+}
+
+export async function setMyMfaAction(on: boolean) {
+  return runAction((tx, actor) => setMyMfa(tx, actor, !!on));
 }

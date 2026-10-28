@@ -12,7 +12,7 @@ const ITEMS = [
     { href: "/settings/org/business_units", label: "Business units" },
     { href: "/settings/org/bands", label: "Bands" },
   ] },
-  { group: "Access", links: [{ href: "/settings/roles", label: "Roles & permissions" }] },
+  { group: "Access", links: [{ href: "/settings/roles", label: "Roles & permissions" }, { href: "/settings/security", label: "Sign-in security" }] },
 ];
 
 /** Vertical on desktop, horizontally scrolling chips on mobile. */

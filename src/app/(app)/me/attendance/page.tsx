@@ -10,11 +10,12 @@ import { AttendanceLog } from "@/features/attendance-log";
 export const metadata: Metadata = { title: "Attendance" };
 
 export default async function AttendancePage() {
-  const month = todayIn().slice(0, 7) + "-01";
   const d = await load(async (tx, actor) => {
+    const month = todayIn().slice(0, 7) + "-01";   // read the clock only after the request-time session read
     const [state, rows] = await Promise.all([attendance.today(tx, actor.employeeId), attendance.monthLog(tx, actor.employeeId, month)]);
-    return { state, rows };
+    return { state, rows, month };
   });
+  const month = d.month;
   const worked = d.rows.filter((r) => r.effective > 0);
   const avg = worked.length ? Math.round(worked.reduce((s, r) => s + r.effective, 0) / worked.length) : 0;
   const late = d.rows.filter((r) => r.late > 0).length;

@@ -14,6 +14,7 @@ import type { Profile } from "@/server/modules/employees/profile";
 import { FIELD_LABELS } from "@/server/modules/employees/fields";
 import { cancelJobChangeAction, inviteAction } from "@/app/(app)/actions";
 import { EditSection, JobChangeDialog, ProbationDialog } from "./edit-dialogs";
+import { MyCodeSwitch } from "@/features/settings/security-ui";
 import type { Person } from "@/ui/employee-picker";
 
 type Lookups = Parameters<typeof JobChangeDialog>[0]["lookups"];
@@ -167,6 +168,7 @@ export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profil
                 <Row label="Current" value={addr("current")} />
                 <Row label="Permanent" value={addr("permanent")} />
               </SectionCard>
+              {p.security && <MyCodeSwitch mode={p.security.mode} mine={p.security.mine} />}
             </div>
           </TabsContent>
         )}
