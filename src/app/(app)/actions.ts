@@ -10,6 +10,8 @@ import * as approvals from "@/server/modules/approvals/service";
 import { createEmployee } from "@/server/modules/employees/service";
 import * as profile from "@/server/modules/employees/profile";
 import { isSection } from "@/server/modules/employees/fields";
+import * as org from "@/server/modules/settings/org";
+import * as roles from "@/server/modules/settings/roles";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.uuid();
@@ -123,4 +125,40 @@ export async function profileChangeDetailAction(requestId: string) {
     const steps = await approvals.timeline(tx, "profile_change", r.id);
     return { ...r, steps: steps.map((s) => ({ ...s, acted_at: s.acted_at?.toISOString() ?? null })) };
   });
+}
+
+// ---------- M1: settings ----------
+
+const scopeSchema = z.array(z.object({ type: z.enum(["department", "location", "legal_entity", "business_unit"]), ids: z.array(uuid).max(200) })).max(4);
+
+export async function saveMasterAction(kind: string, id: string | null, input: { name: string; parentId?: string | null; headId?: string | null; stateCode?: string | null }) {
+  if (!org.isMaster(kind)) return { ok: false as const, error: "Unknown list." };
+  const parsed = z.object({ name: z.string().max(200), parentId: uuid.nullable().optional(), headId: uuid.nullable().optional(), stateCode: z.string().max(5).nullable().optional() }).safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: "Check the fields." };
+  return runAction((tx, actor) => org.saveMaster(tx, actor, kind, id ? uuid.parse(id) : null, parsed.data));
+}
+
+export async function deleteMasterAction(kind: string, id: string) {
+  if (!org.isMaster(kind)) return { ok: false as const, error: "Unknown list." };
+  return runAction((tx, actor) => org.deleteMaster(tx, actor, kind, uuid.parse(id)));
+}
+
+export async function saveRoleAction(id: string | null, input: { name: string; permissions: string[] }) {
+  const parsed = z.object({ name: z.string().max(80), permissions: z.array(z.string().max(60)).max(100) }).safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: "Check the fields." };
+  return runAction((tx, actor) => roles.saveRole(tx, actor, id ? uuid.parse(id) : null, parsed.data));
+}
+
+export async function deleteRoleAction(id: string) {
+  return runAction((tx, actor) => roles.deleteRole(tx, actor, uuid.parse(id)));
+}
+
+export async function assignRoleAction(roleId: string, employeeId: string, scopes: unknown) {
+  const parsed = scopeSchema.safeParse(scopes);
+  if (!parsed.success) return { ok: false as const, error: "Check the scope." };
+  return runAction((tx, actor) => roles.assign(tx, actor, uuid.parse(roleId), uuid.parse(employeeId), parsed.data));
+}
+
+export async function unassignRoleAction(assignmentId: string) {
+  return runAction((tx, actor) => roles.unassign(tx, actor, uuid.parse(assignmentId)));
 }

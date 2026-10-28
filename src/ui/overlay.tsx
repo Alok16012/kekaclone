@@ -60,14 +60,17 @@ export function Drawer({ open, onOpenChange, title, description, children, foote
 }
 
 /** Confirmation for irreversible actions. Focus starts on Cancel, not on the destructive button. */
-export function ConfirmDialog({ trigger, title, description, confirmLabel, tone = "danger", onConfirm }: {
-  trigger: React.ReactNode; title: string; description: React.ReactNode; confirmLabel: string; tone?: "danger" | "primary"; onConfirm: () => void | Promise<void>;
+export function ConfirmDialog({ trigger, title, description, confirmLabel, tone = "danger", onConfirm, open: openProp, onOpenChange }: {
+  trigger?: React.ReactNode; title: string; description: React.ReactNode; confirmLabel: string; tone?: "danger" | "primary"; onConfirm: () => void | Promise<void>;
+  open?: boolean; onOpenChange?: (open: boolean) => void;
 }) {
   const [busy, setBusy] = React.useState(false);
-  const [open, setOpen] = React.useState(false);
+  const [openState, setOpenState] = React.useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (o: boolean) => { setOpenState(o); onOpenChange?.(o); };
   return (
     <AD.Root open={open} onOpenChange={setOpen}>
-      <AD.Trigger asChild>{trigger}</AD.Trigger>
+      {trigger && <AD.Trigger asChild>{trigger}</AD.Trigger>}
       <AD.Portal>
         <AD.Overlay className={overlay} />
         <AD.Content className="fixed left-1/2 top-1/2 z-60 w-[calc(100%-2rem)] max-w-(--size-modal-sm) -translate-x-1/2 -translate-y-1/2 rounded-lg bg-surface p-5 shadow-modal animate-pop-in">

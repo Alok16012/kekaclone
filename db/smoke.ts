@@ -13,6 +13,8 @@ import * as leave from "@/server/modules/leave/service";
 import * as approvals from "@/server/modules/approvals/service";
 import * as attendance from "@/server/modules/attendance/service";
 import * as profile from "@/server/modules/employees/profile";
+import * as roles from "@/server/modules/settings/roles";
+import * as org from "@/server/modules/settings/org";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 import { DEMO_PASSWORD, DEMO_SUBDOMAIN } from "./demo";
@@ -28,7 +30,7 @@ async function main() {
   const actor = (first: string) => withTenant(tenant.id, async (tx) => {
     const [e] = await tx<{ id: string; user_id: string; display_name: string; password_hash: string }[]>`
       select e.id, e.user_id, e.display_name, u.password_hash from employees e join users u on u.id = e.user_id where e.first_name = ${first}`;
-    return { e, a: { tenant, userId: e.user_id, employeeId: e.id, name: e.display_name, email: "", title: null, roles: [], permissions: new Set<string>() } as Actor };
+    return { e, a: { tenant, userId: e.user_id, employeeId: e.id, name: e.display_name, email: "", title: null, roles: [], permissions: new Set<string>(), grants: [] } as Actor };
   });
 
   const arjun = await actor("Arjun"), rohan = await actor("Rohan"), meera = await actor("Meera");
@@ -94,6 +96,7 @@ async function main() {
   // M1: job changes and profile edits (run in a rolled-back transaction so the demo data stays as seeded)
   const priya = await actor("Priya");
   priya.a.permissions = new Set(["employees.read", "employees.write", "approvals.override"]);
+  priya.a.grants = [{ permissions: [...priya.a.permissions], scopes: [] }];
   await withTenant(tenant.id, async (tx) => {
     await assert.rejects(profile.changeJob(tx, priya.a, rohan.a.employeeId, { kind: "manager_change", effectiveDate: todayIn(), changes: { manager_id: arjun.a.employeeId } }), /reporting loop/);
     await assert.rejects(profile.changeJob(tx, arjun.a, meera.a.employeeId, { kind: "manager_change", effectiveDate: todayIn(), changes: { manager_id: arjun.a.employeeId } }), /Only HR/);
@@ -118,6 +121,33 @@ async function main() {
   }).catch((e) => { if (e.message !== "rollback") throw e; });
   ok("job change: reporting loop refused, non-HR refused, future date scheduled, today applied");
   ok("profile: employee's contact edit goes to HR, 'about' saves directly, colleagues can't edit or see personal details");
+
+  // M1: scoped roles + company structure (rolled back)
+  const asha = await actor("Asha");
+  asha.a.permissions = new Set(["*"]); asha.a.grants = [{ permissions: ["*"], scopes: [] }];
+  await withTenant(tenant.id, async (tx) => {
+    const [eng] = await tx<{ id: string }[]>`select id from departments where name = 'Engineering'`;
+    const { id: roleId } = await roles.saveRole(tx, asha.a, null, { name: "Engineering HR", permissions: ["employees.write", "bogus.permission"] });
+    const [saved] = await tx<{ permissions: string[] }[]>`select permissions from roles where id = ${roleId}`;
+    assert.deepEqual(saved.permissions, ["employees.write"], "unknown permissions are dropped");
+    await roles.assign(tx, asha.a, roleId, meera.a.employeeId, [{ type: "department", ids: [eng.id] }]);
+    const meeraScoped = { ...meera.a, permissions: new Set(["employees.write"]), grants: [{ permissions: ["employees.write"], scopes: [{ type: "department" as const, ids: [eng.id] }] }] };
+    const karan = await actor("Karan");
+    assert.equal(await profile.accessTo(tx, meeraScoped, arjun.a.employeeId), "admin");
+    assert.notEqual(await profile.accessTo(tx, meeraScoped, karan.a.employeeId), "admin");
+    await assert.rejects(roles.saveRole(tx, meera.a, null, { name: "x", permissions: [] }), /access/);
+    const [ga] = await tx<{ id: string }[]>`select a.id from role_assignments a join roles r on r.id = a.role_id where r.key = 'global_admin'`;
+    await assert.rejects(roles.unassign(tx, asha.a, ga.id), /at least one Global admin/);
+    // company structure
+    await assert.rejects(org.deleteMaster(tx, asha.a, "departments", eng.id), /still assigned/);
+    // a failed statement aborts the transaction, so check the duplicate inside a savepoint
+    await assert.rejects(tx.savepoint((sp) => org.saveMaster(sp as typeof tx, asha.a, "departments", null, { name: "Engineering" })), /already exists/);
+    const { id: platform } = await org.saveMaster(tx, asha.a, "departments", null, { name: "Platform", parentId: eng.id });
+    await assert.rejects(org.saveMaster(tx, asha.a, "departments", eng.id, { name: "Engineering", parentId: platform }), /inside this department/);
+    throw new Error("rollback");
+  }).catch((e) => { if (e.message !== "rollback") throw e; });
+  ok("scoped role: Engineering HR can manage Engineering people only; unknown permissions dropped; last Global admin protected");
+  ok("company structure: in-use department can't be deleted, duplicate names refused, no parent loops");
 
   // tenant isolation: a second tenant sees nothing of Acme
   const otherId = randomUUID();

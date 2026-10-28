@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { sql, withTenant } from "@/server/db";
 import { newToken, sha256 } from "./password";
+import type { Scope } from "./catalog";
 
 const COOKIE = process.env.SESSION_COOKIE ?? "erp_session";
 const TTL_DAYS = 14;
@@ -18,6 +19,8 @@ export type Actor = {
   title: string | null;
   roles: string[];
   permissions: Set<string>;
+  /** each role assignment: its permissions and where they apply ([] = whole company) */
+  grants: { permissions: string[]; scopes: Scope[] }[];
 };
 
 export async function currentSubdomain() {
@@ -63,11 +66,12 @@ export const getActor = cache(async function getActor(): Promise<Actor | null> {
       left join designations d on d.id = e.designation_id
       where s.token_hash = ${sha256(token)} and s.expires_at > now()`;
     if (!row) return null;
-    const roles = await tx<{ key: string; permissions: string[] }[]>`
-      select r.key, r.permissions from role_assignments ra join roles r on r.id = ra.role_id where ra.employee_id = ${row.employee_id}`;
+    const roles = await tx<{ key: string; permissions: string[]; scopes: Scope[] }[]>`
+      select r.key, r.permissions, ra.scopes from role_assignments ra join roles r on r.id = ra.role_id where ra.employee_id = ${row.employee_id}`;
     return {
       tenant, userId: row.user_id, employeeId: row.employee_id, name: row.display_name, email: row.email, title: row.title,
       roles: roles.map((r) => r.key), permissions: new Set(roles.flatMap((r) => r.permissions)),
+      grants: roles.map((r) => ({ permissions: r.permissions, scopes: r.scopes ?? [] })),
     };
   });
 });

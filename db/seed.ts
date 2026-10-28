@@ -63,7 +63,7 @@ async function main() {
 
   const actorFor = async (first: string): Promise<Actor> => {
     const [u] = await withTenant(tenantId, (tx) => tx<{ user_id: string; display_name: string }[]>`select user_id, display_name from employees where id = ${ids[first]}`);
-    return { tenant: { id: tenantId, name: "Acme Technologies", status: "trial", subdomain: DEMO_SUBDOMAIN }, userId: u.user_id, employeeId: ids[first], name: u.display_name, email: "", title: null, roles: [], permissions: new Set() };
+    return { tenant: { id: tenantId, name: "Acme Technologies", status: "trial", subdomain: DEMO_SUBDOMAIN }, userId: u.user_id, employeeId: ids[first], name: u.display_name, email: "", title: null, roles: [], permissions: new Set(), grants: [] };
   };
   const nextWorking = (from: string) => { let d = from; while (["sat", "sun"].includes(weekday(d))) d = addDaysISO(d, 1); return d; };
   const casual = await withTenant(tenantId, (tx) => tx<{ id: string }[]>`select id from leave_types where code = 'CL'`).then((r) => r[0].id);

@@ -1,7 +1,7 @@
 import "server-only";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
-import { can } from "@/server/auth/permissions";
+import { canFor, type Placement } from "@/server/auth/permissions";
 import { todayIn } from "@/lib/dates";
 import { startApproval } from "@/server/modules/approvals/service";
 import { applyProfileChanges } from "./effects";
@@ -11,7 +11,8 @@ export type Access = "self" | "manager" | "admin" | "colleague";
 
 /** How the actor relates to the person: decides which fields they see and what they can change. */
 export async function accessTo(tx: Tx, actor: Actor, employeeId: string): Promise<Access> {
-  if (can(actor, "employees.write")) return "admin";
+  const [place] = await tx<Placement[]>`select department_id, location_id, legal_entity_id, business_unit_id from employees where id = ${employeeId}`;
+  if (place && canFor(actor, "employees.write", place)) return "admin";
   if (actor.employeeId === employeeId) return "self";
   const [m] = await tx<{ ok: boolean }[]>`select exists(select 1 from employees where id = ${employeeId} and (manager_id = ${actor.employeeId} or l2_manager_id = ${actor.employeeId})) as ok`;
   return m.ok ? "manager" : "colleague";
@@ -116,7 +117,7 @@ export type JobChangeInput = { kind: "transfer" | "promotion" | "manager_change"
 
 /** Transfer / promotion / manager change. Today or earlier → applied now; future → scheduled (applied by the daily job). */
 export async function changeJob(tx: Tx, actor: Actor, employeeId: string, input: JobChangeInput) {
-  if (!can(actor, "employees.write")) throw new AppError("forbidden", "Only HR can change job details.");
+  if ((await accessTo(tx, actor, employeeId)) !== "admin") throw new AppError("forbidden", "Only HR can change job details.");
   const changes = Object.fromEntries(Object.entries(input.changes).filter(([k]) => (JOB_FIELDS as readonly string[]).includes(k)));
   if (!Object.keys(changes).length) throw new AppError("invalid", "Change at least one field.");
   if (changes.manager_id === employeeId) throw new AppError("invalid", "Someone can't report to themselves.", "manager_id");
@@ -148,7 +149,8 @@ export async function applyJobChange(tx: Tx, jobChangeId: string, actorUserId: s
 }
 
 export async function cancelJobChange(tx: Tx, actor: Actor, id: string) {
-  if (!can(actor, "employees.write")) throw new AppError("forbidden", "Only HR can change job details.");
+  const [jc] = await tx<{ employee_id: string }[]>`select employee_id from job_changes where id = ${id}`;
+  if (!jc || (await accessTo(tx, actor, jc.employee_id)) !== "admin") throw new AppError("forbidden", "Only HR can change job details.");
   await tx`update job_changes set status = 'cancelled' where id = ${id} and status = 'scheduled'`;
 }
 
