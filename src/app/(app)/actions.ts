@@ -8,6 +8,8 @@ import * as attendance from "@/server/modules/attendance/service";
 import * as leave from "@/server/modules/leave/service";
 import * as approvals from "@/server/modules/approvals/service";
 import { createEmployee } from "@/server/modules/employees/service";
+import * as profile from "@/server/modules/employees/profile";
+import { isSection } from "@/server/modules/employees/fields";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.uuid();
@@ -80,4 +82,45 @@ export async function createEmployeeAction(input: z.input<typeof employeeInput>)
 
 export async function markNotificationsReadAction() {
   return runAction((tx, actor) => tx`update notifications set read_at = now() where user_id = ${actor.userId} and read_at is null`.then(() => undefined));
+}
+
+// ---------- M1: profile ----------
+
+export async function updateProfileSectionAction(employeeId: string, section: string, values: unknown) {
+  if (!isSection(section)) return { ok: false as const, error: "Unknown section." };
+  return runAction((tx, actor) => profile.updateSection(tx, actor, uuid.parse(employeeId), section, values));
+}
+
+const jobChangeInput = z.object({
+  kind: z.enum(["transfer", "promotion", "manager_change", "designation_change", "other"]),
+  effectiveDate: isoDate,
+  changes: z.partialRecord(z.enum(profile.JOB_FIELDS), z.string().nullable()),
+  note: z.string().max(500).optional(),
+});
+
+export async function changeJobAction(employeeId: string, input: z.input<typeof jobChangeInput>) {
+  const parsed = jobChangeInput.safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: "Check the fields and the effective date." };
+  return runAction((tx, actor) => profile.changeJob(tx, actor, uuid.parse(employeeId), parsed.data));
+}
+
+export async function cancelJobChangeAction(id: string) {
+  return runAction((tx, actor) => profile.cancelJobChange(tx, actor, uuid.parse(id)));
+}
+
+export async function setProbationAction(employeeId: string, input: { action: "confirm" | "extend" | "start"; date: string; note?: string }) {
+  const parsed = z.object({ action: z.enum(["confirm", "extend", "start"]), date: isoDate, note: z.string().max(500).optional() }).safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: "Pick a valid date." };
+  return runAction((tx, actor) => profile.setProbation(tx, actor, uuid.parse(employeeId), parsed.data));
+}
+
+export async function profileChangeDetailAction(requestId: string) {
+  const actor = await requireActor();
+  return withTenant(actor.tenant.id, async (tx) => {
+    const [r] = await tx<{ id: string; section: string; changes: Record<string, { old: unknown; new: unknown }>; status: string; employee_id: string }[]>`
+      select id, section, changes, status, employee_id from profile_change_requests where id = ${uuid.parse(requestId)}`;
+    if (!r) return null;
+    const steps = await approvals.timeline(tx, "profile_change", r.id);
+    return { ...r, steps: steps.map((s) => ({ ...s, acted_at: s.acted_at?.toISOString() ?? null })) };
+  });
 }

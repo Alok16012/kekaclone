@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { sql, withTenant, AppError } from "@/server/db";
+import { sql, withTenant } from "@/server/db";
 import { newToken, sha256 } from "./password";
 
 const COOKIE = process.env.SESSION_COOKIE ?? "erp_session";
@@ -78,10 +78,4 @@ export async function requireActor(): Promise<Actor> {
   return a;
 }
 
-export function can(actor: Actor, permission: string) {
-  return actor.permissions.has("*") || actor.permissions.has(permission);
-}
-
-export function assertCan(actor: Actor, permission: string) {
-  if (!can(actor, permission)) throw new AppError("forbidden", "You don't have access to do this.");
-}
+export { can, assertCan } from "./permissions";

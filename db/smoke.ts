@@ -12,6 +12,7 @@ import { verifyPassword } from "@/server/auth/password";
 import * as leave from "@/server/modules/leave/service";
 import * as approvals from "@/server/modules/approvals/service";
 import * as attendance from "@/server/modules/attendance/service";
+import * as profile from "@/server/modules/employees/profile";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 import { DEMO_PASSWORD, DEMO_SUBDOMAIN } from "./demo";
@@ -89,6 +90,34 @@ async function main() {
   await admin`delete from approval_requests where entity_id = ${req.id}`;
   await admin`delete from notifications where tenant_id = ${tenant.id} and body like ${"%smoke%"} or (tenant_id = ${tenant.id} and created_at > now() - interval '1 minute' and kind like 'request.%')`;
   await admin`delete from leave_requests where id = ${req.id}`;
+
+  // M1: job changes and profile edits (run in a rolled-back transaction so the demo data stays as seeded)
+  const priya = await actor("Priya");
+  priya.a.permissions = new Set(["employees.read", "employees.write", "approvals.override"]);
+  await withTenant(tenant.id, async (tx) => {
+    await assert.rejects(profile.changeJob(tx, priya.a, rohan.a.employeeId, { kind: "manager_change", effectiveDate: todayIn(), changes: { manager_id: arjun.a.employeeId } }), /reporting loop/);
+    await assert.rejects(profile.changeJob(tx, arjun.a, meera.a.employeeId, { kind: "manager_change", effectiveDate: todayIn(), changes: { manager_id: arjun.a.employeeId } }), /Only HR/);
+    const future = addDaysISO(todayIn(), 10);
+    const r1 = await profile.changeJob(tx, priya.a, meera.a.employeeId, { kind: "manager_change", effectiveDate: future, changes: { manager_id: arjun.a.employeeId } });
+    assert.equal(r1.scheduled, true);
+    const [m1] = await tx<{ manager_id: string }[]>`select manager_id from employees where id = ${meera.a.employeeId}`;
+    assert.equal(m1.manager_id, rohan.a.employeeId);
+    const r2 = await profile.changeJob(tx, priya.a, meera.a.employeeId, { kind: "manager_change", effectiveDate: todayIn(), changes: { manager_id: arjun.a.employeeId } });
+    assert.equal(r2.scheduled, false);
+    const [m2] = await tx<{ manager_id: string }[]>`select manager_id from employees where id = ${meera.a.employeeId}`;
+    assert.equal(m2.manager_id, arjun.a.employeeId);
+    // employee edits contact details → goes to HR; 'about' applies directly
+    const c = await profile.updateSection(tx, arjun.a, arjun.a.employeeId, "contact", { mobile: "+91 98765 43210" });
+    assert.equal(c.applied, false);
+    const ab = await profile.updateSection(tx, arjun.a, arjun.a.employeeId, "about", { bio: { summary: "Builds the payroll engine" } });
+    assert.equal(ab.applied, true);
+    await assert.rejects(profile.updateSection(tx, meera.a, arjun.a.employeeId, "about", { bio: { summary: "x" } }), /can't edit/);
+    const seen = await profile.getProfile(tx, meera.a, rohan.a.employeeId);
+    assert.equal(seen?.employee.personal, undefined, "colleague doesn't see personal details");
+    throw new Error("rollback");
+  }).catch((e) => { if (e.message !== "rollback") throw e; });
+  ok("job change: reporting loop refused, non-HR refused, future date scheduled, today applied");
+  ok("profile: employee's contact edit goes to HR, 'about' saves directly, colleagues can't edit or see personal details");
 
   // tenant isolation: a second tenant sees nothing of Acme
   const otherId = randomUUID();

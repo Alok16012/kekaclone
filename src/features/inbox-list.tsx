@@ -10,15 +10,20 @@ import { Field, Textarea } from "@/ui/field";
 import { EmptyState, Skeleton } from "@/ui/feedback";
 import { ApprovalTimeline } from "@/ui/flow";
 import { toast } from "@/ui/toast";
-import { decideAction, leaveRequestDetailAction } from "@/app/(app)/actions";
+import { decideAction, leaveRequestDetailAction, profileChangeDetailAction } from "@/app/(app)/actions";
+import { FIELD_LABELS } from "@/server/modules/employees/fields";
 
 export type InboxRow = { stepId: string; entityType: string; entityId: string; summary: string; requester: string; requesterTitle: string | null; createdAt: string; ago: string };
 type Detail = Awaited<ReturnType<typeof leaveRequestDetailAction>>;
+type ChangeDetail = Awaited<ReturnType<typeof profileChangeDetailAction>>;
+const KIND: Record<string, string> = { leave: "Leave", attendance_request: "Attendance", profile_change: "Profile change" };
+const show = (v: unknown): string => v == null || v === "" ? "—" : typeof v === "object" ? Object.values(v as Record<string, unknown>).map(show).filter((x) => x !== "—").join(", ") || "—" : String(v);
 
 export function InboxList({ items }: { items: InboxRow[] }) {
   const [hidden, setHidden] = React.useState<Set<string>>(new Set());
   const [open, setOpen] = React.useState<InboxRow | null>(null);
   const [detail, setDetail] = React.useState<Detail>(null);
+  const [change, setChange] = React.useState<ChangeDetail>(null);
   const [comment, setComment] = React.useState("");
   const [busy, start] = React.useTransition();
   const visible = items.filter((i) => !hidden.has(i.stepId));
@@ -35,8 +40,9 @@ export function InboxList({ items }: { items: InboxRow[] }) {
   };
 
   const openRow = (row: InboxRow) => {
-    setOpen(row); setDetail(null); setComment("");
+    setOpen(row); setDetail(null); setChange(null); setComment("");
     if (row.entityType === "leave") leaveRequestDetailAction(row.entityId).then(setDetail);
+    if (row.entityType === "profile_change") profileChangeDetailAction(row.entityId).then(setChange);
   };
 
   if (visible.length === 0) {
@@ -51,7 +57,7 @@ export function InboxList({ items }: { items: InboxRow[] }) {
               <button type="button" onClick={() => openRow(row)} className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-offset-4">
                 <Avatar name={row.requester} />
                 <span className="min-w-0">
-                  <span className="flex flex-wrap items-center gap-2"><span className="text-base font-medium">{row.requester}</span><Badge tone="accent">{row.entityType === "leave" ? "Leave" : "Attendance"}</Badge></span>
+                  <span className="flex flex-wrap items-center gap-2"><span className="text-base font-medium">{row.requester}</span><Badge tone="accent">{KIND[row.entityType] ?? row.entityType}</Badge></span>
                   <span className="block truncate text-sm text-text-muted">{row.summary.split(" · ").slice(1).join(" · ")} · {row.ago}</span>
                 </span>
               </button>
@@ -65,7 +71,22 @@ export function InboxList({ items }: { items: InboxRow[] }) {
       </Card>
       <Drawer open={!!open} onOpenChange={(o) => !o && setOpen(null)} title={open?.requester ?? ""} description={open?.summary.split(" · ").slice(1).join(" · ")}
         footer={open && <><Button variant="danger" onClick={() => decide(open, "rejected")}>Decline</Button><Button onClick={() => decide(open, "approved")}>Approve</Button></>}>
-        {!detail ? (
+        {open?.entityType === "profile_change" ? (
+          !change ? <div className="flex flex-col gap-3"><Skeleton className="h-5 w-1/2" /><Skeleton className="h-24" /></div> : (
+            <div className="flex flex-col gap-5">
+              <table className="w-full text-base">
+                <caption className="sr-only">Requested changes</caption>
+                <thead><tr className="border-b border-border text-left text-sm text-text-muted"><th className="py-2 font-medium">Field</th><th className="py-2 font-medium">Now</th><th className="py-2 font-medium">Requested</th></tr></thead>
+                <tbody>{Object.entries(change.changes).map(([k, v]) => (
+                  <tr key={k} className="border-b border-border last:border-0"><td className="py-2 pr-3 text-text-muted">{FIELD_LABELS[k] ?? k}</td><td className="py-2 pr-3">{show(v.old)}</td><td className="py-2 font-medium">{show(v.new)}</td></tr>
+                ))}</tbody>
+              </table>
+              <Field label="Comment" help="Shared with the requester"><Textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} /></Field>
+            </div>
+          )
+        ) : open?.entityType !== "leave" ? (
+          <p className="text-base text-text-muted">{open?.summary}</p>
+        ) : !detail ? (
           <div className="flex flex-col gap-3"><Skeleton className="h-5 w-1/2" /><Skeleton className="h-20" /><Skeleton className="h-24" /></div>
         ) : (
           <div className="flex flex-col gap-5">

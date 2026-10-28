@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
-import { ComingSoon } from "@/features/coming-soon";
+import { redirect } from "next/navigation";
+import { requireActor } from "@/server/auth/session";
 
-export const metadata: Metadata = { title: "Me" };
-
-export default function Page() {
-  return <ComingSoon title="Me" description="Your profile, documents and everything about you." milestone="M1" />;
+/** /me is a shortcut to your own profile. */
+export default async function MePage() {
+  const actor = await requireActor();
+  redirect(`/people/${actor.employeeId}`);
 }
