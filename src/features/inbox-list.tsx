@@ -1,0 +1,90 @@
+"use client";
+import * as React from "react";
+import { Check, Inbox as InboxIcon, X } from "lucide-react";
+import { Card } from "@/ui/card";
+import { Avatar } from "@/ui/avatar";
+import { Button } from "@/ui/button";
+import { Badge, StatusChip } from "@/ui/badge";
+import { Drawer } from "@/ui/overlay";
+import { Field, Textarea } from "@/ui/field";
+import { EmptyState, Skeleton } from "@/ui/feedback";
+import { ApprovalTimeline } from "@/ui/flow";
+import { toast } from "@/ui/toast";
+import { decideAction, leaveRequestDetailAction } from "@/app/(app)/actions";
+
+export type InboxRow = { stepId: string; entityType: string; entityId: string; summary: string; requester: string; requesterTitle: string | null; createdAt: string; ago: string };
+type Detail = Awaited<ReturnType<typeof leaveRequestDetailAction>>;
+
+export function InboxList({ items }: { items: InboxRow[] }) {
+  const [hidden, setHidden] = React.useState<Set<string>>(new Set());
+  const [open, setOpen] = React.useState<InboxRow | null>(null);
+  const [detail, setDetail] = React.useState<Detail>(null);
+  const [comment, setComment] = React.useState("");
+  const [busy, start] = React.useTransition();
+  const visible = items.filter((i) => !hidden.has(i.stepId));
+
+  const decide = (row: InboxRow, decision: "approved" | "rejected") => {
+    setHidden((h) => new Set(h).add(row.stepId));   // optimistic: the row leaves the list now
+    if (open?.stepId === row.stepId) setOpen(null);
+    start(async () => {
+      const r = await decideAction(row.stepId, decision, comment || undefined);
+      setComment("");
+      if (r.ok) toast.success(decision === "approved" ? "Approved" : "Declined", { description: row.summary });
+      else { toast.error(r.error); setHidden((h) => { const n = new Set(h); n.delete(row.stepId); return n; }); }
+    });
+  };
+
+  const openRow = (row: InboxRow) => {
+    setOpen(row); setDetail(null); setComment("");
+    if (row.entityType === "leave") leaveRequestDetailAction(row.entityId).then(setDetail);
+  };
+
+  if (visible.length === 0) {
+    return <Card><EmptyState icon={<InboxIcon />} title="You're all caught up" description="Requests from your team that need your approval show up here." /></Card>;
+  }
+  return (
+    <>
+      <Card>
+        <ul className="divide-y divide-border">
+          {visible.map((row) => (
+            <li key={row.stepId} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+              <button type="button" onClick={() => openRow(row)} className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-offset-4">
+                <Avatar name={row.requester} />
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-2"><span className="text-base font-medium">{row.requester}</span><Badge tone="accent">{row.entityType === "leave" ? "Leave" : "Attendance"}</Badge></span>
+                  <span className="block truncate text-sm text-text-muted">{row.summary.split(" · ").slice(1).join(" · ")} · {row.ago}</span>
+                </span>
+              </button>
+              <div className="flex shrink-0 gap-2 sm:ml-auto">
+                <Button variant="secondary" size="sm" onClick={() => decide(row, "rejected")} disabled={busy} aria-label={`Decline: ${row.summary}`}><X />Decline</Button>
+                <Button size="sm" onClick={() => decide(row, "approved")} disabled={busy} aria-label={`Approve: ${row.summary}`}><Check />Approve</Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <Drawer open={!!open} onOpenChange={(o) => !o && setOpen(null)} title={open?.requester ?? ""} description={open?.summary.split(" · ").slice(1).join(" · ")}
+        footer={open && <><Button variant="danger" onClick={() => decide(open, "rejected")}>Decline</Button><Button onClick={() => decide(open, "approved")}>Approve</Button></>}>
+        {!detail ? (
+          <div className="flex flex-col gap-3"><Skeleton className="h-5 w-1/2" /><Skeleton className="h-20" /><Skeleton className="h-24" /></div>
+        ) : (
+          <div className="flex flex-col gap-5">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-base">
+              <div><dt className="text-sm text-text-muted">Leave type</dt><dd className="font-medium">{detail.request.type}</dd></div>
+              <div><dt className="text-sm text-text-muted">Days</dt><dd className="font-medium tabular">{Number(detail.request.days)}</dd></div>
+              <div><dt className="text-sm text-text-muted">Dates</dt><dd className="font-medium">{detail.request.from_date === detail.request.to_date ? detail.request.from_date : `${detail.request.from_date} → ${detail.request.to_date}`}</dd></div>
+              <div><dt className="text-sm text-text-muted">Balance after approval</dt><dd className="font-medium tabular">{detail.balance?.available == null ? "No limit" : detail.balance.available}</dd></div>
+              <div className="col-span-2"><dt className="text-sm text-text-muted">Status</dt><dd className="mt-1"><StatusChip status={detail.request.status} /></dd></div>
+              {detail.request.note && <div className="col-span-2"><dt className="text-sm text-text-muted">Note</dt><dd className="mt-1 rounded-md bg-surface-sunken px-3 py-2">{detail.request.note}</dd></div>}
+            </dl>
+            <div>
+              <h3 className="mb-3 text-sm font-semibold">Approvals</h3>
+              <ApprovalTimeline levels={detail.steps.map((s) => ({ level: s.level, approver: s.approver, role: s.title ?? undefined, status: s.status === "skipped" ? "waiting" : s.status, comment: s.comment ?? undefined, at: s.acted_at ? new Date(s.acted_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : undefined }))} />
+            </div>
+            <Field label="Comment" help="Shared with the requester"><Textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} /></Field>
+          </div>
+        )}
+      </Drawer>
+    </>
+  );
+}
