@@ -24,12 +24,13 @@ export async function calendarFor(tx: Tx, employeeId: string): Promise<Calendar>
   return { holidays: new Set(holidays.map((h) => h.date)), weeklyOff: wo?.pattern ?? { sat: "off", sun: "off" } };
 }
 
+/** credited = grants and adjustments; used = leave taken net of cancellations (+ penalties); available = credited − used − pending. */
 export async function balances(tx: Tx, employeeId: string, asOf: ISODate = todayIn()): Promise<LeaveTypeBalance[]> {
   const cycle = await cycleStartFor(tx, employeeId, asOf);
   const rows = await tx<{ id: string; name: string; code: string; color: string; kind: string; quota: string | null; application: ApplicationRules; credited: string; used: string; pending: string }[]>`
     select t.id, t.name, t.code, t.color, t.kind, r.yearly_quota as quota, r.application,
-      coalesce((select sum(amount) from leave_ledger l where l.employee_id = ${employeeId} and l.leave_type_id = t.id and l.cycle_start = ${cycle} and l.amount > 0), 0) as credited,
-      coalesce((select -sum(amount) from leave_ledger l where l.employee_id = ${employeeId} and l.leave_type_id = t.id and l.cycle_start = ${cycle} and l.amount < 0), 0) as used,
+      coalesce((select sum(amount) from leave_ledger l where l.employee_id = ${employeeId} and l.leave_type_id = t.id and l.cycle_start = ${cycle} and l.kind not in ('use','use_reversal','penalty')), 0) as credited,
+      coalesce((select -sum(amount) from leave_ledger l where l.employee_id = ${employeeId} and l.leave_type_id = t.id and l.cycle_start = ${cycle} and l.kind in ('use','use_reversal','penalty')), 0) as used,
       coalesce((select sum(days) from leave_requests q where q.employee_id = ${employeeId} and q.leave_type_id = t.id and q.status = 'pending'), 0) as pending
     from employees e join leave_plan_rules r on r.leave_plan_id = e.leave_plan_id join leave_types t on t.id = r.leave_type_id
     where e.id = ${employeeId} order by t.kind = 'unpaid', t.name`;

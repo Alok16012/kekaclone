@@ -15,6 +15,7 @@ export function proxy(req: NextRequest) {
 
   const path = req.nextUrl.pathname;
   if (sub && path === "/") return NextResponse.redirect(new URL("/home", req.url));
+  if (sub && path === "/signup") return NextResponse.redirect(new URL("/login", req.url));   // sign-up lives on the apex only
   // optimistic gate: no session cookie on a tenant's app page → straight to sign-in (the page still verifies the session)
   const isPublic = path === "/login" || path.startsWith("/auth/") || path.startsWith("/api/") || path.startsWith("/_next");
   if (sub && !isPublic && !req.cookies.has(process.env.SESSION_COOKIE ?? "erp_session")) {

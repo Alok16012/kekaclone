@@ -85,10 +85,17 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-export function AppShell({ children, nav = DEFAULT_NAV, tenant = "Acme Pvt Ltd", user = { name: "Asha Verma", title: "HR Manager" }, unread = 0, inboxCount = 0, logout }: {
-  children: React.ReactNode; nav?: NavGroup[]; tenant?: string; user?: { name: string; title: string };
-  unread?: number; inboxCount?: number; logout?: () => Promise<void>;
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs"]);
+
+/** Nav is built here (icons are components and can't cross the server→client boundary); the server sends flags and counts. */
+export function AppShell({ children, isAdmin = true, tenant = "Acme Pvt Ltd", user = { name: "Asha Verma", title: "HR Manager" }, unread = 0, inboxCount = 0, logout }: {
+  children: React.ReactNode; isAdmin?: boolean; tenant?: string; user?: { name: string; title: string };
+  unread?: number; inboxCount?: number; logout?: () => Promise<{ redirectTo: string }>;
 }) {
+  const nav: NavGroup[] = DEFAULT_NAV.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => isAdmin || !ADMIN_ONLY.has(i.href)).map((i) => (i.href === "/inbox" ? { ...i, badge: inboxCount || undefined } : i)),
+  }));
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   return (
@@ -135,7 +142,7 @@ export function AppShell({ children, nav = DEFAULT_NAV, tenant = "Acme Pvt Ltd",
                 <Avatar name={user.name} size="sm" />
                 <span className="hidden text-left leading-tight md:block"><span className="block text-sm font-medium">{user.name}</span><span className="block text-xs text-text-muted">{user.title}</span></span>
               </button>
-            } items={[{ label: "My profile", icon: <User /> }, { label: "Settings", icon: <Settings /> }, "separator", { label: "Sign out", danger: true, onSelect: () => { void logout?.(); } }]} />
+            } items={[{ label: "My profile", icon: <User /> }, { label: "Settings", icon: <Settings /> }, "separator", { label: "Sign out", danger: true, onSelect: () => { void logout?.().then((r) => window.location.assign(r.redirectTo)); } }]} />
           </div>
         </header>
 

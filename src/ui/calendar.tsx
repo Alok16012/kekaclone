@@ -31,6 +31,7 @@ export function Calendar({ range, onRangeChange, marks = {}, disabled, month: m0
 
   const pick = (d: Date) => {
     if (disabled?.(d)) return;
+    setMonth((m) => m ?? month);   // pin the visible month so picking a spill-over day doesn't jump the grid
     if (!range.from || range.to || isBefore(d, range.from)) onRangeChange({ from: d, to: null });
     else onRangeChange({ from: range.from, to: d });
   };

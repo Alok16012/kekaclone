@@ -53,7 +53,7 @@ async function main() {
   const casual = await withTenant(tenant.id, (tx) => tx<{ id: string }[]>`select id from leave_types where code = 'CL'`).then((r) => r[0].id);
   const bal = (who: typeof arjun) => withTenant(tenant.id, (tx) => leave.balances(tx, who.a.employeeId)).then((b) => b.find((x) => x.id === casual)!);
   const b0 = await bal(arjun);
-  const req = await withTenant(tenant.id, (tx) => leave.apply(tx, arjun.a, { leaveTypeId: casual, from: d, to: d, fromPart: "full", toPart: "full", note: "smoke test" }));
+  const req = await withTenant(tenant.id, (tx) => leave.apply(tx, arjun.a, { leaveTypeId: casual, from: d, to: d, fromPart: "full", toPart: "full", note: "smoke" }));
   assert.equal(req.status, "pending");
   const b1 = await bal(arjun);
   assert.equal(b1.available, b0.available - 1); assert.equal(b1.pending, b0.pending + 1);
@@ -82,8 +82,13 @@ async function main() {
 
   await withTenant(tenant.id, (tx) => leave.cancel(tx, arjun.a, req.id));
   const b3 = await bal(arjun);
-  assert.equal(b3.available, b0.available);
+  assert.equal(b3.available, b0.available); assert.equal(b3.credited, b0.credited); assert.equal(b3.used, b0.used);
   ok("Arjun cancels the approved future leave → days return to the balance");
+  // leave the demo data as we found it (owner connection; the app role can't delete ledger rows)
+  await admin`delete from leave_ledger where ref_id = ${req.id}`;
+  await admin`delete from approval_requests where entity_id = ${req.id}`;
+  await admin`delete from notifications where tenant_id = ${tenant.id} and body like ${"%smoke%"} or (tenant_id = ${tenant.id} and created_at > now() - interval '1 minute' and kind like 'request.%')`;
+  await admin`delete from leave_requests where id = ${req.id}`;
 
   // tenant isolation: a second tenant sees nothing of Acme
   const otherId = randomUUID();

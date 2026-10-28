@@ -7,7 +7,11 @@ import { createSession, currentSubdomain, destroySession, resolveTenant } from "
 import { provisionTenant } from "@/server/modules/tenants/provision";
 import { createHandoff, passwordLogin } from "@/server/modules/auth/service";
 
-export type FormState = { error?: string; fields?: Record<string, string>; values?: Record<string, string> };
+/**
+ * Auth actions return `redirectTo` instead of calling redirect(): a redirect inside a server action is rendered
+ * by Next internally without the tenant subdomain, so the browser does a full navigation on the right host instead.
+ */
+export type FormState = { error?: string; fields?: Record<string, string>; values?: Record<string, string>; redirectTo?: string };
 
 const signupSchema = z.object({
   company: z.string().trim().min(2, "Enter your company name").max(120),
@@ -63,10 +67,10 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
     return { error: "We couldn't sign you in. Please try again.", values };
   }
   const next = String(form.get("next") ?? "");
-  redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/home");
+  return { redirectTo: next.startsWith("/") && !next.startsWith("//") ? next : "/home" };
 }
 
 export async function logoutAction() {
   await destroySession();
-  redirect("/login");
+  return { redirectTo: "/login" };
 }

@@ -12,7 +12,7 @@ import { cancelLeaveAction } from "@/app/(app)/actions";
 export type RequestRow = { id: string; type: string; color: string; range: string; days: number; part: string | null; status: "pending" | "approved" | "rejected" | "cancelled"; note: string | null; cancellable: boolean };
 
 export function LeaveRequests({ rows }: { rows: RequestRow[] }) {
-  const upcoming = rows.filter((r) => r.status === "pending" || r.cancellable);
+  const upcoming = rows.filter((r) => r.status === "pending" || r.cancellable).reverse();   // rows arrive newest first; upcoming reads soonest first
   const past = rows.filter((r) => !upcoming.includes(r));
   const list = (items: RequestRow[]) => (
     <ul className="divide-y divide-border">
