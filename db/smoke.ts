@@ -21,6 +21,7 @@ import { invite, requestReset, setPasswordWithToken, tokenInfo } from "@/server/
 import { deliverQueued } from "@/server/email";
 import { createEmployee } from "@/server/modules/employees/service";
 import { orgDashboard } from "@/server/modules/org/dashboard";
+import * as notes from "@/server/modules/notifications/service";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 import { DEMO_PASSWORD, DEMO_SUBDOMAIN } from "./demo";
@@ -251,6 +252,31 @@ async function main() {
     await assert.rejects(orgDashboard(tx, arjun.a), /for HR and admins/);
   });
   ok("dashboard: admins see the company, scoped HR only their departments, employees can't open it");
+
+  // M1: notifications (rolled back)
+  await withTenant(tenant.id, async (tx) => {
+    let d = addDaysISO(todayIn(), 40); while (["sat", "sun"].includes(weekday(d))) d = addDaysISO(d, 1);
+    const before = await notes.unreadCount(tx, meera.a);
+    await leave.apply(tx, arjun.a, { leaveTypeId: casual, from: d, to: d, fromPart: "full", toPart: "full", notify: [meera.a.employeeId, arjun.a.employeeId] });
+    const list = await notes.listNotifications(tx, meera.a);
+    assert.equal(list.items[0].kind, "leave.fyi"); assert.match(list.items[0].title, /Arjun Rao will be on leave/);
+    assert.equal(await notes.unreadCount(tx, meera.a), before + 1);
+    const [{ self }] = await tx<{ self: number }[]>`select count(*)::int as self from notifications where user_id = ${arjun.a.userId} and kind = 'leave.fyi'`;
+    assert.equal(self, 0, "requester isn't notified about their own leave");
+    // someone else can't mark Meera's notification read
+    await notes.markRead(tx, arjun.a, [list.items[0].id]);
+    assert.equal(await notes.unreadCount(tx, meera.a), before + 1);
+    assert.equal(await notes.markRead(tx, meera.a, [list.items[0].id]), before);
+    assert.equal(await notes.markRead(tx, meera.a, null), 0);
+    // paging
+    for (let i = 0; i < 35; i++) await tx`insert into notifications (tenant_id, user_id, kind, title, created_at) values (${tenant.id}, ${meera.a.userId}, 'test', ${"n" + i}, now() - make_interval(secs => ${i + 10}))`;
+    const p1 = await notes.listNotifications(tx, meera.a);
+    assert.equal(p1.items.length, 30); assert.equal(p1.hasMore, true);
+    const p2 = await notes.listNotifications(tx, meera.a, p1.items[29].created_at);
+    assert.ok(p2.items.length > 0 && p2.items.every((x) => x.created_at < p1.items[29].created_at));
+    throw new Error("rollback");
+  }).catch((e) => { if (e.message !== "rollback") throw e; });
+  ok("notifications: leave FYI reaches chosen colleagues (not the requester), only the owner can mark read, paging works");
 
   // tenant isolation: a second tenant sees nothing of Acme
   const otherId = randomUUID();

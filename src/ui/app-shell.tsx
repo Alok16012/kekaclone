@@ -108,8 +108,10 @@ function useShell(data: Promise<ShellData | null> | ShellData | null | undefined
  * `data` may be a promise: everything user-specific streams in behind small Suspense boundaries,
  * while the page content renders straight away.
  */
-export function AppShell({ children, data, logout }: {
+export function AppShell({ children, data, logout, bell }: {
   children: React.ReactNode; data?: Promise<ShellData | null> | ShellData | null; logout?: () => Promise<{ redirectTo: string }>;
+  /** notifications control supplied by the app (the design system doesn't know about server actions) */
+  bell?: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
@@ -149,7 +151,7 @@ export function AppShell({ children, data, logout }: {
           </button>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
-            <React.Suspense fallback={<IconButton label="Notifications"><Bell /></IconButton>}><NotificationsButton data={data} /></React.Suspense>
+            <React.Suspense fallback={<IconButton label="Notifications"><Bell /></IconButton>}>{bell ?? <NotificationsButton data={data} />}</React.Suspense>
             <React.Suspense fallback={<span className="ml-1 size-8 rounded-pill bg-surface-hover" aria-hidden />}><AccountMenu data={data} logout={logout} /></React.Suspense>
           </div>
         </header>

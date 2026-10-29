@@ -14,6 +14,7 @@ import * as org from "@/server/modules/settings/org";
 import * as roles from "@/server/modules/settings/roles";
 import { commitImport, previewImport } from "@/server/modules/employees/import";
 import { invite } from "@/server/modules/auth/flows";
+import * as notifications from "@/server/modules/notifications/service";
 import { setMfaMode, setMyMfa } from "@/server/modules/settings/security";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -87,8 +88,21 @@ export async function createEmployeeAction(input: z.input<typeof employeeInput>)
   });
 }
 
-export async function markNotificationsReadAction() {
-  return runAction((tx, actor) => tx`update notifications set read_at = now() where user_id = ${actor.userId} and read_at is null`.then(() => undefined));
+// ---------- notifications ----------
+export async function listNotificationsAction(before?: string) {
+  const b = before && !isNaN(Date.parse(before)) ? before : undefined;
+  return runAction((tx, actor) => notifications.listNotifications(tx, actor, b), { refresh: false });
+}
+
+export async function unreadCountAction() {
+  return runAction((tx, actor) => notifications.unreadCount(tx, actor), { refresh: false });
+}
+
+/** ids = null marks everything read. */
+export async function markNotificationsReadAction(ids: string[] | null) {
+  const parsed = ids === null ? { success: true as const, data: null } : z.array(uuid).max(200).safeParse(ids);
+  if (!parsed.success) return { ok: false as const, error: "Invalid notifications." };
+  return runAction((tx, actor) => notifications.markRead(tx, actor, parsed.data), { refresh: false });
 }
 
 // ---------- M1: profile ----------

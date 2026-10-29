@@ -4,6 +4,7 @@ import { getActor } from "@/server/auth/session";
 import { withTenant } from "@/server/db";
 import { AppShell, ShellSkeleton, type ShellData } from "@/ui/app-shell";
 import { logoutAction } from "../(auth)/actions";
+import { NotificationsBell } from "@/features/notifications-bell";
 
 // Entering the signed-in app may wait for the session (it can't be part of a static shell);
 // moving between pages underneath keeps the shell and streams page content behind loading.tsx.
@@ -31,7 +32,8 @@ async function shellData(): Promise<ShellData | null> {
  * the session read, so navigation between pages stays instant. (Sync component: it starts the read, doesn't await it.)
  */
 function Shell({ children }: { children: React.ReactNode }) {
-  return <AppShell data={shellData()} logout={logoutAction}>{children}</AppShell>;
+  const data = shellData();
+  return <AppShell data={data} logout={logoutAction} bell={<NotificationsBell data={data} />}>{children}</AppShell>;
 }
 
 export default function AppLayout({ children }: LayoutProps<"/">) {

@@ -4,7 +4,7 @@ import type { Actor } from "@/server/auth/session";
 import { todayIn, type ISODate } from "@/lib/dates";
 import { countLeaveDays, validateRequest, type ApplicationRules, type Calendar, type DayPart, type WeeklyOffPattern } from "./rules";
 import { cycleStartFor, onLeaveDecided } from "./effects";
-import { cancelApproval, startApproval } from "@/server/modules/approvals/service";
+import { cancelApproval, notifyEmployee, startApproval } from "@/server/modules/approvals/service";
 
 export type LeaveTypeBalance = {
   id: string; name: string; code: string; color: string; kind: string; quota: number | null;
@@ -75,6 +75,11 @@ export async function apply(tx: Tx, actor: Actor, input: LeaveInput, onBehalfOf?
   const [who] = await tx<{ display_name: string }[]>`select display_name from employees where id = ${employeeId}`;
   const summary = `${who.display_name} · ${p.type.name} · ${fmtRange(input.from, input.to)} · ${p.days} ${p.days === 1 ? "day" : "days"}`;
   const { status } = await startApproval(tx, { tenantId: actor.tenant.id, entityType: "leave", entityId: id, requesterId: employeeId, summary });
+  // people the requester chose to keep in the loop (FYI, not approvers)
+  for (const other of new Set(input.notify ?? [])) {
+    if (other === employeeId) continue;
+    await notifyEmployee(tx, actor.tenant.id, other, "leave.fyi", `${who.display_name} will be on leave`, `${p.type.name} · ${fmtRange(input.from, input.to)} · ${p.days} ${p.days === 1 ? "day" : "days"}`, "/home");
+  }
   if (status === "approved") await onLeaveDecided(tx, actor, id, "approved");
   return { id, status, days: p.days };
 }
