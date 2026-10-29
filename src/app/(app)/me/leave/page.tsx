@@ -14,7 +14,8 @@ const part = (r: { from_date: string; to_date: string; from_half: string; to_hal
   r.from_date === r.to_date ? (r.from_half === "second" ? "Second half" : r.to_half === "first" ? "First half" : null)
   : [r.from_half === "second" ? "from 2nd half" : null, r.to_half === "first" ? "till 1st half" : null].filter(Boolean).join(", ") || null;
 
-export default async function LeavePage() {
+export default async function LeavePage(props: PageProps<"/me/leave">) {
+  const apply = (await props.searchParams).apply === "1";
   const d = await load(async (tx, actor) => {
     const [bal, reqs, marks, opts] = await Promise.all([leave.balances(tx, actor.employeeId), leave.myRequests(tx, actor.employeeId), leaveMarks(tx, actor.employeeId), orgOptions(tx)]);
     return { bal, reqs, marks, people: opts.people.filter((p) => p.id !== actor.employeeId) };
@@ -27,7 +28,7 @@ export default async function LeavePage() {
   const types = d.bal.map((b) => ({ id: b.id, name: b.name, available: Number.isFinite(b.available) ? b.available : null, allowHalfDay: !!b.rules.allowHalfDay }));
   return (
     <>
-      <PageHeader title="Leave" description="Your balances, requests and approvals." actions={<ApplyLeave types={types} marks={d.marks} people={d.people} />} />
+      <PageHeader title="Leave" description="Your balances, requests and approvals." actions={<ApplyLeave types={types} marks={d.marks} people={d.people} defaultOpen={apply} />} />
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {d.bal.map((b) => (
           <Card key={b.id} className="p-4">

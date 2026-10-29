@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Modal } from "@/ui/overlay";
@@ -19,8 +20,9 @@ type Preview = { days: number; violations: { code: string; message: string; bloc
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const fmtDays = (n: number) => `${Number.isInteger(n) ? n : n.toFixed(1)} ${n === 1 ? "day" : "days"}`;
 
-export function ApplyLeave({ types, marks, people, trigger }: { types: LeaveTypeOption[]; marks: Record<string, DayMark>; people: Person[]; trigger?: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false);
+export function ApplyLeave({ types, marks, people, trigger, defaultOpen = false }: { types: LeaveTypeOption[]; marks: Record<string, DayMark>; people: Person[]; trigger?: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const router = useRouter();
   const [typeId, setTypeId] = React.useState<string | undefined>(types[0]?.id);
   const [range, setRange] = React.useState<Range>({ from: null, to: null });
   const [single, setSingle] = React.useState<"full" | "first" | "second">("full");
@@ -62,7 +64,7 @@ export function ApplyLeave({ types, marks, people, trigger }: { types: LeaveType
   });
 
   return (
-    <Modal open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }} size="lg" title="Apply for leave"
+    <Modal open={open} onOpenChange={(o) => { setOpen(o); if (!o) { reset(); if (defaultOpen) router.replace("/me/leave", { scroll: false }); } }} size="lg" title="Apply for leave"
       description={type ? (type.available == null ? `${type.name} · no limit` : `${type.name} · ${fmtDays(type.available)} available`) : undefined}
       trigger={trigger ?? <Button><CalendarPlus />Apply leave</Button>}
       footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={submit} disabled={!canSubmit} loading={submitting}>Request {preview && from ? fmtDays(preview.days) : "leave"}</Button></>}>

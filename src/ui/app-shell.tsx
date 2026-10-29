@@ -108,10 +108,11 @@ function useShell(data: Promise<ShellData | null> | ShellData | null | undefined
  * `data` may be a promise: everything user-specific streams in behind small Suspense boundaries,
  * while the page content renders straight away.
  */
-export function AppShell({ children, data, logout, bell }: {
+export function AppShell({ children, data, logout, bell, search }: {
   children: React.ReactNode; data?: Promise<ShellData | null> | ShellData | null; logout?: () => Promise<{ redirectTo: string }>;
-  /** notifications control supplied by the app (the design system doesn't know about server actions) */
+  /** notifications control and search supplied by the app (the design system doesn't know about server actions) */
   bell?: React.ReactNode;
+  search?: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
@@ -144,11 +145,7 @@ export function AppShell({ children, data, logout, bell }: {
       <div className={cn("transition-[padding] duration-base", collapsed ? "lg:pl-(--size-sidebar-collapsed)" : "lg:pl-(--size-sidebar)")}>
         <header className="sticky top-0 z-20 flex h-(--size-topbar) items-center gap-2 border-b border-border bg-surface/85 px-4 backdrop-blur-md sm:px-6">
           <IconButton label="Open navigation" className="hidden md:inline-flex lg:hidden" onClick={() => setMobileOpen(true)}><MenuIcon /></IconButton>
-          <button type="button" className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 text-base text-text-placeholder hover:border-border-strong sm:max-w-md">
-            <Search className="size-4 shrink-0" aria-hidden />
-            <span className="truncate">Search people, pages, actions</span>
-            <kbd className="ml-auto hidden rounded-xs border border-border bg-surface px-1.5 text-xs text-text-muted sm:inline">⌘K</kbd>
-          </button>
+          {search ? <React.Suspense fallback={<SearchPlaceholder />}>{search}</React.Suspense> : <SearchPlaceholder />}
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
             <React.Suspense fallback={<IconButton label="Notifications"><Bell /></IconButton>}>{bell ?? <NotificationsButton data={data} />}</React.Suspense>
@@ -244,4 +241,14 @@ function AccountMenu({ data, logout }: { data: Promise<ShellData | null> | Shell
 function BottomLinks({ data }: { data: Promise<ShellData | null> | ShellData | null | undefined }) {
   const inboxCount = useShell(data)?.inboxCount ?? 0;
   return <>{MOBILE_NAV.map((it) => <BottomLink key={it.href} item={it.href === "/inbox" ? { ...it, badge: inboxCount || undefined } : it} />)}</>;
+}
+
+function SearchPlaceholder() {
+  return (
+    <button type="button" className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 text-base text-text-placeholder hover:border-border-strong sm:max-w-md">
+      <Search className="size-4 shrink-0" aria-hidden />
+      <span className="truncate">Search people, pages, actions</span>
+      <kbd className="ml-auto hidden rounded-xs border border-border bg-surface px-1.5 text-xs text-text-muted sm:inline">⌘K</kbd>
+    </button>
+  );
 }

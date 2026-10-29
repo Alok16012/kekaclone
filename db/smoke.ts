@@ -19,7 +19,7 @@ import ExcelJS from "exceljs";
 import { buildTemplate, commitImport, previewImport } from "@/server/modules/employees/import";
 import { invite, requestReset, setPasswordWithToken, tokenInfo } from "@/server/modules/auth/flows";
 import { deliverQueued } from "@/server/email";
-import { createEmployee } from "@/server/modules/employees/service";
+import { createEmployee, searchPeople } from "@/server/modules/employees/service";
 import { orgDashboard } from "@/server/modules/org/dashboard";
 import * as notes from "@/server/modules/notifications/service";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
@@ -277,6 +277,19 @@ async function main() {
     throw new Error("rollback");
   }).catch((e) => { if (e.message !== "rollback") throw e; });
   ok("notifications: leave FYI reaches chosen colleagues (not the requester), only the owner can mark read, paging works");
+
+  // M1: command palette people search
+  await withTenant(tenant.id, async (tx) => {
+    assert.deepEqual(await searchPeople(tx, "r"), [], "one letter doesn't search");
+    assert.equal((await searchPeople(tx, "roh"))[0].name, "Rohan Mehta");
+    assert.equal((await searchPeople(tx, "rao"))[0].name, "Arjun Rao", "last-name prefix ranks first");
+    assert.equal((await searchPeople(tx, "PRIYA@acme"))[0].name, "Priya Nair");
+    const accountants = (await searchPeople(tx, "accountant")).map((x) => x.name).sort();
+    assert.deepEqual(accountants, ["Fatima Sheikh", "Karan Singh"]);
+    assert.equal((await searchPeople(tx, "%%")).length, 0, "wildcards are escaped");
+    assert.equal((await searchPeople(tx, "bhattacharya")).length, 1);
+  });
+  ok("people search: 2+ letters, name prefixes first, email / number / designation, wildcards escaped");
 
   // tenant isolation: a second tenant sees nothing of Acme
   const otherId = randomUUID();

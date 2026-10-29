@@ -5,6 +5,7 @@ import { withTenant } from "@/server/db";
 import { AppShell, ShellSkeleton, type ShellData } from "@/ui/app-shell";
 import { logoutAction } from "../(auth)/actions";
 import { NotificationsBell } from "@/features/notifications-bell";
+import { CommandPalette } from "@/features/command-palette";
 
 // Entering the signed-in app may wait for the session (it can't be part of a static shell);
 // moving between pages underneath keeps the shell and streams page content behind loading.tsx.
@@ -33,7 +34,7 @@ async function shellData(): Promise<ShellData | null> {
  */
 function Shell({ children }: { children: React.ReactNode }) {
   const data = shellData();
-  return <AppShell data={data} logout={logoutAction} bell={<NotificationsBell data={data} />}>{children}</AppShell>;
+  return <AppShell data={data} logout={logoutAction} bell={<NotificationsBell data={data} />} search={<CommandPalette data={data} />}>{children}</AppShell>;
 }
 
 export default function AppLayout({ children }: LayoutProps<"/">) {

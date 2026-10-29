@@ -7,7 +7,7 @@ import { requireActor, assertCan } from "@/server/auth/session";
 import * as attendance from "@/server/modules/attendance/service";
 import * as leave from "@/server/modules/leave/service";
 import * as approvals from "@/server/modules/approvals/service";
-import { createEmployee } from "@/server/modules/employees/service";
+import { createEmployee, searchPeople } from "@/server/modules/employees/service";
 import * as profile from "@/server/modules/employees/profile";
 import { isSection } from "@/server/modules/employees/fields";
 import * as org from "@/server/modules/settings/org";
@@ -224,4 +224,10 @@ export async function setMfaModeAction(mode: string) {
 
 export async function setMyMfaAction(on: boolean) {
   return runAction((tx, actor) => setMyMfa(tx, actor, !!on));
+}
+
+// ---------- command palette ----------
+export async function searchPeopleAction(q: string) {
+  if (typeof q !== "string") return { ok: false as const, error: "Invalid search." };
+  return runAction((tx) => searchPeople(tx, q), { refresh: false });
 }

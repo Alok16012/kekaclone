@@ -103,3 +103,23 @@ export async function orgOptions(tx: Tx) {
   ]);
   return { departments, designations, locations, people };
 }
+
+export type PersonHit = { id: string; name: string; title: string | null; department: string | null; email: string; number: string };
+
+/**
+ * Quick people search for the command palette: prefix matches on name parts rank first, then
+ * anything containing the text in name, email, employee number or designation.
+ */
+export async function searchPeople(tx: Tx, q: string, limit = 8) {
+  const term = q.trim().slice(0, 80);
+  if (term.length < 2) return [];
+  const like = `%${term.replace(/[%_\\]/g, (c) => "\\" + c)}%`;
+  const prefix = `${term.replace(/[%_\\]/g, (c) => "\\" + c)}%`;
+  return tx<PersonHit[]>`
+    select e.id, e.display_name as name, d.title, dp.name as department, e.work_email as email, e.employee_number as number
+    from employees e left join designations d on d.id = e.designation_id left join departments dp on dp.id = e.department_id
+    where e.status <> 'relieved'
+      and (e.display_name ilike ${like} or e.work_email ilike ${like} or e.employee_number ilike ${like} or d.title ilike ${like})
+    order by (e.display_name ilike ${prefix} or e.last_name ilike ${prefix}) desc, similarity(e.display_name, ${term}) desc, e.display_name
+    limit ${limit}`;
+}
