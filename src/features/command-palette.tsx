@@ -33,6 +33,8 @@ const PAGES: Item[] = [
   { id: "p-org", kind: "page", label: "Company structure", hint: "Settings", href: "/settings/org/departments", icon: <Settings />, keywords: "departments designations locations bands legal entities", admin: true },
   { id: "p-roles", kind: "page", label: "Roles & permissions", hint: "Settings", href: "/settings/roles", icon: <ShieldCheck />, keywords: "access admin", admin: true },
   { id: "p-sec", kind: "page", label: "Sign-in security", hint: "Settings", href: "/settings/security", icon: <ShieldCheck />, keywords: "otp code 2fa mfa password", admin: true },
+  { id: "p-audit", kind: "page", label: "Audit log", hint: "Settings", href: "/settings/audit", icon: <History />, keywords: "history changes who did logins sign-ins compliance", admin: true },
+  { id: "p-setup", kind: "page", label: "Company setup", hint: "Getting started", href: "/setup", icon: <Settings />, keywords: "wizard onboarding first run checklist", admin: true },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
