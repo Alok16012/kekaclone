@@ -40,6 +40,8 @@ const PAGES: Item[] = [
   { id: "p-leave-bal", kind: "page", label: "Leave balances", hint: "Settings", href: "/settings/leave/balances", icon: <Settings />, keywords: "adjust credit debit opening import", admin: true },
   { id: "p-leave-ye", kind: "page", label: "Leave year end", hint: "Settings", href: "/settings/leave/year-end", icon: <Settings />, keywords: "carry forward lapse encash", admin: true },
   { id: "p-holidays", kind: "page", label: "Holidays", hint: "Settings", href: "/settings/holidays", icon: <Settings />, keywords: "holiday list floater optional festival", admin: true },
+  { id: "p-time", kind: "page", label: "Time settings", hint: "Shifts, weekly offs, clock-in rules", href: "/settings/time/shifts", icon: <Clock />, keywords: "shift roster weekly off geofence ip penalty late", admin: true },
+  { id: "p-time-assign", kind: "page", label: "Shift and policy assignments", href: "/settings/time/assignments", icon: <Users />, keywords: "assign shift weekly off bulk", admin: true },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -48,6 +50,8 @@ const ACTIONS: Item[] = [
   { id: "a-add", kind: "action", label: "Add an employee", href: "/org/employees/new", icon: <UserPlus />, keywords: "new hire joiner", admin: true },
   { id: "a-import", kind: "action", label: "Import people from Excel", href: "/org/employees/import", icon: <FileSpreadsheet />, keywords: "bulk upload xlsx", admin: true },
   { id: "a-invite", kind: "action", label: "Invite people", hint: "Select them in People", href: "/org/employees", icon: <Mail />, keywords: "send invite password", admin: true },
+  { id: "a-regularize", kind: "action", label: "Regularize attendance", hint: "From a day's menu", href: "/me/attendance", icon: <Clock />, keywords: "forgot clock out fix punch missing swipe" },
+  { id: "a-wfh", kind: "action", label: "Ask to work from home", href: "/me/attendance?tab=requests", icon: <Home />, keywords: "wfh remote on duty od" },
 ];
 
 const RECENT_KEY = "erp-recent";

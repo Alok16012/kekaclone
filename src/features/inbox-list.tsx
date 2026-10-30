@@ -13,6 +13,7 @@ import { toast } from "@/ui/toast";
 import { decideAction, leaveRequestDetailAction, profileChangeDetailAction } from "@/app/(app)/actions";
 import { FIELD_LABELS } from "@/server/modules/employees/fields";
 import { compOffDetailAction } from "@/app/(app)/me/leave/actions";
+import { AttendanceRequestDetail } from "@/features/attendance/request-detail";
 
 export type InboxRow = { stepId: string; entityType: string; entityId: string; summary: string; requester: string; requesterTitle: string | null; createdAt: string; ago: string };
 type Detail = Awaited<ReturnType<typeof leaveRequestDetailAction>>;
@@ -109,6 +110,8 @@ export function InboxList({ items }: { items: InboxRow[] }) {
               <Field label="Comment" help="Shared with the requester"><Textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} /></Field>
             </div>
           )
+        ) : open?.entityType === "attendance_request" ? (
+          <AttendanceRequestDetail id={open.entityId} comment={comment} onComment={setComment} />
         ) : open?.entityType !== "leave" ? (
           <p className="text-base text-text-muted">{open?.summary}</p>
         ) : !detail ? (

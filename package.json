@@ -14,7 +14,9 @@
     "smoke": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke.ts",
     "smoke:platform": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-platform.ts",
     "smoke:leave": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-leave.ts",
-    "jobs:leave": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-leave.ts"
+    "jobs:leave": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-leave.ts",
+    "smoke:attendance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-attendance.ts",
+    "jobs:attendance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-attendance.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
