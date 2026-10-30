@@ -8,6 +8,7 @@ import {
   Megaphone, ReceiptIndianRupee,
 } from "lucide-react";
 import { DoorOpen } from "lucide-react";
+import { Headset, Laptop, Package } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "./avatar";
 import { IconButton } from "./button";
@@ -31,6 +32,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/me/expenses", label: "Expenses", icon: Receipt },
     { href: "/me/performance", label: "Performance", icon: Target },
     { href: "/me/helpdesk", label: "Helpdesk", icon: LifeBuoy },
+    { href: "/me/assets", label: "My assets", icon: Laptop },
   ] },
   { label: "Organisation", items: [
     { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -39,6 +41,8 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/org/documents", label: "Documents", icon: FileText },
     { href: "/org/exits", label: "Exits", icon: DoorOpen },
     { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
+    { href: "/org/assets", label: "Assets", icon: Package },
+    { href: "/helpdesk", label: "Helpdesk queue", icon: Headset },
     { href: "/hire/jobs", label: "Hiring", icon: BriefcaseBusiness },
     { href: "/engage/announcements", label: "Announcements", icon: Megaphone },
     { href: "/settings", label: "Settings", icon: Settings },
@@ -93,7 +97,7 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk"]);
 
 function navFor(d: ShellData | null): NavGroup[] {
   return DEFAULT_NAV.map((g) => ({

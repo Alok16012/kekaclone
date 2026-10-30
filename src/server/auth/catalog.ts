@@ -28,6 +28,10 @@ export const PERMISSIONS = [
     { key: "expenses.approve", label: "Review expense claims and advances as finance" },
     { key: "expenses.payout", label: "Pay out expense claims and advances, or schedule them into payroll" },
   ] },
+  { group: "Service desk", items: [
+    { key: "helpdesk.admin", label: "Set up helpdesk categories and handle every ticket" },
+    { key: "assets.admin", label: "Manage the asset inventory, hand assets out and take them back" },
+  ] },
   { group: "Settings", items: [
     { key: "settings.org", label: "Edit company structure (departments, locations, …)" },
     { key: "settings.roles", label: "Manage roles and who has them" },

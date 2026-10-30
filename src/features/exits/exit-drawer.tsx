@@ -14,6 +14,7 @@ import { toast } from "@/ui/toast";
 import { cancelExitAction, completeExitAction, decideExitAction, exitDetailAction, setExitTaskAction, updateExitAction } from "@/app/(app)/org/exits/actions";
 import { generateLetterAction } from "@/app/(app)/org/documents/actions";
 import type { ExitDetail } from "@/server/modules/exits/service";
+import { ExitAssets } from "@/features/assets/exit-assets";
 
 export const fmtDate = (d: string | null | undefined) => (d ? new Date(d.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "—");
 export const STATUS_LABEL: Record<string, { label: string; tone: "warning" | "accent" | "success" | "neutral" | "danger" }> = {
@@ -140,6 +141,7 @@ export function ExitDrawer({ exitId, onClose, letterTemplates, today }: { exitId
                         <div className="min-w-0 flex-1">
                           <p className={t.status === "skipped" ? "text-base text-text-muted line-through" : "text-base font-medium"}>{t.title}</p>
                           {t.description && <p className="text-sm text-text-muted">{t.description}</p>}
+                          {/asset/i.test(t.title) && t.status !== "skipped" && <ExitAssets employeeId={d.employee.id} />}
                           <p className="mt-0.5 text-sm text-text-muted">{t.owner}{t.assignee ? ` · ${t.assignee}` : " · no one assigned"} · due {fmtDate(t.due_date)}{overdue && <Badge tone="danger" className="ml-1.5">Overdue</Badge>}</p>
                         </div>
                         {d.can.manage && t.status !== "done" && d.exit.status === "in_progress" && (
