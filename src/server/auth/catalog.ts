@@ -17,6 +17,9 @@ export const PERMISSIONS = [
   { group: "Lifecycle", items: [
     { key: "exits.manage", label: "Run exits: start, approve, complete and cancel them" },
   ] },
+  { group: "Payroll", items: [
+    { key: "payroll.admin", label: "Run payroll and manage payroll settings (incl. recording a CA check of statutory rates)" },
+  ] },
   { group: "Documents", items: [
     { key: "documents.manage", label: "Manage company documents, letter templates and issue letters" },
   ] },
