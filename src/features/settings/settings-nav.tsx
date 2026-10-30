@@ -27,6 +27,13 @@ const ITEMS = [
     { href: "/settings/time/penalties", label: "Penalties" },
     { href: "/settings/time/assignments", label: "Assignments" },
   ] },
+  { group: "Payroll", links: [
+    { href: "/settings/payroll/components", label: "Salary components" },
+    { href: "/settings/payroll/pay-groups", label: "Pay groups" },
+    { href: "/settings/payroll/structures", label: "Salary structures" },
+    { href: "/settings/payroll/revisions", label: "Salary revisions" },
+    { href: "/settings/payroll/compliance", label: "Statutory compliance" },
+  ] },
   { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
 ];
 

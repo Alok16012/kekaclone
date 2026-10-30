@@ -56,10 +56,12 @@ function SectionCard({ title, edit, children }: { title: string; edit?: React.Re
   );
 }
 
-export function ProfileView({ p, lookups, today, currentManagerId, actions, banner, extraTabs = [], aboutExtra }: {
+export function ProfileView({ p, lookups, today, currentManagerId, actions, banner, extraTabs = [], aboutExtra, initialTab }: {
   p: Profile; lookups: Lookups | null; today: string; currentManagerId: string | null;
   /** extra header buttons, a banner above the tabs, extra tabs and extra About cards, supplied by other modules (exits, documents, engage) */
   actions?: React.ReactNode; banner?: React.ReactNode; extraTabs?: { value: string; label: string; content: React.ReactNode }[]; aboutExtra?: React.ReactNode;
+  /** open on this tab (from ?tab=), when it exists */
+  initialTab?: string;
 }) {
   const e = p.employee;
   const self = p.access === "self", admin = p.access === "admin";
@@ -127,7 +129,7 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
 
       {banner}
 
-      <Tabs defaultValue="about">
+      <Tabs defaultValue={initialTab && ["profile", "job", "timeline", ...extraTabs.map((t) => t.value)].includes(initialTab) ? initialTab : "about"}>
         <TabsList items={[{ value: "about", label: "About" }, ...(p.employee.personal ? [{ value: "profile", label: "Profile" }] : []), { value: "job", label: "Job" }, ...(p.timeline.length ? [{ value: "timeline", label: "Timeline" }] : []), ...extraTabs.map((t) => ({ value: t.value, label: t.label }))]} />
 
         <TabsContent value="about">

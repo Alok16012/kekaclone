@@ -20,7 +20,8 @@
     "smoke:exitdocs": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-exitdocs.ts",
     "jobs:exits": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-exits.ts",
     "smoke:engage": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-engage.ts",
-    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage"
+    "smoke:payfoundation": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-payfoundation.ts",
+    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
