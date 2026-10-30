@@ -60,7 +60,8 @@ export async function setPasswordWithToken(tenant: Tenant, token: string, purpos
     if (problem) throw new AppError("invalid", problem, "password");
     await tx`update users set password_hash = ${await hashPassword(password)}, status = 'active', email_verified_at = coalesce(email_verified_at, now()),
              failed_logins = 0, locked_until = null where id = ${t.user_id}`;
-    await tx`update auth_tokens set consumed_at = now() where user_id = ${t.user_id} and purpose in ('invite', 'reset_password') and consumed_at is null`;
+    // a new password also forgets every remembered device, so the sign-in code is asked again
+    await tx`update auth_tokens set consumed_at = now() where user_id = ${t.user_id} and purpose in ('invite', 'reset_password', 'trusted_device') and consumed_at is null`;
     if (purpose === "reset_password") {
       await tx`delete from sessions where user_id = ${t.user_id}`;   // sign out everywhere
       await queueEmail(tx, tenant.id, { kind: "password_changed", to: t.email, ...passwordChangedEmail({ company: tenant.name, name: t.name }) });

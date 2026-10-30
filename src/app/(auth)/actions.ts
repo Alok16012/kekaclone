@@ -8,6 +8,7 @@ import { provisionTenant } from "@/server/modules/tenants/provision";
 import { createHandoff, passwordLogin } from "@/server/modules/auth/service";
 import { requestReset, setPasswordWithToken } from "@/server/modules/auth/flows";
 import { needsCode, resendChallenge, startChallenge, verifyChallenge } from "@/server/modules/auth/mfa";
+import { isTrustedDevice, rememberThisDevice } from "@/server/modules/auth/trusted-device";
 
 /**
  * Auth actions return `redirectTo` instead of calling redirect(): a redirect inside a server action is rendered
@@ -64,7 +65,7 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
   const next = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/home";
   try {
     const userId = await passwordLogin(tenant, parsed.data.email, parsed.data.password);
-    if (await needsCode(tenant, userId)) return { mfa: { ...(await startChallenge(tenant, userId)), next }, values };
+    if ((await needsCode(tenant, userId)) && !(await isTrustedDevice(tenant, userId))) return { mfa: { ...(await startChallenge(tenant, userId)), next }, values };
     await createSession(tenant.id, userId);
   } catch (e) {
     if (e instanceof AppError) return { error: e.message, values };
@@ -84,6 +85,7 @@ export async function verifyCodeAction(prev: FormState, form: FormData): Promise
   }
   try {
     const userId = await verifyChallenge(tenant, String(form.get("code") ?? ""));
+    if (form.get("remember") === "on") await rememberThisDevice(tenant, userId);
     await createSession(tenant.id, userId);
     return { redirectTo: prev.mfa.next };
   } catch (e) {
