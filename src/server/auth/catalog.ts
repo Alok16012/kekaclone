@@ -11,6 +11,12 @@ export const PERMISSIONS = [
   { group: "Approvals", items: [
     { key: "approvals.override", label: "Approve or decline on anyone's behalf" },
   ] },
+  { group: "Lifecycle", items: [
+    { key: "exits.manage", label: "Run exits: start, approve, complete and cancel them" },
+  ] },
+  { group: "Documents", items: [
+    { key: "documents.manage", label: "Manage company documents, letter templates and issue letters" },
+  ] },
   { group: "Settings", items: [
     { key: "settings.org", label: "Edit company structure (departments, locations, …)" },
     { key: "settings.roles", label: "Manage roles and who has them" },

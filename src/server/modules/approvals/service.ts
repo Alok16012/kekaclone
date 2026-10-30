@@ -3,15 +3,17 @@ import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { onLeaveDecided } from "@/server/modules/leave/effects";
 import { onProfileChangeDecided } from "@/server/modules/employees/effects";
+import { onExitDecided } from "@/server/modules/exits/effects";
 
 type Level = { approver: "manager" | "l2_manager" | "role" | "employee"; role?: string; id?: string };
-export type EntityType = "leave" | "attendance_request" | "profile_change";
+export type EntityType = "leave" | "attendance_request" | "profile_change" | "exit";
 
 /** Used when a tenant has no workflow configured for the entity type. */
 const DEFAULT_LEVELS: Record<EntityType, Level[]> = {
   leave: [{ approver: "manager" }],
   attendance_request: [{ approver: "manager" }],
   profile_change: [{ approver: "role", role: "hr_admin" }],
+  exit: [{ approver: "manager" }, { approver: "role", role: "hr_admin" }],
 };
 
 async function resolveApprover(tx: Tx, level: Level, requesterId: string): Promise<string | null> {
@@ -78,9 +80,10 @@ export async function decide(tx: Tx, actor: Actor, stepId: string, decision: "ap
     await tx`update approval_requests set status = ${final} where id = ${step.request_id}`;
     if (req.entity_type === "leave") await onLeaveDecided(tx, actor, req.entity_id, final);
     if (req.entity_type === "profile_change") await onProfileChangeDecided(tx, actor, req.entity_id, final);
+    if (req.entity_type === "exit") await onExitDecided(tx, actor, req.entity_id, final);
     await notifyEmployee(tx, actor.tenant.id, req.requester_employee_id, `request.${final}`,
       final === "approved" ? "Your request was approved" : "Your request was declined", req.summary,
-      req.entity_type === "leave" ? "/me/leave" : req.entity_type === "profile_change" ? "/me" : "/me/attendance");
+      req.entity_type === "leave" ? "/me/leave" : req.entity_type === "profile_change" || req.entity_type === "exit" ? "/me" : "/me/attendance");
   }
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
            values (${actor.tenant.id}, ${actor.userId}, ${req.entity_type}, ${req.entity_id}, ${"approval." + decision}, ${tx.json({ comment: comment ?? null })})`;
