@@ -5,6 +5,7 @@ import { Dialog as D } from "radix-ui";
 import {
   BriefcaseBusiness, CalendarDays, CalendarPlus, Clock, CornerDownLeft, FileSpreadsheet, FileText, History, Home, Inbox, LayoutDashboard,
   LayoutGrid, LifeBuoy, Mail, Receipt, Search, Settings, ShieldCheck, Target, User, UserPlus, Users, Wallet,
+  ChartBar, Megaphone, PenLine, Sparkles,
 } from "lucide-react";
 import { DoorOpen, FilePen, UserMinus } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
@@ -33,6 +34,8 @@ const PAGES: Item[] = [
   { id: "p-set", kind: "page", label: "Settings", href: "/settings", icon: <Settings />, keywords: "configuration", admin: true },
   { id: "p-org", kind: "page", label: "Company structure", hint: "Settings", href: "/settings/org/departments", icon: <Settings />, keywords: "departments designations locations bands legal entities", admin: true },
   { id: "p-roles", kind: "page", label: "Roles & permissions", hint: "Settings", href: "/settings/roles", icon: <ShieldCheck />, keywords: "access admin", admin: true },
+  { id: "p-ann", kind: "page", label: "Announcements", href: "/engage/announcements", icon: <Megaphone />, keywords: "engage news pin schedule wall", admin: true },
+  { id: "p-polls", kind: "page", label: "Poll results", href: "/engage/polls", icon: <ChartBar />, keywords: "engage vote survey wall", admin: true },
   { id: "p-sec", kind: "page", label: "Sign-in security", hint: "Settings", href: "/settings/security", icon: <ShieldCheck />, keywords: "otp code 2fa mfa password", admin: true },
   { id: "p-audit", kind: "page", label: "Audit log", hint: "Settings", href: "/settings/audit", icon: <History />, keywords: "history changes who did logins sign-ins compliance", admin: true },
   { id: "p-setup", kind: "page", label: "Company setup", hint: "Getting started", href: "/setup", icon: <Settings />, keywords: "wizard onboarding first run checklist", admin: true },
@@ -51,6 +54,8 @@ const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
   { id: "a-clock", kind: "action", label: "Clock in or out", href: "/me/attendance", icon: <Clock />, keywords: "punch attendance" },
   { id: "a-compoff", kind: "action", label: "Claim comp-off", href: "/me/leave?compoff=1", icon: <CalendarPlus />, keywords: "worked weekend holiday compensatory off" },
+  { id: "a-post", kind: "action", label: "Write a post", href: "/home?compose=post", icon: <PenLine />, keywords: "wall share update engage" },
+  { id: "a-praise", kind: "action", label: "Praise a colleague", href: "/home?compose=praise", icon: <Sparkles />, keywords: "kudos thanks badge appreciate" },
   { id: "a-add", kind: "action", label: "Add an employee", href: "/org/employees/new", icon: <UserPlus />, keywords: "new hire joiner", admin: true },
   { id: "a-import", kind: "action", label: "Import people from Excel", href: "/org/employees/import", icon: <FileSpreadsheet />, keywords: "bulk upload xlsx", admin: true },
   { id: "a-invite", kind: "action", label: "Invite people", hint: "Select them in People", href: "/org/employees", icon: <Mail />, keywords: "send invite password", admin: true },

@@ -18,7 +18,8 @@
     "smoke:attendance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-attendance.ts",
     "jobs:attendance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-attendance.ts",
     "smoke:exitdocs": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-exitdocs.ts",
-    "jobs:exits": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-exits.ts"
+    "jobs:exits": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-exits.ts",
+    "smoke:engage": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-engage.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

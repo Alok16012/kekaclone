@@ -56,10 +56,10 @@ function SectionCard({ title, edit, children }: { title: string; edit?: React.Re
   );
 }
 
-export function ProfileView({ p, lookups, today, currentManagerId, actions, banner, extraTabs = [] }: {
+export function ProfileView({ p, lookups, today, currentManagerId, actions, banner, extraTabs = [], aboutExtra }: {
   p: Profile; lookups: Lookups | null; today: string; currentManagerId: string | null;
-  /** extra header buttons, a banner above the tabs and extra tabs, supplied by other modules (exits, documents) */
-  actions?: React.ReactNode; banner?: React.ReactNode; extraTabs?: { value: string; label: string; content: React.ReactNode }[];
+  /** extra header buttons, a banner above the tabs, extra tabs and extra About cards, supplied by other modules (exits, documents, engage) */
+  actions?: React.ReactNode; banner?: React.ReactNode; extraTabs?: { value: string; label: string; content: React.ReactNode }[]; aboutExtra?: React.ReactNode;
 }) {
   const e = p.employee;
   const self = p.access === "self", admin = p.access === "admin";
@@ -154,6 +154,7 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
                 {p.peers.length > 0 && <div><p className="mb-1.5 text-sm text-text-muted">Works with</p><ul className="flex flex-col gap-1.5">{p.peers.map((r) => <li key={r.id}><PersonLink p={r} /></li>)}</ul></div>}
               </CardBody>
             </Card>
+            {aboutExtra}
           </div>
         </TabsContent>
 
