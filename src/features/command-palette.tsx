@@ -33,10 +33,16 @@ const PAGES: Item[] = [
   { id: "p-org", kind: "page", label: "Company structure", hint: "Settings", href: "/settings/org/departments", icon: <Settings />, keywords: "departments designations locations bands legal entities", admin: true },
   { id: "p-roles", kind: "page", label: "Roles & permissions", hint: "Settings", href: "/settings/roles", icon: <ShieldCheck />, keywords: "access admin", admin: true },
   { id: "p-sec", kind: "page", label: "Sign-in security", hint: "Settings", href: "/settings/security", icon: <ShieldCheck />, keywords: "otp code 2fa mfa password", admin: true },
+  { id: "p-team-leave", kind: "page", label: "Team leave calendar", href: "/team/leave", icon: <CalendarDays />, keywords: "who is off away absent vacation" },
+  { id: "p-leave-plans", kind: "page", label: "Leave plans", hint: "Settings", href: "/settings/leave/plans", icon: <Settings />, keywords: "leave policy quota accrual rules types", admin: true },
+  { id: "p-leave-bal", kind: "page", label: "Leave balances", hint: "Settings", href: "/settings/leave/balances", icon: <Settings />, keywords: "adjust credit debit opening import", admin: true },
+  { id: "p-leave-ye", kind: "page", label: "Leave year end", hint: "Settings", href: "/settings/leave/year-end", icon: <Settings />, keywords: "carry forward lapse encash", admin: true },
+  { id: "p-holidays", kind: "page", label: "Holidays", hint: "Settings", href: "/settings/holidays", icon: <Settings />, keywords: "holiday list floater optional festival", admin: true },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
   { id: "a-clock", kind: "action", label: "Clock in or out", href: "/me/attendance", icon: <Clock />, keywords: "punch attendance" },
+  { id: "a-compoff", kind: "action", label: "Claim comp-off", href: "/me/leave?compoff=1", icon: <CalendarPlus />, keywords: "worked weekend holiday compensatory off" },
   { id: "a-add", kind: "action", label: "Add an employee", href: "/org/employees/new", icon: <UserPlus />, keywords: "new hire joiner", admin: true },
   { id: "a-import", kind: "action", label: "Import people from Excel", href: "/org/employees/import", icon: <FileSpreadsheet />, keywords: "bulk upload xlsx", admin: true },
   { id: "a-invite", kind: "action", label: "Invite people", hint: "Select them in People", href: "/org/employees", icon: <Mail />, keywords: "send invite password", admin: true },
