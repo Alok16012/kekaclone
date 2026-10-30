@@ -32,6 +32,7 @@ group("describe", () => {
     expect(describe({ entity_type: "user", action: "security.my_mfa", diff: { on: false } })).toBe("turned off sign-in codes for their account");
     expect(describe({ entity_type: "tenant", action: "setup.step", diff: { step: "leave", status: "skipped" } })).toBe("skipped the setup step “Leave basics”");
     expect(describe({ entity_type: "user", action: "invite", diff: { count: 2 } })).toBe("sent 2 invites");
+    expect(describe({ entity_type: "user", action: "invite", diff: { count: 1, employeeIds: ["x"] }, subject_label: "Ravi Das" })).toBe("sent an invite to Ravi Das");
   });
   it("never blank for unknown actions", () => {
     expect(describe({ entity_type: "widget", action: "frobnicate.now", diff: null })).toBe("frobnicate now · widget");

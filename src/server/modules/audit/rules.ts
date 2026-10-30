@@ -49,7 +49,7 @@ const FIELD_WORDS: Record<string, string> = {
   l2_manager_id: "second-level manager", dotted_manager_id: "dotted-line manager", band_id: "band",
   legal_entity_id: "legal entity", business_unit_id: "business unit", dob: "date of birth", pan: "PAN", tan: "TAN",
   uan: "UAN", ifsc: "IFSC", state_code: "state", year_start: "leave year start", parent_id: "parent department",
-  head_employee_id: "department head", work_email: "work email", personal_email: "personal email",
+  head_employee_id: "department head", employeeId: "person", employeeIds: "people", work_email: "work email", personal_email: "personal email",
 };
 
 export function fieldLabel(key: string) {
@@ -156,7 +156,7 @@ export function describe(r: AuditRow): string {
       if (r.action === "update") { const f = changedFields(d); return `updated leave basics${f.length ? ` (${list(f, 4)})` : ""}`; }
       break;
     case "user":
-      if (r.action === "invite") return `sent ${plural(Number(d.count ?? 0), "invite")}`;
+      if (r.action === "invite") return Number(d.count) === 1 && r.subject_label ? `sent an invite to ${r.subject_label}` : `sent ${plural(Number(d.count ?? 0), "invite")}`;
       if (r.action === "invite_accepted") return "accepted their invite and set a password";
       if (r.action === "password_reset") return "reset their password";
       if (r.action === "security.my_mfa") return d.on ? "turned on sign-in codes for their account" : "turned off sign-in codes for their account";

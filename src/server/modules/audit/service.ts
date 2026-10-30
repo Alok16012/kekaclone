@@ -30,6 +30,7 @@ async function labels(tx: Tx, rows: { entity_type: string; entity_id: string | n
     add(r.entity_type, r.entity_id);
     const d = (r.diff ?? {}) as Record<string, unknown>;
     add("employee", d.employeeId);
+    if (Array.isArray(d.employeeIds) && d.employeeIds.length === 1) add("employee", d.employeeIds[0]);
   }
   const out = new Map<string, string>();
   const put = (t: string, rs: { id: string; label: string | null }[]) => { for (const r of rs) if (r.label) out.set(`${t}:${r.id}`, r.label); };
@@ -111,7 +112,8 @@ export async function listAudit(tx: Tx, actor: Actor, f: AuditFilters, cursor?: 
   const items: AuditItem[] = page.map((r) => {
     const d = (r.diff ?? {}) as Record<string, unknown>;
     const entity_label = (r.entity_id && names.get(`${r.entity_type}:${r.entity_id}`)) || (typeof d.name === "string" ? d.name : typeof d.label === "string" ? d.label : null);
-    const subject_label = typeof d.employeeId === "string" ? names.get(`employee:${d.employeeId}`) ?? null : null;
+    const subjectId = typeof d.employeeId === "string" ? d.employeeId : Array.isArray(d.employeeIds) && d.employeeIds.length === 1 ? d.employeeIds[0] : null;
+    const subject_label = subjectId ? names.get(`employee:${subjectId}`) ?? null : null;
     return { ...r, entity_label, subject_label, description: describe({ ...r, entity_label, subject_label, actor_label: r.actor_name }), when: formatWhen(r.at) };
   });
   const last = page[page.length - 1];

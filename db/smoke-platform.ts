@@ -136,7 +136,7 @@ async function main() {
       "Asha Verma updated Arjun Rao’s profile (mobile)",
       "Asha Verma changed Meera Iyer’s job details (department)",
       "Asha Verma added Audit Probe",
-      "Asha Verma sent 1 invite",
+      "Asha Verma sent an invite to Audit Probe",
       "Rohan Mehta approved Arjun Rao’s leave request",
       "Asha Verma extended Meera Iyer’s probation to " + addDaysISO(todayIn(), 60),
     ]) assert.ok(text.includes(s), `missing: ${s}\n${text.join("\n")}`);

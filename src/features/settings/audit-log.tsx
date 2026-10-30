@@ -57,8 +57,8 @@ export function AuditLog({ tab, filters, options, activity, signins }: Props) {
         <TabsList items={[{ value: "activity", label: "Activity" }, { value: "signins", label: "Sign-ins" }]} />
       </Tabs>
 
-      <Card className="p-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
+      <Card className="@container p-4">
+        <div className="grid gap-3 @md:grid-cols-2 @4xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
           <Field label="Person">
             <EmployeePicker people={options.people} value={filters.actor ? [filters.actor] : []} placeholder="Anyone"
               onChange={(ids) => go({ actor: ids[0] && ids[0] !== filters.actor ? ids[0] : null })} />
@@ -75,7 +75,7 @@ export function AuditLog({ tab, filters, options, activity, signins }: Props) {
               </Field>
             </>
           ) : (
-            <Field label="Result" className="lg:col-span-2">
+            <Field label="Result" className="@4xl:col-span-2">
               <Select value={filters.result ?? ALL} onValueChange={(v) => go({ result: v === ALL ? null : (v as "success" | "failure") })}
                 options={[{ value: ALL, label: "All attempts" }, { value: "success", label: "Signed in" }, { value: "failure", label: "Failed" }]} />
             </Field>
@@ -177,7 +177,8 @@ function ActivityList({ initial, filters, filtered, onClear }: { initial: NonNul
 
 function AuditDetail({ item, refs }: { item: AuditItem; refs: Record<string, string> }) {
   const lines = diffLines(item.diff);
-  const show = (v: unknown) => (typeof v === "string" && refs[v] ? refs[v] : showValue(v));
+  const one = (v: unknown) => (typeof v === "string" && refs[v] ? refs[v] : showValue(v));
+  const show = (v: unknown) => (Array.isArray(v) && v.every((x) => typeof x !== "object" || x === null) ? (v.length ? v.map(one).join(", ") : "—") : one(v));
   return (
     <div className="flex flex-col gap-5">
       <p className="text-md"><strong className="font-semibold">{item.actor_name ?? "System"}</strong> {item.description}</p>
