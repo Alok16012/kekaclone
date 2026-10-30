@@ -13,6 +13,7 @@ export const PERMISSIONS = [
   ] },
   { group: "Payroll", items: [
     { key: "payroll.admin", label: "Set up and run payroll, manage people's salaries, bank and statutory details, and record a CA check of statutory rates" },
+    { key: "payroll.run", label: "Run monthly payroll and final settlements: inputs, calculation, finalising, payslips, bank files and reports (payroll admins can also roll back)" },
   ] },
   { group: "Approvals", items: [
     { key: "approvals.override", label: "Approve or decline on anyone's behalf" },
