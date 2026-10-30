@@ -76,7 +76,7 @@ export function FinancesTab({ employeeId, d }: { employeeId: string; d: Finances
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-text-muted">Deductions such as PF, professional tax and income tax are worked out each month on your payslip.</p>
+              <p className="text-xs text-text-muted">Deductions such as PF, professional tax and income tax are worked out each month on {d.self ? "your" : "the"} payslip.</p>
             </>
           )}
         </CardBody>

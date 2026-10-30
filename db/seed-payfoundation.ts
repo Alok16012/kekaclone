@@ -1,6 +1,6 @@
 /**
  * Demo payroll foundation for the seeded tenant (called from db/seed.ts): default components, the "Monthly" pay group
- * and "Standard" structure, Karan as payroll admin, a Karnataka head office (drives PT), and a CTC for every active
+ * and "Standard" structure, Karan as payroll admin, and a CTC for every active
  * employee from their joining date, with an April revision for a few people. Bank accounts and statutory IDs are
  * made-up test values (not real accounts).
  */
@@ -31,7 +31,6 @@ export async function seedPayFoundation(tenantId: string) {
              where not exists (select 1 from roles where key = 'payroll_admin')`;
     await tx`insert into role_assignments (tenant_id, role_id, employee_id) select ${tenantId}, r.id, e.id from roles r, employees e
              where r.key = 'payroll_admin' and e.first_name = 'Karan' and not exists (select 1 from role_assignments x where x.role_id = r.id and x.employee_id = e.id)`;
-    await tx`update locations set state_code = 'KA' where name = 'Head office' and state_code is null`;
     return d!;
   });
 

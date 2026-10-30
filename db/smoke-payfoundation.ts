@@ -63,6 +63,8 @@ async function main() {
     assert.equal(a?.ctcPaise, 13_80_000_00);
     assert.equal((await salary.getActiveSalary(tx, arjun.employeeId, `${today.slice(0, 4)}-03-31`))?.ctcPaise, 12_00_000_00, "the salary in force on a past date");
     assert.equal(await salary.getActiveSalary(tx, arjun.employeeId, "2020-01-01"), null);
+    assert.equal((await salary.getStatutoryProfile(tx, arjun.employeeId)).ptState, null, "no state on the location yet");
+    await tx`update locations set state_code = 'KA' where id = (select location_id from employees where id = ${arjun.employeeId})`;
     const sp = await salary.getStatutoryProfile(tx, arjun.employeeId);
     assert.equal(sp.ptState, "KA"); assert.equal(sp.ptStateSource, "location");
   });
@@ -216,7 +218,7 @@ async function main() {
     await assert.rejects(salary.saveStatutory(tx, arjun, arjun.employeeId, { pfEnabled: false, pfOnFullWage: false, esiEnabled: false, taxRegime: "old" }), /don't manage/);
     await salary.saveStatutory(tx, karan, arjun.employeeId, { pfEnabled: false, uan: "100200300499", pfOnFullWage: true, esiEnabled: false, esiNumber: "1234567890", ptState: "MH", taxRegime: "old" });
     const sp = await salary.getStatutoryProfile(tx, arjun.employeeId);
-    assert.deepEqual([sp.pfEnabled, sp.pfOnFullWage, sp.uan, sp.ptState, sp.ptStateSource, sp.lwfState, sp.taxRegime], [false, false, "100200300499", "MH", "profile", "KA", "old"]);
+    assert.deepEqual([sp.pfEnabled, sp.pfOnFullWage, sp.uan, sp.ptState, sp.ptStateSource, sp.lwfState, sp.taxRegime], [false, false, "100200300499", "MH", "profile", null, "old"]);
   });
   ok("bank: IFSC and account checks, AES-256-GCM at rest bound to the person, last 4 only on the page, person notified; statutory profile validated, PT state override vs location; never self-service");
 
