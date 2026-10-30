@@ -18,7 +18,7 @@ export function canSeeFolder(access: FolderAccess, p: { department_id: string | 
 }
 
 // ---------- uploads ----------
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;   // 10 MB (the files table allows 25 MB; we stay well under)
+export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;   // 5 MB: fits the server-action body limit (6 MB in next.config); the files table allows 25 MB
 
 const TYPES: Record<string, { mime: string; sig: "pdf" | "png" | "jpg" | "zip" | "text" }> = {
   pdf: { mime: "application/pdf", sig: "pdf" },
@@ -31,7 +31,7 @@ const TYPES: Record<string, { mime: string; sig: "pdf" | "png" | "jpg" | "zip" |
   txt: { mime: "text/plain", sig: "text" },
 };
 export const ACCEPT = Object.keys(TYPES).map((e) => "." + e).join(",");
-export const ACCEPT_LABEL = "PDF, Word, Excel, PowerPoint, PNG, JPG or text, up to 10 MB";
+export const ACCEPT_LABEL = "PDF, Word, Excel, PowerPoint, PNG, JPG or text, up to 5 MB";
 
 function signatureOk(sig: string, head: Uint8Array) {
   const starts = (...b: number[]) => b.every((x, i) => head[i] === x);
@@ -55,7 +55,7 @@ export function validateUpload(f: { name: string; size: number; head: Uint8Array
   const t = TYPES[ext];
   if (!t) return { ok: false, error: `This file type isn't allowed. Use ${ACCEPT_LABEL}.` };
   if (f.size <= 0) return { ok: false, error: "This file is empty." };
-  if (f.size > MAX_UPLOAD_BYTES) return { ok: false, error: "This file is larger than 10 MB." };
+  if (f.size > MAX_UPLOAD_BYTES) return { ok: false, error: "This file is larger than 5 MB." };
   if (!signatureOk(t.sig, f.head)) return { ok: false, error: `This doesn't look like a real .${ext} file.` };
   return { ok: true, mime: t.mime, name };
 }

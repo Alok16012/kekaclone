@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness, CalendarDays, CalendarPlus, Clock, CornerDownLeft, FileSpreadsheet, FileText, History, Home, Inbox, LayoutDashboard,
   LayoutGrid, LifeBuoy, Mail, Receipt, Search, Settings, ShieldCheck, Target, User, UserPlus, Users, Wallet,
 } from "lucide-react";
+import { DoorOpen, FilePen, UserMinus } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { cn } from "@/lib/cn";
 import type { ShellData } from "@/ui/app-shell";
@@ -33,6 +34,9 @@ const PAGES: Item[] = [
   { id: "p-org", kind: "page", label: "Company structure", hint: "Settings", href: "/settings/org/departments", icon: <Settings />, keywords: "departments designations locations bands legal entities", admin: true },
   { id: "p-roles", kind: "page", label: "Roles & permissions", hint: "Settings", href: "/settings/roles", icon: <ShieldCheck />, keywords: "access admin", admin: true },
   { id: "p-sec", kind: "page", label: "Sign-in security", hint: "Settings", href: "/settings/security", icon: <ShieldCheck />, keywords: "otp code 2fa mfa password", admin: true },
+  { id: "p-exits", kind: "page", label: "Exits", href: "/org/exits", icon: <DoorOpen />, keywords: "offboarding resignation notice leaving relieving", admin: true },
+  { id: "p-notice", kind: "page", label: "Notice periods & exit reasons", hint: "Settings", href: "/settings/exits", icon: <Settings />, keywords: "notice period exit reasons checklist", admin: true },
+  { id: "p-letters", kind: "page", label: "Letter templates", hint: "Settings", href: "/settings/documents", icon: <FilePen />, keywords: "letters relieving experience placeholders templates", admin: true },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -40,6 +44,7 @@ const ACTIONS: Item[] = [
   { id: "a-add", kind: "action", label: "Add an employee", href: "/org/employees/new", icon: <UserPlus />, keywords: "new hire joiner", admin: true },
   { id: "a-import", kind: "action", label: "Import people from Excel", href: "/org/employees/import", icon: <FileSpreadsheet />, keywords: "bulk upload xlsx", admin: true },
   { id: "a-invite", kind: "action", label: "Invite people", hint: "Select them in People", href: "/org/employees", icon: <Mail />, keywords: "send invite password", admin: true },
+  { id: "a-resign", kind: "action", label: "Resign", hint: "From your profile", href: "/me", icon: <UserMinus />, keywords: "resignation quit leave job notice" },
 ];
 
 const RECENT_KEY = "erp-recent";

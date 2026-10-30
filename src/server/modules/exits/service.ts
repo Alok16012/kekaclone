@@ -94,6 +94,12 @@ export async function noticeFor(tx: Tx, employeeId: string, resignationDate: ISO
   return { policy: r.name, days, inProbation, lastWorkingDate: lastWorkingDay(resignationDate, days) };
 }
 
+/** Notice preview for the exit forms: your own, or someone you manage exits for. */
+export async function noticePreview(tx: Tx, actor: Actor, employeeId: string, resignationDate: ISODate) {
+  if (employeeId !== actor.employeeId && !canManageExitOf(actor, await placement(tx, employeeId))) throw new AppError("forbidden", "You can't manage exits for this person.");
+  return noticeFor(tx, employeeId, resignationDate);
+}
+
 // ---------- access ----------
 async function placement(tx: Tx, employeeId: string) {
   const [p] = await tx<(Placement & { manager_id: string | null; status: string; display_name: string })[]>`
@@ -325,7 +331,7 @@ export type ExitDetail = {
   tasks: { id: string; title: string; description: string | null; owner: string; assignee: string | null; assignee_id: string | null; due_date: string | null; status: "open" | "done" | "skipped"; mine: boolean }[];
   approvals: { level: number; status: "approved" | "rejected" | "pending" | "waiting" | "skipped"; comment: string | null; acted_at: string | null; approver: string; title: string | null }[];
   letters: { id: string; title: string; created_at: string; file_id: string }[];
-  can: { manage: boolean; withdraw: boolean; complete: boolean; decide: boolean };
+  can: { manage: boolean; withdraw: boolean; complete: boolean; decide: boolean; pendingForMe: boolean };
 };
 
 /** One exit, for HR, the person themselves, their manager, or an approver on it. */
@@ -369,7 +375,8 @@ export async function exitDetail(tx: Tx, actor: Actor, exitId: string): Promise<
       manage,
       withdraw: self && x.status === "under_review",
       complete: manage && x.status === "in_progress" && canCompleteNow(x.last_working_date, todayIn()),
-      decide: (manage || pendingMine) && x.status === "under_review",
+      decide: manage && x.status === "under_review",     // approvers who aren't HR decide from their Inbox
+      pendingForMe: pendingMine,
     },
   };
 }
