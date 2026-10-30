@@ -4,6 +4,8 @@ import { ArrowRight, CalendarPlus, Inbox, PartyPopper, UserPlus } from "lucide-r
 import { load, leaveMarks } from "@/server/page-data";
 import * as attendance from "@/server/modules/attendance/service";
 import * as leave from "@/server/modules/leave/service";
+import * as engage from "@/server/modules/engage/service";
+import { POST_KINDS, type PostKind } from "@/server/modules/engage/rules";
 import { orgOptions } from "@/server/modules/employees/service";
 import { can } from "@/server/auth/session";
 import { todayIn } from "@/lib/dates";
@@ -13,6 +15,8 @@ import { Button } from "@/ui/button";
 import { BalanceRing, Banner, EmptyState } from "@/ui/feedback";
 import { ClockCard } from "@/features/clock-card";
 import { ApplyLeave } from "@/features/apply-leave";
+import { Wall } from "@/features/engage/wall";
+import { CelebrationsCard, HolidaysCard } from "@/features/engage/home-widgets";
 
 export const metadata: Metadata = { title: "Home" };
 
@@ -23,17 +27,21 @@ function greeting(hourIST: number) {
 export default async function HomePage(props: PageProps<"/home">) {
   const sp = await props.searchParams;
   const data = await load(async (tx, actor) => {
-    const [state, bal, off, marks, opts, [{ pending }], [{ headcount }]] = await Promise.all([
+    const today = todayIn();
+    await engage.publishDue(tx, actor.tenant.id);   // scheduled announcements that are now due go out before we read the wall
+    const [state, bal, off, marks, opts, [{ pending }], [{ headcount }], wall, composer, celebrations, holidays] = await Promise.all([
       attendance.today(tx, actor.employeeId), leave.balances(tx, actor.employeeId), leave.offToday(tx),
       leaveMarks(tx, actor.employeeId), orgOptions(tx),
       tx<{ pending: number }[]>`select count(*)::int as pending from approval_steps where approver_employee_id = ${actor.employeeId} and status = 'pending'`,
       tx<{ headcount: number }[]>`select count(*)::int as headcount from employees where status <> 'relieved'`,
+      engage.feed(tx, actor, { tab: "org" }), engage.composerOptions(tx, actor), engage.celebrationsFor(tx, today), engage.upcomingHolidays(tx, actor.employeeId, today),
     ]);
-    return { actor, state, bal, off, marks, people: opts.people.filter((p) => p.id !== actor.employeeId), pending, headcount, admin: can(actor, "employees.write") };
+    return { actor, today, state, bal, off, marks, people: opts.people.filter((p) => p.id !== actor.employeeId), pending, headcount, admin: can(actor, "employees.write"), wall, composer, celebrations, holidays };
   });
   const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
-  const date = new Date(todayIn() + "T00:00:00Z").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+  const date = new Date(data.today + "T00:00:00Z").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
   const types = data.bal.map((b) => ({ id: b.id, name: b.name, available: Number.isFinite(b.available) ? b.available : null, allowHalfDay: !!b.rules.allowHalfDay }));
+  const compose = typeof sp.compose === "string" && (POST_KINDS as readonly string[]).includes(sp.compose) && (sp.compose !== "announcement" || data.composer.announce) ? (sp.compose as PostKind) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -48,45 +56,49 @@ export default async function HomePage(props: PageProps<"/home">) {
         </Banner>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <ClockCard state={data.state} />
-        <Card className="lg:col-span-2">
-          <CardHeader title="Leave balance" description="This leave year" action={<ApplyLeave types={types} marks={data.marks} people={data.people} trigger={<Button size="sm"><CalendarPlus />Apply leave</Button>} />} />
-          <CardBody className="flex flex-wrap justify-around gap-6">
-            {data.bal.filter((b) => b.quota != null).map((b) => (
-              <BalanceRing key={b.id} label={b.name.replace(/ leave$/i, "")} available={b.available} total={b.credited} color={b.color} />
-            ))}
-          </CardBody>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader title="Off today" description={`${data.off.length} ${data.off.length === 1 ? "person" : "people"}`} />
-          {data.off.length === 0 ? (
-            <EmptyState compact icon={<PartyPopper />} title="Everyone's in today" />
-          ) : (
-            <ul className="flex flex-col gap-3 px-5 pb-5">
-              {data.off.map((p) => (
-                <li key={p.id} className="flex items-center gap-3"><Avatar name={p.name} size="sm" status="leave" /><span className="min-w-0"><span className="block truncate text-base font-medium">{p.name}</span><span className="block text-sm text-text-muted">{p.type}{p.half ? " · half day" : ""}</span></span></li>
-              ))}
-            </ul>
+      {/* one column on phones (clock and approvals first, then the wall, then the rest); wall + widget column from lg */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[auto_1fr] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1">
+          <ClockCard state={data.state} />
+          {data.pending > 0 && (
+            <Link href="/inbox" className="group flex items-center gap-4 rounded-lg border border-border bg-surface px-4 py-3 shadow-card hover:bg-surface-sunken">
+              <span className="flex size-10 items-center justify-center rounded-pill bg-accent-soft text-accent-text"><Inbox className="size-5" aria-hidden /></span>
+              <span className="min-w-0 flex-1"><span className="block text-base font-medium">{data.pending} {data.pending === 1 ? "request needs" : "requests need"} your approval</span><span className="block text-sm text-text-muted">Open your Inbox</span></span>
+              <ArrowRight className="size-4 text-text-muted transition-transform group-hover:translate-x-0.5" aria-hidden />
+            </Link>
           )}
-        </Card>
-        <Card className="lg:col-span-2">
-          <CardHeader title="Waiting for you" />
-          <CardBody>
-            {data.pending > 0 ? (
-              <Link href="/inbox" className="group flex items-center gap-4 rounded-md border border-border px-4 py-3 hover:bg-surface-sunken">
-                <span className="flex size-10 items-center justify-center rounded-pill bg-accent-soft text-accent-text"><Inbox className="size-5" /></span>
-                <span className="flex-1"><span className="block text-base font-medium">{data.pending} {data.pending === 1 ? "request needs" : "requests need"} your approval</span><span className="block text-sm text-text-muted">Leave and attendance requests from your team</span></span>
-                <ArrowRight className="size-4 text-text-muted transition-transform group-hover:translate-x-0.5" />
-              </Link>
+        </div>
+
+        <div className="min-w-0 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+          <Wall initial={data.wall} options={data.composer} people={data.people} me={{ id: data.actor.employeeId, name: data.actor.name }} defaultCompose={compose} />
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-4 self-start lg:col-start-2 lg:row-start-2">
+          <CelebrationsCard data={data.celebrations} today={data.today} />
+          <Card>
+            <CardHeader title="Leave balance" description="This leave year" action={<ApplyLeave types={types} marks={data.marks} people={data.people} trigger={<Button size="sm"><CalendarPlus />Apply</Button>} />} />
+            <CardBody className="flex flex-wrap justify-around gap-4">
+              {data.bal.filter((b) => b.quota != null).length === 0
+                ? <p className="text-base text-text-muted">No leave balances yet.</p>
+                : data.bal.filter((b) => b.quota != null).map((b) => (
+                  <BalanceRing key={b.id} size={76} label={b.name.replace(/ leave$/i, "")} available={b.available} total={b.credited} color={b.color} />
+                ))}
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader title="Off today" description={`${data.off.length} ${data.off.length === 1 ? "person" : "people"}`} />
+            {data.off.length === 0 ? (
+              <EmptyState compact icon={<PartyPopper />} title="Everyone's in today" />
             ) : (
-              <p className="text-base text-text-muted">Nothing needs your approval right now.</p>
+              <ul className="flex flex-col gap-3 px-5 pb-5">
+                {data.off.map((p) => (
+                  <li key={p.id} className="flex items-center gap-3"><Avatar name={p.name} size="sm" status="leave" /><span className="min-w-0"><span className="block truncate text-base font-medium">{p.name}</span><span className="block text-sm text-text-muted">{p.type}{p.half ? " · half day" : ""}</span></span></li>
+                ))}
+              </ul>
             )}
-          </CardBody>
-        </Card>
+          </Card>
+          <HolidaysCard holidays={data.holidays} today={data.today} />
+        </div>
       </div>
     </div>
   );

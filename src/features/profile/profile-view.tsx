@@ -55,7 +55,7 @@ function SectionCard({ title, edit, children }: { title: string; edit?: React.Re
   );
 }
 
-export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profile; lookups: Lookups | null; today: string; currentManagerId: string | null }) {
+export function ProfileView({ p, lookups, today, currentManagerId, aboutExtra }: { p: Profile; lookups: Lookups | null; today: string; currentManagerId: string | null; aboutExtra?: React.ReactNode }) {
   const e = p.employee;
   const self = p.access === "self", admin = p.access === "admin";
   const canEdit = self || admin;
@@ -146,6 +146,7 @@ export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profil
                 {p.peers.length > 0 && <div><p className="mb-1.5 text-sm text-text-muted">Works with</p><ul className="flex flex-col gap-1.5">{p.peers.map((r) => <li key={r.id}><PersonLink p={r} /></li>)}</ul></div>}
               </CardBody>
             </Card>
+            {aboutExtra}
           </div>
         </TabsContent>
 
