@@ -27,6 +27,7 @@ const ITEMS = [
     { href: "/settings/time/penalties", label: "Penalties" },
     { href: "/settings/time/assignments", label: "Assignments" },
   ] },
+  { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
 ];
 
 /** Vertical on desktop, horizontally scrolling chips on mobile. */

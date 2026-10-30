@@ -26,6 +26,7 @@ const LABEL: Record<string, string> = {
 const EVENT: Record<string, string> = {
   joined: "Joined", profile_updated: "Profile updated", transfer: "Transferred", promotion: "Promoted", manager_change: "Manager changed",
   designation_change: "Designation changed", other: "Job details changed", probation_confirmed: "Probation confirmed", probation_extended: "Probation extended", probation_in_probation: "Put on probation",
+  exit_started: "Exit started", exited: "Left the company",
 };
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -55,7 +56,11 @@ function SectionCard({ title, edit, children }: { title: string; edit?: React.Re
   );
 }
 
-export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profile; lookups: Lookups | null; today: string; currentManagerId: string | null }) {
+export function ProfileView({ p, lookups, today, currentManagerId, actions, banner, extraTabs = [] }: {
+  p: Profile; lookups: Lookups | null; today: string; currentManagerId: string | null;
+  /** extra header buttons, a banner above the tabs and extra tabs, supplied by other modules (exits, documents) */
+  actions?: React.ReactNode; banner?: React.ReactNode; extraTabs?: { value: string; label: string; content: React.ReactNode }[];
+}) {
   const e = p.employee;
   const self = p.access === "self", admin = p.access === "admin";
   const canEdit = self || admin;
@@ -80,7 +85,7 @@ export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profil
               <h1 className="break-words text-2xl font-semibold tracking-tight">{e.display_name}</h1>
               <p className="text-base text-text-muted">{[e.designation, e.department].filter(Boolean).join(" · ") || "No designation yet"}</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {e.status === "active" ? <Badge tone="success">Active</Badge> : <Badge>{e.status}</Badge>}
+                {e.status === "active" ? <Badge tone="success">Active</Badge> : e.status === "notice" ? <Badge tone="warning">Serving notice</Badge> : e.status === "relieved" ? <Badge>Exited</Badge> : <Badge>{e.status}</Badge>}
                 {probation && <Badge tone="warning">In probation{e.probation_end_date ? ` till ${fmtDate(e.probation_end_date)}` : ""}</Badge>}
                 {e.probation_status === "confirmed" && <Badge tone="accent"><BadgeCheck />Confirmed</Badge>}
                 <Badge>{LABEL[e.worker_type] ?? e.worker_type}</Badge>
@@ -89,17 +94,18 @@ export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profil
               </div>
             </div>
           </div>
-          {admin && lookups && (
+          {((admin && lookups) || actions) && (
             <div className="flex flex-wrap gap-2">
-              {e.login && e.login !== "active" && e.login !== "disabled" && (
+              {actions}
+              {admin && e.login && e.login !== "active" && e.login !== "disabled" && (
                 <Button variant="secondary" size="sm" onClick={async () => {
                   const r = await inviteAction([e.id]);
                   if (r.ok && r.data!.sent) toast.success(e.login === "invited" ? "Invite sent again" : "Invite sent", { description: e.work_email });
                   else toast.error(r.ok ? r.data!.skipped[0]?.reason ?? "Not sent" : r.error);
                 }}><Send />{e.login === "invited" ? "Resend invite" : "Send invite"}</Button>
               )}
-              <ProbationDialog emp={e} today={today} trigger={<Button variant="secondary" size="sm"><BadgeCheck />Probation</Button>} />
-              <JobChangeDialog emp={e} current={{ manager_id: currentManagerId }} lookups={lookups} today={today} trigger={<Button size="sm"><ArrowRightLeft />Change job</Button>} />
+              {admin && lookups && <ProbationDialog emp={e} today={today} trigger={<Button variant="secondary" size="sm"><BadgeCheck />Probation</Button>} />}
+              {admin && lookups && <JobChangeDialog emp={e} current={{ manager_id: currentManagerId }} lookups={lookups} today={today} trigger={<Button size="sm"><ArrowRightLeft />Change job</Button>} />}
             </div>
           )}
         </div>
@@ -119,8 +125,10 @@ export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profil
         </Banner>
       )}
 
+      {banner}
+
       <Tabs defaultValue="about">
-        <TabsList items={[{ value: "about", label: "About" }, ...(p.employee.personal ? [{ value: "profile", label: "Profile" }] : []), { value: "job", label: "Job" }, ...(p.timeline.length ? [{ value: "timeline", label: "Timeline" }] : [])]} />
+        <TabsList items={[{ value: "about", label: "About" }, ...(p.employee.personal ? [{ value: "profile", label: "Profile" }] : []), { value: "job", label: "Job" }, ...(p.timeline.length ? [{ value: "timeline", label: "Timeline" }] : []), ...extraTabs.map((t) => ({ value: t.value, label: t.label }))]} />
 
         <TabsContent value="about">
           <div className="grid gap-4 lg:grid-cols-3">
@@ -243,6 +251,7 @@ export function ProfileView({ p, lookups, today, currentManagerId }: { p: Profil
             </Card>
           </TabsContent>
         )}
+        {extraTabs.map((t) => <TabsContent key={t.value} value={t.value}>{t.content}</TabsContent>)}
       </Tabs>
     </div>
   );

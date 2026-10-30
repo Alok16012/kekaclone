@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { sql, AppError } from "@/server/db";
 import { createEmployee } from "@/server/modules/employees/service";
 import { todayIn } from "@/lib/dates";
+import { ensureExitDefaults } from "@/server/modules/exits/service";
+import { ensureLetterDefaults } from "@/server/modules/documents/letters";
 
 export const RESERVED = new Set(["www", "app", "api", "admin", "mail", "help", "status", "careers", "portal", "erp", "static", "docs"]);
 
@@ -49,10 +51,13 @@ export async function provisionTenant(s: Signup) {
     }
     const [ga] = await tx<{ id: string }[]>`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'global_admin', 'Global admin', true, ${["*"]}) returning id`;
     await tx`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'hr_admin', 'HR admin', true,
-      ${["employees.read", "employees.write", "leave.admin", "attendance.admin", "approvals.override", "reports.read", "settings.org"]})`;
+      ${["employees.read", "employees.write", "leave.admin", "attendance.admin", "approvals.override", "reports.read", "settings.org", "exits.manage", "documents.manage"]})`;
     await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'leave', 'Leave: reporting manager', ${tx.json([{ approver: "manager" }])})`;
     await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'attendance_request', 'Attendance: reporting manager', ${tx.json([{ approver: "manager" }])})`;
     await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'comp_off', 'Comp-off: reporting manager', ${tx.json([{ approver: "manager" }])})`;
+
+    await ensureExitDefaults(tx, tenantId);     // notice periods 30/60/90, exit reasons, exit checklist
+    await ensureLetterDefaults(tx, tenantId);   // relieving + experience letter templates
 
     const [founder] = await tx<{ id: string }[]>`select id from designations where title = 'Founder'`;
     const [mgmt] = await tx<{ id: string }[]>`select id from departments where name = 'Management'`;

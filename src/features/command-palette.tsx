@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness, CalendarDays, CalendarPlus, Clock, CornerDownLeft, FileSpreadsheet, FileText, History, Home, Inbox, LayoutDashboard,
   LayoutGrid, LifeBuoy, Mail, Receipt, Search, Settings, ShieldCheck, Target, User, UserPlus, Users, Wallet,
 } from "lucide-react";
+import { DoorOpen, FilePen, UserMinus } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { cn } from "@/lib/cn";
 import type { ShellData } from "@/ui/app-shell";
@@ -42,6 +43,9 @@ const PAGES: Item[] = [
   { id: "p-holidays", kind: "page", label: "Holidays", hint: "Settings", href: "/settings/holidays", icon: <Settings />, keywords: "holiday list floater optional festival", admin: true },
   { id: "p-time", kind: "page", label: "Time settings", hint: "Shifts, weekly offs, clock-in rules", href: "/settings/time/shifts", icon: <Clock />, keywords: "shift roster weekly off geofence ip penalty late", admin: true },
   { id: "p-time-assign", kind: "page", label: "Shift and policy assignments", href: "/settings/time/assignments", icon: <Users />, keywords: "assign shift weekly off bulk", admin: true },
+  { id: "p-exits", kind: "page", label: "Exits", href: "/org/exits", icon: <DoorOpen />, keywords: "offboarding resignation notice leaving relieving", admin: true },
+  { id: "p-notice", kind: "page", label: "Notice periods & exit reasons", hint: "Settings", href: "/settings/exits", icon: <Settings />, keywords: "notice period exit reasons checklist", admin: true },
+  { id: "p-letters", kind: "page", label: "Letter templates", hint: "Settings", href: "/settings/documents", icon: <FilePen />, keywords: "letters relieving experience placeholders templates", admin: true },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -52,6 +56,7 @@ const ACTIONS: Item[] = [
   { id: "a-invite", kind: "action", label: "Invite people", hint: "Select them in People", href: "/org/employees", icon: <Mail />, keywords: "send invite password", admin: true },
   { id: "a-regularize", kind: "action", label: "Regularize attendance", hint: "From a day's menu", href: "/me/attendance", icon: <Clock />, keywords: "forgot clock out fix punch missing swipe" },
   { id: "a-wfh", kind: "action", label: "Ask to work from home", href: "/me/attendance?tab=requests", icon: <Home />, keywords: "wfh remote on duty od" },
+  { id: "a-resign", kind: "action", label: "Resign", hint: "From your profile", href: "/me", icon: <UserMinus />, keywords: "resignation quit leave job notice" },
 ];
 
 const RECENT_KEY = "erp-recent";

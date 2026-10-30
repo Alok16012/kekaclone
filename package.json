@@ -16,7 +16,9 @@
     "smoke:leave": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-leave.ts",
     "jobs:leave": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-leave.ts",
     "smoke:attendance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-attendance.ts",
-    "jobs:attendance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-attendance.ts"
+    "jobs:attendance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-attendance.ts",
+    "smoke:exitdocs": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-exitdocs.ts",
+    "jobs:exits": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-exits.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
@@ -25,6 +27,7 @@
     "exceljs": "^4.4.0",
     "lucide-react": "^1.63.0",
     "next": "16.4.3",
+    "pdf-lib": "^1.17.1",
     "postgres": "^3.4.9",
     "radix-ui": "^1.8.1",
     "react": "19.3.0",
