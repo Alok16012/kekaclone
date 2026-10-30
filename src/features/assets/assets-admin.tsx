@@ -30,7 +30,7 @@ export function AssetsAdmin({ assets, structure, requests, people, canEdit, init
       <PageHeader title="Assets" description={`${assets.length} ${assets.length === 1 ? "asset" : "assets"} · ${counts.assigned} with people · ${counts.available} available`} />
       {!canEdit && <Banner tone="info" className="mb-4" title="You can hand assets to people in your scope">Adding or editing inventory needs company-wide asset access.</Banner>}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList items={[{ value: "inventory", label: "Inventory", count: assets.length }, { value: "requests", label: "Requests", count: toHand.length }, { value: "types", label: "Categories and types" }]} />
+        <TabsList items={[{ value: "inventory", label: "Inventory", count: assets.length }, { value: "requests", label: "Requests", count: toHand.length }, { value: "types", label: "Types" }]} />
         <TabsContent value="inventory"><Inventory assets={assets} structure={structure} people={people} canEdit={canEdit} /></TabsContent>
         <TabsContent value="requests"><Requests requests={requests} assets={assets} people={people} /></TabsContent>
         <TabsContent value="types"><Structure structure={structure} canEdit={canEdit} /></TabsContent>
