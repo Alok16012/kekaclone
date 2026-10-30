@@ -5,9 +5,10 @@ import { onCompOffDecided, onLeaveDecided } from "@/server/modules/leave/effects
 import { onProfileChangeDecided } from "@/server/modules/employees/effects";
 import { onAttendanceRequestDecided } from "@/server/modules/attendance/requests";
 import { onExitDecided } from "@/server/modules/exits/effects";
+import { onExpenseAdvanceDecided, onExpenseClaimDecided } from "@/server/modules/expenses/effects";
 
 export type Level = { approver: "manager" | "l2_manager" | "role" | "employee"; role?: string; id?: string };
-export type EntityType = "leave" | "attendance_request" | "profile_change" | "comp_off" | "exit";
+export type EntityType = "leave" | "attendance_request" | "profile_change" | "comp_off" | "exit" | "expense_claim" | "expense_advance";
 
 /** Used when a tenant has no workflow configured for the entity type. */
 const DEFAULT_LEVELS: Record<EntityType, Level[]> = {
@@ -16,6 +17,8 @@ const DEFAULT_LEVELS: Record<EntityType, Level[]> = {
   profile_change: [{ approver: "role", role: "hr_admin" }],
   comp_off: [{ approver: "manager" }],
   exit: [{ approver: "manager" }, { approver: "role", role: "hr_admin" }],
+  expense_claim: [{ approver: "manager" }, { approver: "role", role: "finance" }],
+  expense_advance: [{ approver: "manager" }, { approver: "role", role: "finance" }],
 };
 
 async function resolveApprover(tx: Tx, level: Level, requesterId: string): Promise<string | null> {
@@ -88,9 +91,12 @@ export async function decide(tx: Tx, actor: Actor, stepId: string, decision: "ap
     if (req.entity_type === "comp_off") await onCompOffDecided(tx, actor, req.entity_id, final);
     if (req.entity_type === "attendance_request") await onAttendanceRequestDecided(tx, actor, req.entity_id, final);
     if (req.entity_type === "exit") await onExitDecided(tx, actor, req.entity_id, final);
+    if (req.entity_type === "expense_claim") await onExpenseClaimDecided(tx, actor, req.entity_id, final);
+    if (req.entity_type === "expense_advance") await onExpenseAdvanceDecided(tx, actor, req.entity_id, final);
     await notifyEmployee(tx, actor.tenant.id, req.requester_employee_id, `request.${final}`,
       final === "approved" ? "Your request was approved" : "Your request was declined", req.summary,
-      req.entity_type === "leave" || req.entity_type === "comp_off" ? "/me/leave" : req.entity_type === "profile_change" || req.entity_type === "exit" ? "/me" : "/me/attendance");
+      req.entity_type === "leave" || req.entity_type === "comp_off" ? "/me/leave" : req.entity_type === "profile_change" || req.entity_type === "exit" ? "/me"
+        : req.entity_type === "expense_claim" ? "/me/expenses" : req.entity_type === "expense_advance" ? "/me/expenses/advances" : "/me/attendance");
   }
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
            values (${actor.tenant.id}, ${actor.userId}, ${req.entity_type}, ${req.entity_id}, ${"approval." + decision}, ${tx.json({ comment: comment ?? null })})`;

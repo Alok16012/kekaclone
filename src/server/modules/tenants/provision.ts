@@ -7,6 +7,7 @@ import { ensureExitDefaults } from "@/server/modules/exits/service";
 import { ensureLetterDefaults } from "@/server/modules/documents/letters";
 import { DEFAULT_BADGES } from "@/server/modules/engage/rules";
 import { ensurePayrollDefaults } from "@/server/modules/payroll/defaults";
+import { ensureExpenseDefaults } from "@/server/modules/expenses/admin";
 
 export const RESERVED = new Set(["www", "app", "api", "admin", "mail", "help", "status", "careers", "portal", "erp", "static", "docs"]);
 
@@ -63,6 +64,7 @@ export async function provisionTenant(s: Signup) {
     await ensureExitDefaults(tx, tenantId);     // notice periods 30/60/90, exit reasons, exit checklist
     await ensureLetterDefaults(tx, tenantId);   // relieving + experience letter templates
     await ensurePayrollDefaults(tx, tenantId);  // salary components, "Monthly" pay group, "Standard" structure
+    await ensureExpenseDefaults(tx, tenantId);  // Standard expense policy + categories, Finance role
 
     const [founder] = await tx<{ id: string }[]>`select id from designations where title = 'Founder'`;
     const [mgmt] = await tx<{ id: string }[]>`select id from departments where name = 'Management'`;
