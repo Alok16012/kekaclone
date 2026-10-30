@@ -12,7 +12,7 @@ export const PERMISSIONS = [
     { key: "engage.announce", label: "Post announcements and moderate the Home wall" },
   ] },
   { group: "Payroll", items: [
-    { key: "payroll.admin", label: "Set up payroll and manage people's salaries, bank and statutory details" },
+    { key: "payroll.admin", label: "Set up and run payroll, manage people's salaries, bank and statutory details, and record a CA check of statutory rates" },
   ] },
   { group: "Approvals", items: [
     { key: "approvals.override", label: "Approve or decline on anyone's behalf" },

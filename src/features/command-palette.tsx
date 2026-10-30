@@ -37,6 +37,7 @@ const PAGES: Item[] = [
   { id: "p-ann", kind: "page", label: "Announcements", href: "/engage/announcements", icon: <Megaphone />, keywords: "engage news pin schedule wall", admin: true },
   { id: "p-polls", kind: "page", label: "Poll results", href: "/engage/polls", icon: <ChartBar />, keywords: "engage vote survey wall", admin: true },
   { id: "p-sec", kind: "page", label: "Sign-in security", hint: "Settings", href: "/settings/security", icon: <ShieldCheck />, keywords: "otp code 2fa mfa password", admin: true },
+  { id: "p-statutory", kind: "page", label: "Statutory rates", hint: "Settings", href: "/settings/payroll/statutory", icon: <Settings />, keywords: "pf esi professional tax pt lwf gratuity income tax tds slabs ca verification", admin: true },
   { id: "p-audit", kind: "page", label: "Audit log", hint: "Settings", href: "/settings/audit", icon: <History />, keywords: "history changes who did logins sign-ins compliance", admin: true },
   { id: "p-setup", kind: "page", label: "Company setup", hint: "Getting started", href: "/setup", icon: <Settings />, keywords: "wizard onboarding first run checklist", admin: true },
   { id: "p-team-leave", kind: "page", label: "Team leave calendar", href: "/team/leave", icon: <CalendarDays />, keywords: "who is off away absent vacation" },

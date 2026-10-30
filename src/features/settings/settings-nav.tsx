@@ -32,6 +32,7 @@ const ITEMS = [
     { href: "/settings/payroll/pay-groups", label: "Pay groups" },
     { href: "/settings/payroll/structures", label: "Salary structures" },
     { href: "/settings/payroll/revisions", label: "Salary revisions" },
+    { href: "/settings/payroll/statutory", label: "Statutory rates" },
     { href: "/settings/payroll/compliance", label: "Statutory compliance" },
   ] },
   { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
