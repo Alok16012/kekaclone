@@ -3,6 +3,7 @@ import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { onLeaveDecided } from "@/server/modules/leave/effects";
 import { onProfileChangeDecided } from "@/server/modules/employees/effects";
+import { onAttendanceRequestDecided } from "@/server/modules/attendance/requests";
 
 type Level = { approver: "manager" | "l2_manager" | "role" | "employee"; role?: string; id?: string };
 export type EntityType = "leave" | "attendance_request" | "profile_change";
@@ -78,6 +79,7 @@ export async function decide(tx: Tx, actor: Actor, stepId: string, decision: "ap
     await tx`update approval_requests set status = ${final} where id = ${step.request_id}`;
     if (req.entity_type === "leave") await onLeaveDecided(tx, actor, req.entity_id, final);
     if (req.entity_type === "profile_change") await onProfileChangeDecided(tx, actor, req.entity_id, final);
+    if (req.entity_type === "attendance_request") await onAttendanceRequestDecided(tx, actor, req.entity_id, final);
     await notifyEmployee(tx, actor.tenant.id, req.requester_employee_id, `request.${final}`,
       final === "approved" ? "Your request was approved" : "Your request was declined", req.summary,
       req.entity_type === "leave" ? "/me/leave" : req.entity_type === "profile_change" ? "/me" : "/me/attendance");
