@@ -23,6 +23,11 @@ const PAGES: Item[] = [
   { id: "p-leave", kind: "page", label: "Leave", href: "/me/leave", icon: <CalendarDays />, keywords: "holiday time off balance chhutti" },
   { id: "p-pay", kind: "page", label: "My finances", href: "/me/pay", icon: <Wallet />, keywords: "payslip salary tax" },
   { id: "p-exp", kind: "page", label: "Expenses", href: "/me/expenses", icon: <Receipt />, keywords: "claims reimbursement" },
+  { id: "p-exp-adv", kind: "page", label: "Expense advances", href: "/me/expenses/advances", icon: <Receipt />, keywords: "advance cash trip money before" },
+  { id: "p-exp-desk", kind: "page", label: "Expense approvals", hint: "Expense desk", href: "/expenses/approvals", icon: <Receipt />, keywords: "claims approve finance review receipts" },
+  { id: "p-exp-pay", kind: "page", label: "Expense payouts", hint: "Expense desk", href: "/expenses/payouts", icon: <Wallet />, keywords: "reimburse pay payroll off-cycle finance" },
+  { id: "p-exp-rep", kind: "page", label: "Expense reports", hint: "Expense desk", href: "/expenses/reports", icon: <ChartBar />, keywords: "spend category department month csv export" },
+  { id: "p-exp-set", kind: "page", label: "Expense policies", hint: "Settings", href: "/settings/expenses", icon: <Settings />, keywords: "categories limits mileage per diem receipt gl", admin: true },
   { id: "p-perf", kind: "page", label: "Performance", href: "/me/performance", icon: <Target />, keywords: "goals okr review feedback" },
   { id: "p-help", kind: "page", label: "Helpdesk", href: "/me/helpdesk", icon: <LifeBuoy />, keywords: "ticket question support" },
   { id: "p-me", kind: "page", label: "My profile", href: "/me", icon: <User />, keywords: "profile details address" },
@@ -52,6 +57,7 @@ const PAGES: Item[] = [
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
+  { id: "a-expense", kind: "action", label: "Add an expense", href: "/me/expenses?add=1", icon: <Receipt />, keywords: "claim receipt reimbursement bill" },
   { id: "a-clock", kind: "action", label: "Clock in or out", href: "/me/attendance", icon: <Clock />, keywords: "punch attendance" },
   { id: "a-compoff", kind: "action", label: "Claim comp-off", href: "/me/leave?compoff=1", icon: <CalendarPlus />, keywords: "worked weekend holiday compensatory off" },
   { id: "a-post", kind: "action", label: "Write a post", href: "/home?compose=post", icon: <PenLine />, keywords: "wall share update engage" },

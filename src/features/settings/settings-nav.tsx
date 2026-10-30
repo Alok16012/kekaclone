@@ -27,6 +27,7 @@ const ITEMS = [
     { href: "/settings/time/penalties", label: "Penalties" },
     { href: "/settings/time/assignments", label: "Assignments" },
   ] },
+  { group: "Finance", links: [{ href: "/settings/expenses", label: "Expenses" }] },
   { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
 ];
 

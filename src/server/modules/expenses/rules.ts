@@ -213,6 +213,19 @@ export function summarize(rows: ReportRow[]) {
   };
 }
 
+const isDate = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + "T00:00:00Z"));
+/** Report period from the URL: defaults to the start of the month two months back until today; swapped if reversed; at most ~2 years. */
+export function reportRange(from: string | null, to: string | null, today: string) {
+  const [y, m] = today.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 3, 1));
+  let f = isDate(from) ? from : d.toISOString().slice(0, 10);
+  let t = isDate(to) ? to : today;
+  if (f > t) [f, t] = [t, f];
+  const minFrom = `${Number(t.slice(0, 4)) - 2}${t.slice(4)}`;
+  if (f < minFrom) f = minFrom;
+  return { from: f, to: t };
+}
+
 /** RFC 4180 CSV. Cells that a spreadsheet would run as a formula (=, +, -, @, tab, CR) are prefixed with a quote. */
 export function toCsv(rows: (string | number | null | undefined)[][]) {
   const cell = (v: string | number | null | undefined) => {

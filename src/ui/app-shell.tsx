@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Bell, BriefcaseBusiness, LayoutDashboard, CalendarDays, ChevronsLeft, Clock, FileText, Home, Inbox, LayoutGrid, LifeBuoy,
   Menu as MenuIcon, Receipt, Search, Settings, Target, User, Users, Wallet, X,
-  Megaphone,
+  Megaphone, ReceiptIndianRupee,
 } from "lucide-react";
 import { DoorOpen } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -38,6 +38,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/org/employees", label: "People", icon: LayoutGrid },
     { href: "/org/documents", label: "Documents", icon: FileText },
     { href: "/org/exits", label: "Exits", icon: DoorOpen },
+    { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
     { href: "/hire/jobs", label: "Hiring", icon: BriefcaseBusiness },
     { href: "/engage/announcements", label: "Announcements", icon: Megaphone },
     { href: "/settings", label: "Settings", icon: Settings },
@@ -92,7 +93,7 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals"]);
 
 function navFor(d: ShellData | null): NavGroup[] {
   return DEFAULT_NAV.map((g) => ({

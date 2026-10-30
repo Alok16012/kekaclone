@@ -24,7 +24,8 @@ const ok = (name: string) => { passed++; console.log(`  ✓ ${name}`); };
 const rollback = async (tenantId: string, fn: (tx: Tx) => Promise<void>) =>
   withTenant(tenantId, async (tx) => { await fn(tx); await track(tx); throw new Error("rollback"); }).catch((e) => { if (e.message !== "rollback") throw e; });
 const blobs: string[] = [];
-const track = async (tx: Tx) => { for (const f of await tx<{ storage_key: string }[]>`select storage_key from files where created_at > now() - interval '10 minutes'`) blobs.push(f.storage_key); };
+/** Files written inside this (rolled-back) transaction: now() is the transaction's start, so seeded files are never touched. */
+const track = async (tx: Tx) => { for (const f of await tx<{ storage_key: string }[]>`select storage_key from files where created_at >= now()`) blobs.push(f.storage_key); };
 
 async function main() {
   const [t] = await sql<{ id: string }[]>`select id from tenant_by_subdomain(${DEMO_SUBDOMAIN})`;

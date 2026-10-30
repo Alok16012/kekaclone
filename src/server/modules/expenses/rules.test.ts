@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canMove, categoryProblem, checkLine, csvAmount, divRound, inr, mileagePaise, parseHalfDays, parseKm, parseRupees, perDiemPaise,
-  schedulableMonth, settleAgainstAdvance, summarize, toCsv, upcomingMonths, violationText, isBlocking,
+  reportRange, schedulableMonth, settleAgainstAdvance, summarize, toCsv, upcomingMonths, violationText, isBlocking,
   type Category, type Line,
 } from "./rules";
 
@@ -143,6 +143,14 @@ describe("reports and CSV", () => {
     expect(s.byCategory).toEqual([{ key: "Travel", totalPaise: 500, count: 1 }, { key: "Meals", totalPaise: 350, count: 2 }]);
     expect(s.byDepartment.map((g) => g.key)).toEqual(["Sales", "No department"]);
     expect(s.byMonth.map((g) => [g.key, g.totalPaise])).toEqual([["2026-09", 100], ["2026-10", 750]]);
+  });
+  it("report range: default, swapped, capped", () => {
+    expect(reportRange(null, null, "2026-10-30")).toEqual({ from: "2026-08-01", to: "2026-10-30" });
+    expect(reportRange("2026-02-01", null, "2026-03-15")).toEqual({ from: "2026-02-01", to: "2026-03-15" });
+    expect(reportRange(null, null, "2026-01-10")).toEqual({ from: "2025-11-01", to: "2026-01-10" });
+    expect(reportRange("2026-10-01", "2026-09-01", "2026-10-30")).toEqual({ from: "2026-09-01", to: "2026-10-01" });
+    expect(reportRange("2001-01-01", "2026-10-01", "2026-10-30")).toEqual({ from: "2024-10-01", to: "2026-10-01" });
+    expect(reportRange("junk", "2026-13-40", "2026-10-30")).toEqual({ from: "2026-08-01", to: "2026-10-30" });
   });
   it("escapes quotes, commas, new lines and formula starts", () => {
     expect(toCsv([["a,b", 'say "hi"', "x\ny", "=1+1", "-2", "@x", null, 5]])).toBe('"a,b","say ""hi""","x\ny",\'=1+1,\'-2,\'@x,,5\r\n');
