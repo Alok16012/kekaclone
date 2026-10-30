@@ -6,6 +6,7 @@ import { todayIn } from "@/lib/dates";
 import { ensureExitDefaults } from "@/server/modules/exits/service";
 import { ensureLetterDefaults } from "@/server/modules/documents/letters";
 import { DEFAULT_BADGES } from "@/server/modules/engage/rules";
+import { ensurePayrollDefaults } from "@/server/modules/payroll/defaults";
 
 export const RESERVED = new Set(["www", "app", "api", "admin", "mail", "help", "status", "careers", "portal", "erp", "static", "docs"]);
 
@@ -53,6 +54,7 @@ export async function provisionTenant(s: Signup) {
     const [ga] = await tx<{ id: string }[]>`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'global_admin', 'Global admin', true, ${["*"]}) returning id`;
     await tx`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'hr_admin', 'HR admin', true,
       ${["employees.read", "employees.write", "leave.admin", "attendance.admin", "approvals.override", "reports.read", "settings.org", "exits.manage", "documents.manage", "engage.announce"]})`;
+    await tx`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'payroll_admin', 'Payroll admin', true, ${["payroll.admin", "employees.read"]})`;
     for (const b of DEFAULT_BADGES) await tx`insert into badges (tenant_id, name, icon) values (${tenantId}, ${b.name}, ${b.icon})`;
     await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'leave', 'Leave: reporting manager', ${tx.json([{ approver: "manager" }])})`;
     await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'attendance_request', 'Attendance: reporting manager', ${tx.json([{ approver: "manager" }])})`;
@@ -60,6 +62,7 @@ export async function provisionTenant(s: Signup) {
 
     await ensureExitDefaults(tx, tenantId);     // notice periods 30/60/90, exit reasons, exit checklist
     await ensureLetterDefaults(tx, tenantId);   // relieving + experience letter templates
+    await ensurePayrollDefaults(tx, tenantId);  // salary components, "Monthly" pay group, "Standard" structure
 
     const [founder] = await tx<{ id: string }[]>`select id from designations where title = 'Founder'`;
     const [mgmt] = await tx<{ id: string }[]>`select id from departments where name = 'Management'`;
