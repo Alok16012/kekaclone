@@ -28,6 +28,7 @@ const ITEMS = [
     { href: "/settings/time/assignments", label: "Assignments" },
   ] },
   { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
+  { group: "Service desk", links: [{ href: "/settings/helpdesk", label: "Helpdesk" }] },
 ];
 
 /** Vertical on desktop, horizontally scrolling chips on mobile. */

@@ -8,6 +8,7 @@ import {
   ChartBar, Megaphone, PenLine, Sparkles,
 } from "lucide-react";
 import { DoorOpen, FilePen, UserMinus } from "lucide-react";
+import { Headset, Laptop, Package, PackagePlus } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { cn } from "@/lib/cn";
 import type { ShellData } from "@/ui/app-shell";
@@ -48,6 +49,10 @@ const PAGES: Item[] = [
   { id: "p-time-assign", kind: "page", label: "Shift and policy assignments", href: "/settings/time/assignments", icon: <Users />, keywords: "assign shift weekly off bulk", admin: true },
   { id: "p-exits", kind: "page", label: "Exits", href: "/org/exits", icon: <DoorOpen />, keywords: "offboarding resignation notice leaving relieving", admin: true },
   { id: "p-notice", kind: "page", label: "Notice periods & exit reasons", hint: "Settings", href: "/settings/exits", icon: <Settings />, keywords: "notice period exit reasons checklist", admin: true },
+  { id: "p-assets-me", kind: "page", label: "My assets", href: "/me/assets", icon: <Laptop />, keywords: "laptop equipment issued id card acknowledge" },
+  { id: "p-helpdesk-q", kind: "page", label: "Helpdesk queue", href: "/helpdesk", icon: <Headset />, keywords: "tickets agent support sla assign reply" },
+  { id: "p-assets", kind: "page", label: "Assets", href: "/org/assets", icon: <Package />, keywords: "inventory laptop hand over return recovery", admin: true },
+  { id: "p-helpdesk-set", kind: "page", label: "Helpdesk categories", hint: "Settings", href: "/settings/helpdesk", icon: <Settings />, keywords: "sla escalation agents ticket", admin: true },
   { id: "p-letters", kind: "page", label: "Letter templates", hint: "Settings", href: "/settings/documents", icon: <FilePen />, keywords: "letters relieving experience placeholders templates", admin: true },
 ];
 const ACTIONS: Item[] = [
@@ -61,6 +66,8 @@ const ACTIONS: Item[] = [
   { id: "a-invite", kind: "action", label: "Invite people", hint: "Select them in People", href: "/org/employees", icon: <Mail />, keywords: "send invite password", admin: true },
   { id: "a-regularize", kind: "action", label: "Regularize attendance", hint: "From a day's menu", href: "/me/attendance", icon: <Clock />, keywords: "forgot clock out fix punch missing swipe" },
   { id: "a-wfh", kind: "action", label: "Ask to work from home", href: "/me/attendance?tab=requests", icon: <Home />, keywords: "wfh remote on duty od" },
+  { id: "a-ticket", kind: "action", label: "Raise a helpdesk ticket", href: "/me/helpdesk?new=1", icon: <LifeBuoy />, keywords: "help support it hr question problem issue" },
+  { id: "a-asset-req", kind: "action", label: "Request an asset", href: "/me/assets?request=1", icon: <PackagePlus />, keywords: "laptop monitor headset equipment need" },
   { id: "a-resign", kind: "action", label: "Resign", hint: "From your profile", href: "/me", icon: <UserMinus />, keywords: "resignation quit leave job notice" },
 ];
 
