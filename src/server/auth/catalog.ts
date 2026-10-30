@@ -20,6 +20,10 @@ export const PERMISSIONS = [
   { group: "Documents", items: [
     { key: "documents.manage", label: "Manage company documents, letter templates and issue letters" },
   ] },
+  { group: "Service desk", items: [
+    { key: "helpdesk.admin", label: "Set up helpdesk categories and handle every ticket" },
+    { key: "assets.admin", label: "Manage the asset inventory, hand assets out and take them back" },
+  ] },
   { group: "Settings", items: [
     { key: "settings.org", label: "Edit company structure (departments, locations, …)" },
     { key: "settings.roles", label: "Manage roles and who has them" },
