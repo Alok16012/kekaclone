@@ -8,6 +8,9 @@ export const PERMISSIONS = [
     { key: "leave.admin", label: "Manage leave plans, balances and requests" },
     { key: "attendance.admin", label: "Manage shifts, attendance and regularisations" },
   ] },
+  { group: "Engage", items: [
+    { key: "engage.announce", label: "Post announcements and moderate the Home wall" },
+  ] },
   { group: "Approvals", items: [
     { key: "approvals.override", label: "Approve or decline on anyone's behalf" },
   ] },

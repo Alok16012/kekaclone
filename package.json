@@ -11,7 +11,8 @@
     "db:seed": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/seed.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke.ts"
+    "smoke": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke.ts",
+    "smoke:engage": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-engage.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
