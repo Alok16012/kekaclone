@@ -191,8 +191,11 @@ export async function listStructures(tx: Tx, payGroupId?: string) {
     where ${payGroupId ?? null}::uuid is null or s.pay_group_id = ${payGroupId ?? null}
     order by g.name, s.name`;
   const lines = rows.length ? await linesFor(tx, rows.map((r) => r.id)) : [];
-  return rows.map((r) => ({ ...r, lines: lines.filter((l) => l.structure_id === r.id).map(({ structure_id: _, ...l }) => l) })) as StructureRow[];
+  return rows.map((r) => ({ ...r, lines: lines.filter((l) => l.structure_id === r.id).map(stripLine) })) as StructureRow[];
 }
+
+const stripLine = (l: StructureLineRow & { structure_id: string }): StructureLineRow =>
+  ({ id: l.id, component_id: l.component_id, code: l.code, name: l.name, kind: l.kind, calc: l.calc, value: l.value, formula: l.formula, position: l.position });
 
 async function linesFor(tx: Tx, ids: string[]) {
   return tx<(StructureLineRow & { structure_id: string })[]>`
@@ -205,7 +208,7 @@ export async function getStructure(tx: Tx, id: string) {
   const [s] = await tx<Omit<StructureRow, "lines" | "people">[]>`
     select s.id, s.name, s.pay_group_id, g.name as pay_group from salary_structures s join pay_groups g on g.id = s.pay_group_id where s.id = ${id}`;
   if (!s) return null;
-  return { ...s, lines: (await linesFor(tx, [id])).map(({ structure_id: _, ...l }) => l) };
+  return { ...s, lines: (await linesFor(tx, [id])).map(stripLine) };
 }
 
 /** A structure as the formula engine wants it. */
@@ -312,7 +315,7 @@ export async function recordCaVerification(tx: Tx, actor: Actor, raw: unknown, t
   assertPayrollAdmin(actor);
   const p = caInput.safeParse(raw);
   if (!p.success) throw invalid(p.error);
-  const { confirm: _, ...v } = p.data;
+  const v = { caName: p.data.caName, firm: p.data.firm, membershipNo: p.data.membershipNo, verifiedOn: p.data.verifiedOn, note: p.data.note };
   if (v.verifiedOn > today) throw new AppError("invalid", "The review date can't be in the future.", "verifiedOn");
   await audit(tx, actor, { entityType: "statutory_rates", entityId: null, action: "payroll.ca_verified", diff: { ...v, firm: v.firm || null, membershipNo: v.membershipNo || null, note: v.note || null } });
 }

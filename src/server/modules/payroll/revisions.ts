@@ -137,7 +137,7 @@ async function check(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
   return { results, valid: results.every((r) => !r.errors.length) };
 }
 
-const strip = ({ employeeId: _, structureId: __, ...r }: RevisionRow & { employeeId?: string; structureId?: string }): RevisionRow => r;
+const strip = (r: RevisionRow & { employeeId?: string; structureId?: string }): RevisionRow => ({ rowNumber: r.rowNumber, employee: r.employee, name: r.name, currentPaise: r.currentPaise, newPaise: r.newPaise, effectiveFrom: r.effectiveFrom, reason: r.reason, structure: r.structure, arrearsFromMonth: r.arrearsFromMonth, unchanged: r.unchanged, errors: r.errors });
 
 export async function previewRevisionImport(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
   const { results, valid } = await check(tx, actor, bytes);

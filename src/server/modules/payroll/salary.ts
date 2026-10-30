@@ -258,7 +258,7 @@ export async function financesFor(tx: Tx, actor: Actor, employeeId: string): Pro
     statutory: await getStatutoryProfile(tx, employeeId),
     bank: bank ? { bankName: bank.bank_name, ifsc: bank.ifsc, last4: bank.account_last4, holderName: bank.holder_name, updatedAt: bank.updated_at.toISOString() } : null,
     payGroup: pg ?? null,
-    structures: canEdit ? (await listStructures(tx)).filter((s) => !pg || s.pay_group_id === pg.id).map(({ people: _, ...s }) => s) : [],
+    structures: canEdit ? (await listStructures(tx)).filter((s) => !pg || s.pay_group_id === pg.id).map((s) => ({ id: s.id, name: s.name, pay_group_id: s.pay_group_id, pay_group: s.pay_group, lines: s.lines })) : [],
     states: INDIAN_STATES, today,
   };
 }
