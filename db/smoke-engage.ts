@@ -34,7 +34,7 @@ async function main() {
     return { tenant, userId: e.user_id, employeeId: e.id, name: e.display_name, email: "", title: null, roles: roles.map((r) => r.key),
       permissions: new Set(roles.flatMap((r) => r.permissions)), grants: roles.map((r) => ({ permissions: r.permissions, scopes: r.scopes ?? [] })) };
   });
-  const [asha, priya, rohan, arjun, meera, karan] = await Promise.all(["Asha", "Priya", "Rohan", "Arjun", "Meera", "Karan"].map(actor));
+  const [priya, rohan, arjun, meera, karan] = await Promise.all(["Priya", "Rohan", "Arjun", "Meera", "Karan"].map(actor));
   const ids = await withTenant(tenant.id, async (tx) => {
     const d = await tx<{ id: string; name: string }[]>`select id, name from departments`;
     const [b] = await tx<{ id: string }[]>`select id from badges where is_active order by name limit 1`;
