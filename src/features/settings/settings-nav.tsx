@@ -13,6 +13,13 @@ const ITEMS = [
     { href: "/settings/org/bands", label: "Bands" },
   ] },
   { group: "Access", links: [{ href: "/settings/roles", label: "Roles & permissions" }, { href: "/settings/security", label: "Sign-in security" }, { href: "/settings/audit", label: "Audit log" }] },
+  { group: "Time", links: [
+    { href: "/settings/leave/plans", label: "Leave plans" },
+    { href: "/settings/leave/types", label: "Leave types" },
+    { href: "/settings/leave/balances", label: "Leave balances" },
+    { href: "/settings/leave/year-end", label: "Leave year end" },
+    { href: "/settings/holidays", label: "Holidays" },
+  ] },
 ];
 
 /** Vertical on desktop, horizontally scrolling chips on mobile. */

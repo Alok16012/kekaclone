@@ -12,7 +12,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "smoke": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke.ts",
-    "smoke:platform": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-platform.ts"
+    "smoke:platform": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-platform.ts",
+    "smoke:leave": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-leave.ts",
+    "jobs:leave": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-leave.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

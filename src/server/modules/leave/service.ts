@@ -4,20 +4,33 @@ import type { Actor } from "@/server/auth/session";
 import { todayIn, type ISODate } from "@/lib/dates";
 import { countLeaveDays, validateRequest, type ApplicationRules, type Calendar, type DayPart, type WeeklyOffPattern } from "./rules";
 import { cycleStartFor, onLeaveDecided } from "./effects";
-import { cancelApproval, notifyEmployee, startApproval } from "@/server/modules/approvals/service";
+import { cancelApproval, notifyEmployee, startApproval, type Level } from "@/server/modules/approvals/service";
 
 export type LeaveTypeBalance = {
   id: string; name: string; code: string; color: string; kind: string; quota: number | null;
   credited: number; used: number; pending: number; available: number; rules: ApplicationRules;
+  /** no yearly quota and not comp-off (comp-off has no quota but is limited to what was earned) */
+  unlimited: boolean;
 };
 
-export async function calendarFor(tx: Tx, employeeId: string): Promise<Calendar> {
-  const holidays = await tx<{ date: string }[]>`
-    select h.date::text from holidays h
-    where h.holiday_list_id = coalesce(
+/**
+ * The holiday list that applies to a person: their own, else their location's default, else the company's first list.
+ * Lists are per year; lists that share a name (e.g. "Head office" 2026 and 2027) are one calendar across years.
+ */
+export async function holidayListNameFor(tx: Tx, employeeId: string): Promise<string | null> {
+  const [r] = await tx<{ name: string | null }[]>`
+    select (select name from holiday_lists where id = coalesce(
       (select holiday_list_id from employees where id = ${employeeId}),
       (select l.default_holiday_list_id from employees e join locations l on l.id = e.location_id where e.id = ${employeeId}),
-      (select id from holiday_lists order by created_at limit 1)) and not h.is_floater`;
+      (select id from holiday_lists order by created_at limit 1))) as name`;
+  return r?.name ?? null;
+}
+
+export async function calendarFor(tx: Tx, employeeId: string): Promise<Calendar> {
+  const list = await holidayListNameFor(tx, employeeId);
+  const holidays = await tx<{ date: string }[]>`
+    select h.date::text from holidays h join holiday_lists hl on hl.id = h.holiday_list_id
+    where hl.name = ${list} and (not h.is_floater or exists (select 1 from floater_choices f where f.holiday_id = h.id and f.employee_id = ${employeeId}))`;
   const [wo] = await tx<{ pattern: WeeklyOffPattern }[]>`
     select p.pattern from weekly_off_assignments a join weekly_off_policies p on p.id = a.policy_id
     where a.employee_id = ${employeeId} order by lower(a.period) desc limit 1`;
@@ -36,8 +49,9 @@ export async function balances(tx: Tx, employeeId: string, asOf: ISODate = today
     where e.id = ${employeeId} order by t.kind = 'unpaid', t.name`;
   return rows.map((r) => {
     const credited = Number(r.credited), used = Number(r.used), pending = Number(r.pending);
+    const unlimited = r.quota == null && r.kind !== "comp_off";
     return { id: r.id, name: r.name, code: r.code, color: r.color, kind: r.kind, quota: r.quota == null ? null : Number(r.quota), rules: r.application,
-      credited, used, pending, available: r.quota == null ? Infinity : credited - used - pending };
+      credited, used, pending, unlimited, available: unlimited ? Infinity : Math.round((credited - used - pending) * 100) / 100 };
   });
 }
 
@@ -74,7 +88,10 @@ export async function apply(tx: Tx, actor: Actor, input: LeaveInput, onBehalfOf?
   }
   const [who] = await tx<{ display_name: string }[]>`select display_name from employees where id = ${employeeId}`;
   const summary = `${who.display_name} · ${p.type.name} · ${fmtRange(input.from, input.to)} · ${p.days} ${p.days === 1 ? "day" : "days"}`;
-  const { status } = await startApproval(tx, { tenantId: actor.tenant.id, entityType: "leave", entityId: id, requesterId: employeeId, summary });
+  const [chain] = await tx<{ approval: { auto?: boolean; levels?: Level[] } }[]>`
+    select r.approval from employees e join leave_plan_rules r on r.leave_plan_id = e.leave_plan_id and r.leave_type_id = ${input.leaveTypeId} where e.id = ${employeeId}`;
+  const levels = chain?.approval?.auto ? [] : chain?.approval?.levels?.length ? chain.approval.levels : undefined;   // undefined = company workflow
+  const { status } = await startApproval(tx, { tenantId: actor.tenant.id, entityType: "leave", entityId: id, requesterId: employeeId, summary, levels });
   // people the requester chose to keep in the loop (FYI, not approvers)
   for (const other of new Set(input.notify ?? [])) {
     if (other === employeeId) continue;
