@@ -10,6 +10,7 @@ import {
   type AnnouncementStatus, type Audience, type DraftInput, type PostKind, type Reaction,
 } from "./rules";
 import { putObject } from "./storage";
+import { holidayListNameFor } from "@/server/modules/leave/service";
 
 export const ENGAGE_PERMISSION = "engage.announce";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -549,15 +550,16 @@ export async function celebrationsFor(tx: Tx, today: ISODate = todayIn()) {
   return celebrations(rows, today, 7);
 }
 
-/** Next holidays from the person's own holiday list (their list, else their location's, else the company's first). */
+/**
+ * Next holidays from the person's holiday calendar, resolved the way the leave module does it (their list, else their
+ * location's, else the company's first; lists sharing a name continue across years). Optional days are marked.
+ */
 export async function upcomingHolidays(tx: Tx, employeeId: string, today: ISODate = todayIn(), limit = 5) {
+  const list = await holidayListNameFor(tx, employeeId);
+  if (!list) return [];
   return tx<{ id: string; name: string; date: string; is_floater: boolean }[]>`
-    select h.id, h.name, h.date::text, h.is_floater from holidays h
-    where h.holiday_list_id = coalesce(
-      (select holiday_list_id from employees where id = ${employeeId}),
-      (select l.default_holiday_list_id from employees e join locations l on l.id = e.location_id where e.id = ${employeeId}),
-      (select id from holiday_lists order by created_at limit 1))
-      and h.date >= ${today}::date
+    select h.id, h.name, h.date::text, h.is_floater from holidays h join holiday_lists hl on hl.id = h.holiday_list_id
+    where hl.name = ${list} and h.date >= ${today}::date
     order by h.date, h.name limit ${limit}`;
 }
 

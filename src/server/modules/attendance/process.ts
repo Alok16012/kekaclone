@@ -2,7 +2,7 @@ import "server-only";
 import type { Tx } from "@/server/db";
 import { addDaysISO, eachDay, todayIn, type ISODate } from "@/lib/dates";
 import { dayType as calendarDayType, type WeeklyOffPattern } from "@/server/modules/leave/rules";
-import { balances } from "@/server/modules/leave/service";
+import { balances, holidayListNameFor } from "@/server/modules/leave/service";
 import { cycleStartFor } from "@/server/modules/leave/effects";
 import {
   allocateDeductions, dayWindow, evaluateDay, leavePortion, ledgerDelta, penaltiesFor,
@@ -42,12 +42,12 @@ const DEFAULT_WEEKLY_OFF: WeeklyOffPattern = { sat: "off", sun: "off" };
 
 /** Holiday / weekly off / working for each date of a range, using the weekly-off policy in force on that date. */
 export async function calendarFor(tx: Tx, employeeId: string, from: ISODate, to: ISODate): Promise<(d: ISODate) => DayType> {
+  // Same holiday calendar as leave: lists sharing a name are one calendar across years; floaters only for people who picked them.
+  const list = await holidayListNameFor(tx, employeeId);
   const holidays = await tx<{ date: string }[]>`
-    select h.date::text from holidays h
-    where h.holiday_list_id = coalesce(
-      (select holiday_list_id from employees where id = ${employeeId}),
-      (select l.default_holiday_list_id from employees e join locations l on l.id = e.location_id where e.id = ${employeeId}),
-      (select id from holiday_lists order by created_at limit 1)) and not h.is_floater and h.date between ${from} and ${to}`;
+    select h.date::text from holidays h join holiday_lists hl on hl.id = h.holiday_list_id
+    where hl.name = ${list} and h.date between ${from} and ${to}
+      and (not h.is_floater or exists (select 1 from floater_choices f where f.holiday_id = h.id and f.employee_id = ${employeeId}))`;
   const wo = await tx<{ pattern: WeeklyOffPattern; lo: string | null; hi: string | null }[]>`
     select p.pattern, lower(a.period)::text as lo, upper(a.period)::text as hi
     from weekly_off_assignments a join weekly_off_policies p on p.id = a.policy_id

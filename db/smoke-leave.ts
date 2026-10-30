@@ -53,8 +53,9 @@ async function main() {
     let d = from; while (["sat", "sun"].includes(weekday(d)) || cal.holidays.has(d)) d = addDaysISO(d, 1);
     return d;
   };
+  // attendance penalties (seeded by the attendance module) are left out: these checks are about leave's own entries
   const ledgerSum = (tx: Tx, emp: string, type: string, cycle?: string) =>
-    tx<{ s: string }[]>`select coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${emp} and leave_type_id = ${type} and (${cycle ?? null}::date is null or cycle_start = ${cycle ?? null})`.then((r) => Number(r[0].s));
+    tx<{ s: string }[]>`select coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${emp} and leave_type_id = ${type} and kind <> 'penalty' and (${cycle ?? null}::date is null or cycle_start = ${cycle ?? null})`.then((r) => Number(r[0].s));
 
   // ---------- permissions
   await rolled(async (tx) => {

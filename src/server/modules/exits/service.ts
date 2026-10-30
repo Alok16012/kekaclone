@@ -5,6 +5,7 @@ import { can, canFor, type Placement } from "@/server/auth/permissions";
 import { todayIn, type ISODate } from "@/lib/dates";
 import { cancelApproval, notifyEmployee, startApproval, timeline } from "@/server/modules/approvals/service";
 import { fmtRange } from "@/server/modules/leave/service";
+import { cycleStartFor } from "@/server/modules/leave/effects";
 import {
   DEFAULT_EXIT_REASONS, DEFAULT_EXIT_TASKS, DEFAULT_NOTICE_POLICIES, canCompleteNow, dueForRelieving, lastWorkingDay, nextStatus, noticeDays,
   stageOf, validateExitDates, waivedDays, OWNER_LABEL, type ExitAction, type ExitKind, type ExitStatus, type TaskOwner,
@@ -258,11 +259,37 @@ export async function relieve(tx: Tx, exitId: string, actorUserId: string | null
     await tx`delete from sessions where user_id = ${e.user_id}`;
   }
   if (x.process_id) await tx`update lifecycle_processes set status = 'completed' where id = ${x.process_id} and status = 'in_progress'`;
+  await withdrawOpenRequests(tx, x.employee_id, x.last_working_date);
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${x.tenant_id}, ${x.employee_id}, 'exited', ${x.last_working_date}, ${tx.json({ exit_id: exitId })}, ${actorUserId})`;
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
            values (${x.tenant_id}, ${actorUserId}, 'exit', ${exitId}, 'exit.relieved', ${tx.json({ last_working_date: x.last_working_date })})`;
   return true;
+}
+
+/**
+ * Once someone has left, nothing of theirs should sit in an approver's inbox: pending leave, comp-off and attendance
+ * requests are withdrawn (their approvals cancelled), and approved leave starting after the last working day is
+ * cancelled with its days returned. Accruals and attendance stop on their own at employees.exit_date.
+ */
+async function withdrawOpenRequests(tx: Tx, employeeId: string, lastWorkingDate: ISODate) {
+  const pending = await tx<{ entity_type: "leave" | "comp_off" | "attendance_request"; id: string }[]>`
+    select 'leave' as entity_type, id from leave_requests where employee_id = ${employeeId} and status = 'pending'
+    union all select 'comp_off', id from comp_off_requests where employee_id = ${employeeId} and status = 'pending'
+    union all select 'attendance_request', id from attendance_requests where employee_id = ${employeeId} and status = 'pending'`;
+  for (const p of pending) await cancelApproval(tx, p.entity_type, p.id);
+  await tx`update leave_requests set status = 'cancelled' where employee_id = ${employeeId} and status = 'pending'`;
+  await tx`update comp_off_requests set status = 'cancelled', updated_at = now() where employee_id = ${employeeId} and status = 'pending'`;
+  await tx`update attendance_requests set status = 'cancelled' where employee_id = ${employeeId} and status = 'pending'`;
+  const later = await tx<{ id: string; tenant_id: string; leave_type_id: string; from_date: string; days: string }[]>`
+    update leave_requests set status = 'cancelled' where employee_id = ${employeeId} and status = 'approved' and from_date > ${lastWorkingDate}
+    returning id, tenant_id, leave_type_id, from_date::text, days`;
+  for (const r of later) {
+    const cycle = await cycleStartFor(tx, employeeId, r.from_date);
+    await tx`insert into leave_ledger (tenant_id, employee_id, leave_type_id, cycle_start, entry_date, kind, amount, ref_type, ref_id, idempotency_key)
+             values (${r.tenant_id}, ${employeeId}, ${r.leave_type_id}, ${cycle}, ${lastWorkingDate}, 'use_reversal', ${Number(r.days)}, 'leave_request', ${r.id}, ${`rev:${r.id}`})
+             on conflict (tenant_id, idempotency_key) do nothing`;
+  }
 }
 
 /** HR completes an exit by hand, from the last working day onwards. */

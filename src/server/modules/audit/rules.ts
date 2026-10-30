@@ -31,6 +31,18 @@ export const ENTITY_LABELS: Record<string, string> = {
   business_units: "Business units",
   bands: "Bands",
   leave_plan: "Leave plan",
+  leave_type: "Leave types",
+  leave_ledger: "Leave balances",
+  holiday_list: "Holiday lists",
+  holiday: "Holidays",
+  comp_off: "Comp-off claims",
+  shift: "Shifts",
+  weekly_off_policy: "Weekly offs",
+  capture_policy: "Clock-in rules",
+  penalization_policy: "Attendance penalties",
+  attendance_assignment: "Shift and weekly-off assignments",
+  exit: "Exits",
+  generated_letter: "Letters",
 };
 
 const MASTER_WORD: Record<string, string> = {
@@ -89,7 +101,7 @@ export function describe(r: AuditRow): string {
 
   if (base === "approval") {
     const verb = sub === "approved" ? "approved" : sub === "rejected" ? "declined" : sub;
-    const thing = r.entity_type === "leave" ? "leave request" : r.entity_type === "profile_change" ? "profile change request" : r.entity_type === "attendance_request" ? "attendance request" : (ENTITY_LABELS[r.entity_type] ?? r.entity_type).toLowerCase();
+    const thing = r.entity_type === "leave" ? "leave request" : r.entity_type === "profile_change" ? "profile change request" : r.entity_type === "attendance_request" ? "attendance request" : r.entity_type === "comp_off" ? "comp-off claim" : r.entity_type === "exit" ? "resignation" : (ENTITY_LABELS[r.entity_type] ?? r.entity_type).toLowerCase();
     return `${verb} ${whose} ${thing}`;
   }
 

@@ -4,12 +4,13 @@ import type { ISODate } from "@/lib/dates";
 import { processAttendance } from "./process";
 
 /**
- * Nightly run for one tenant and date: every active person who had joined by then, one transaction each,
+ * Nightly run for one tenant and date: everyone employed on that date (joined, and not past their last working day,
+ * so someone relieved today still gets their final days processed), one transaction each,
  * so one bad record doesn't stop the rest. Idempotent, so re-running a date is safe.
  */
 export async function processTenantDate(tenantId: string, date: ISODate, now = new Date()) {
   const people = await withTenant(tenantId, (tx) => tx<{ id: string }[]>`
-    select id from employees where status <> 'relieved' and joining_date <= ${date} and (exit_date is null or exit_date >= ${date}) order by id`);
+    select id from employees where joining_date <= ${date} and (exit_date is null or exit_date >= ${date}) and (status <> 'relieved' or exit_date is not null) order by id`);
   let done = 0, skipped = 0;
   const failed: { employeeId: string; error: string }[] = [];
   for (const p of people) {

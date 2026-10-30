@@ -13,9 +13,9 @@ export async function cycleStartFor(tx: Tx, employeeId: string, date: string) {
 
 /** Final decision on a leave request: status + ledger debit (idempotent by request id). */
 export async function onLeaveDecided(tx: Tx, actor: Actor | null, requestId: string, final: "approved" | "rejected") {
-  const [r] = await tx<{ tenant_id: string; employee_id: string; leave_type_id: string; from_date: string; days: string }[]>`
+  const [r] = await tx<{ tenant_id: string; employee_id: string; leave_type_id: string; from_date: string; to_date: string; days: string }[]>`
     update leave_requests set status = ${final} where id = ${requestId} and status = 'pending'
-    returning tenant_id, employee_id, leave_type_id, from_date::text, days`;
+    returning tenant_id, employee_id, leave_type_id, from_date::text, to_date::text, days`;
   if (!r || final !== "approved") return;
   const cycle = await cycleStartFor(tx, r.employee_id, r.from_date);
   await tx`
@@ -23,6 +23,12 @@ export async function onLeaveDecided(tx: Tx, actor: Actor | null, requestId: str
     values (${r.tenant_id}, ${r.employee_id}, ${r.leave_type_id}, ${cycle}, ${r.from_date}, 'use', ${-Number(r.days)}, 'leave_request', ${requestId},
             ${`use:${requestId}`}, ${actor?.userId ?? null})
     on conflict (tenant_id, idempotency_key) do nothing`;
+  // Leave approved for days already processed (backdated or approved late): recompute attendance so the absence,
+  // loss of pay and penalties on those days give way to the leave. Dynamic import: attendance depends on leave.
+  if (r.from_date <= todayIn()) {
+    const { reprocessFrom } = await import("@/server/modules/attendance/process");
+    await reprocessFrom(tx, r.tenant_id, r.employee_id, r.from_date, r.to_date);
+  }
 }
 
 /**

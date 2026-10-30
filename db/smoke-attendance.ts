@@ -117,7 +117,7 @@ async function main() {
     assert.equal(r!.penalties[0].rule, "no_attendance"); assert.equal(r!.penalties[0].deductions[0].leaveTypeId, null);
     // no balance left in CL → the late penalty falls through to LOP; a credit later moves it back to CL
     const bal0 = (await leave.balances(tx, arjun.employeeId)).find((b) => b.id === cl)!;
-    const cycle = (await tx<{ c: string }[]>`select cycle_start::text as c from leave_ledger where employee_id = ${arjun.employeeId} and leave_type_id = ${cl} limit 1`)[0].c;
+    const cycle = (await tx<{ c: string }[]>`select cycle_start::text as c from leave_ledger where employee_id = ${arjun.employeeId} and leave_type_id = ${cl} order by cycle_start desc limit 1`)[0].c;   // the current leave year (the leave seed also has last year)
     await tx`insert into leave_ledger (tenant_id, employee_id, leave_type_id, cycle_start, entry_date, kind, amount, idempotency_key)
       values (${tenant.id}, ${arjun.employeeId}, ${cl}, ${cycle}, ${today}, 'adjust', ${-(bal0.available + 0.5)}, ${"smoke-drain:" + randomUUID()})`;   // 0.5 below zero once this day's own ½ is given back
     const lateDay = late[3];
@@ -285,6 +285,38 @@ async function main() {
     assert.equal(mid.n >= before.n, true);
   }
   ok("job: processes every active person for a date; running it twice is a no-op");
+
+  // ---------------------------------------------------------------- integration with the leave module
+  await rolledBack(tenant.id, async (tx) => {
+    const cl = (await tx<{ id: string }[]>`select id from leave_types where code = 'CL'`)[0].id;
+    // approved backdated leave replaces an absence (and its loss of pay) without waiting for the nightly run
+    const gap = pastWorking[5];
+    await tx`delete from punches where employee_id = ${arjun.employeeId} and at >= ${ist(gap, "00:00")} and at < ${ist(gap, "23:59")}`;
+    const r0 = await processAttendance(tx, tenant.id, arjun.employeeId, gap);
+    assert.equal(r0!.status, "absent"); assert.equal(r0!.lop, 1);
+    await tx`update leave_plan_rules set application = application || ${tx.json({ backdateDays: 30 })}
+             where leave_type_id = ${cl} and leave_plan_id = (select leave_plan_id from employees where id = ${arjun.employeeId})`;
+    const req = await leave.apply(tx, arjun, { leaveTypeId: cl, from: gap, to: gap, fromPart: "full", toPart: "full" });
+    assert.equal(req.status, "pending");
+    const step = await stepFor(tx, req.id, rohan);
+    assert.ok(step, "backdated leave is in Rohan's inbox");
+    await approvals.decide(tx, rohan, step!.step_id, "approved");
+    const [day] = await tx<{ status: string; penalties: { deductions: { leaveTypeId: string | null }[] }[] }[]>`
+      select status, penalties from attendance_days where employee_id = ${arjun.employeeId} and date = ${gap}`;
+    assert.equal(day.status, "leave", "the approved leave shows on the attendance day");
+    assert.ok(!day.penalties.some((p) => p.deductions.some((x) => x.leaveTypeId === null)), "no loss of pay left on a leave day");
+    // a floater the person picked is a holiday for them (same holiday calendar as leave), not for colleagues
+    const fl = pastWorking[6];
+    const [list] = await tx<{ id: string }[]>`
+      select hl.id from holiday_lists hl where hl.name = ${await leave.holidayListNameFor(tx, arjun.employeeId)} and hl.year = ${Number(fl.slice(0, 4))}`;
+    assert.ok(list, "Arjun has a holiday list for this year");
+    const [h] = await tx<{ id: string }[]>`insert into holidays (tenant_id, holiday_list_id, name, date, is_floater) values (${tenant.id}, ${list.id}, 'Smoke floater', ${fl}, true) returning id`;
+    await tx`insert into floater_choices (holiday_id, employee_id, tenant_id) values (${h.id}, ${arjun.employeeId}, ${tenant.id})`;
+    await tx`delete from punches where employee_id in (${arjun.employeeId}, ${meera.employeeId}) and at >= ${ist(fl, "00:00")} and at < ${ist(fl, "23:59")}`;
+    assert.equal((await processAttendance(tx, tenant.id, arjun.employeeId, fl))!.status, "holiday", "picked floater is a holiday");
+    assert.equal((await processAttendance(tx, tenant.id, meera.employeeId, fl))!.status, "absent", "colleague who didn't pick it is absent");
+  });
+  ok("with leave: approving backdated leave reprocesses the day (absence and LOP cleared); picked floaters count as holidays");
 
   // ---------------------------------------------------------------- locked days
   await rolledBack(tenant.id, async (tx) => {

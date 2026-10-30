@@ -9,6 +9,7 @@ import postgres from "postgres";
 import { withTenant, sql, AppError, type Tx } from "@/server/db";
 import * as approvals from "@/server/modules/approvals/service";
 import * as exits from "@/server/modules/exits/service";
+import * as leave from "@/server/modules/leave/service";
 import * as docs from "@/server/modules/documents/service";
 import * as letters from "@/server/modules/documents/letters";
 import { renderLetterPdf } from "@/server/modules/documents/pdf";
@@ -150,6 +151,12 @@ async function main() {
     // can't complete before the last day; the job relieves the day after it, once
     await assert.rejects(exits.completeExit(tx, priya, s.id), /from the last working day/);
     await tx`insert into sessions (tenant_id, user_id, token_hash, expires_at) values (${tenant.id}, ${sneha.userId}, ${"smoke-" + randomUUID()}, now() + interval '1 day')`;
+    // an open leave request after the last day sits in the manager's inbox until Sneha is relieved
+    const [cl] = await tx<{ id: string }[]>`select id from leave_types where code = 'CL'`;
+    let later = addDaysISO(today, 15);
+    while ([0, 6].includes(new Date(later + "T00:00:00Z").getUTCDay())) later = addDaysISO(later, 1);
+    const lr = await leave.apply(tx, sneha, { leaveTypeId: cl.id, from: later, to: later, fromPart: "full", toPart: "full" });
+    assert.equal(lr.status, "pending");
     assert.equal(await exits.processDueExits(tx, addDaysISO(today, 10)), 0, "not on the last working day itself");
     assert.equal(await exits.processDueExits(tx, addDaysISO(today, 11)), 1, "only Sneha (Divya leaves later)");
     assert.equal(await exits.processDueExits(tx, addDaysISO(today, 11)), 0, "running again changes nothing");
@@ -157,6 +164,12 @@ async function main() {
       select x.status as x, e.status as e, u.status as u, (select count(*)::int from sessions where user_id = u.id) as sessions, p.status as p
       from exit_requests x join employees e on e.id = x.employee_id join users u on u.id = e.user_id join lifecycle_processes p on p.id = x.process_id where x.id = ${s.id}`;
     assert.deepEqual(after, { x: "exited", e: "relieved", u: "disabled", sessions: 0, p: "completed" });
+    const [lq] = await tx<{ q: string; a: string }[]>`
+      select q.status as q, a.status as a from leave_requests q join approval_requests a on a.entity_type = 'leave' and a.entity_id = q.id where q.id = ${lr.id}`;
+    assert.deepEqual(lq, { q: "cancelled", a: "cancelled" }, "relieving withdraws the person's pending requests");
+    const [{ waiting }] = await tx<{ waiting: number }[]>`
+      select count(*)::int as waiting from approval_steps s join approval_requests a on a.id = s.request_id where a.requester_employee_id = ${sneha.employeeId} and s.status = 'pending'`;
+    assert.equal(waiting, 0, "nothing of theirs is left in an inbox");
     // the session lookup used by every page no longer finds them
     const [{ live }] = await tx<{ live: number }[]>`select count(*)::int as live from users u join employees e on e.user_id = u.id and e.status <> 'relieved' where u.id = ${sneha.userId} and u.status = 'active'`;
     assert.equal(live, 0);
@@ -164,7 +177,7 @@ async function main() {
   });
   ok("initiate: HR only, scoped HR only in scope, not for yourself, valid dates, one open exit per person; scoped board");
   ok("checklist: owner or HR ticks, only HR skips; complete not before the last day");
-  ok("relieve job: day after the last working day → exited, relieved, login disabled, sessions ended; idempotent");
+  ok("relieve job: day after the last working day → exited, relieved, login disabled, sessions ended, open requests withdrawn; idempotent");
 
   await rollback(tenant.id, async (tx) => {
     const [dx] = await tx<{ id: string; process_id: string }[]>`select id, process_id from exit_requests where employee_id = ${divya.employeeId} and status = 'in_progress'`;
