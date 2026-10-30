@@ -12,11 +12,12 @@ import { ApprovalTimeline } from "@/ui/flow";
 import { toast } from "@/ui/toast";
 import { decideAction, leaveRequestDetailAction, profileChangeDetailAction } from "@/app/(app)/actions";
 import { FIELD_LABELS } from "@/server/modules/employees/fields";
+import { ExitSummary, useExitDetail } from "@/features/exits/exit-drawer";
 
 export type InboxRow = { stepId: string; entityType: string; entityId: string; summary: string; requester: string; requesterTitle: string | null; createdAt: string; ago: string };
 type Detail = Awaited<ReturnType<typeof leaveRequestDetailAction>>;
 type ChangeDetail = Awaited<ReturnType<typeof profileChangeDetailAction>>;
-const KIND: Record<string, string> = { leave: "Leave", attendance_request: "Attendance", profile_change: "Profile change" };
+const KIND: Record<string, string> = { leave: "Leave", attendance_request: "Attendance", profile_change: "Profile change", exit: "Resignation" };
 const show = (v: unknown): string => v == null || v === "" ? "—" : typeof v === "object" ? Object.values(v as Record<string, unknown>).map(show).filter((x) => x !== "—").join(", ") || "—" : String(v);
 
 export function InboxList({ items }: { items: InboxRow[] }) {
@@ -71,7 +72,9 @@ export function InboxList({ items }: { items: InboxRow[] }) {
       </Card>
       <Drawer open={!!open} onOpenChange={(o) => !o && setOpen(null)} title={open?.requester ?? ""} description={open?.summary.split(" · ").slice(1).join(" · ")}
         footer={open && <><Button variant="danger" onClick={() => decide(open, "rejected")}>Decline</Button><Button onClick={() => decide(open, "approved")}>Approve</Button></>}>
-        {open?.entityType === "profile_change" ? (
+        {open?.entityType === "exit" ? (
+          <ExitInboxDetail exitId={open.entityId} comment={comment} setComment={setComment} />
+        ) : open?.entityType === "profile_change" ? (
           !change ? <div className="flex flex-col gap-3"><Skeleton className="h-5 w-1/2" /><Skeleton className="h-24" /></div> : (
             <div className="flex flex-col gap-5">
               <table className="w-full text-base">
@@ -107,5 +110,21 @@ export function InboxList({ items }: { items: InboxRow[] }) {
         )}
       </Drawer>
     </>
+  );
+}
+
+function ExitInboxDetail({ exitId, comment, setComment }: { exitId: string; comment: string; setComment: (v: string) => void }) {
+  const { detail, error } = useExitDetail(exitId);
+  if (error) return <p className="text-base text-danger-text">{error}</p>;
+  if (!detail) return <div className="flex flex-col gap-3"><Skeleton className="h-5 w-1/2" /><Skeleton className="h-28" /></div>;
+  return (
+    <div className="flex flex-col gap-5">
+      <ExitSummary d={detail} />
+      <div>
+        <h3 className="mb-3 text-sm font-semibold">Approvals</h3>
+        <ApprovalTimeline levels={detail.approvals.map((s) => ({ level: s.level, approver: s.approver, role: s.title ?? undefined, status: s.status === "skipped" ? "waiting" : s.status, comment: s.comment ?? undefined, at: s.acted_at ? new Date(s.acted_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : undefined }))} />
+      </div>
+      <Field label="Comment" help="Shared with the employee"><Textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} /></Field>
+    </div>
   );
 }

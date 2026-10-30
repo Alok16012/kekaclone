@@ -91,3 +91,13 @@ export async function assignNoticePolicyAction(id: string, employeeIds: string[]
   if (!uuid.safeParse(id).success || !ids.success) return bad("Choose at least one person.");
   return runAction((tx, actor) => exits.assignNoticePolicy(tx, actor, id, ids.data));
 }
+
+export async function addExitReasonAction(input: { kind: string; name: string }) {
+  if (typeof input?.name !== "string" || typeof input?.kind !== "string") return bad("Write the reason.");
+  return runAction((tx, actor) => exits.addReason(tx, actor, input));
+}
+
+export async function deleteExitReasonAction(id: string) {
+  if (!uuid.safeParse(id).success) return bad("Reason not found.");
+  return runAction((tx, actor) => exits.deleteReason(tx, actor, id));
+}

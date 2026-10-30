@@ -391,6 +391,29 @@ export async function myExit(tx: Tx, employeeId: string) {
   return x ?? null;
 }
 
+export async function addReason(tx: Tx, actor: Actor, input: { kind: string; name: string }) {
+  if (!can(actor, "settings.org") && !can(actor, PERM)) throw new AppError("forbidden", "You don't have access to do this.");
+  const name = input.name.trim().slice(0, 120);
+  if (!name) throw new AppError("invalid", "Write the reason.", "name");
+  if (!["resignation", "termination", "other"].includes(input.kind)) throw new AppError("invalid", "Pick a type.", "kind");
+  const [r] = await tx<{ id: string }[]>`insert into exit_reasons (tenant_id, kind, name) values (${actor.tenant.id}, ${input.kind}, ${name}) on conflict (tenant_id, kind, name) do nothing returning id`;
+  if (!r) throw new AppError("conflict", "This reason is already in the list.", "name");
+  return r;
+}
+
+/** Past exits keep their history; the reason is just cleared on them. */
+export async function deleteReason(tx: Tx, actor: Actor, id: string) {
+  if (!can(actor, "settings.org") && !can(actor, PERM)) throw new AppError("forbidden", "You don't have access to do this.");
+  const r = await tx`delete from exit_reasons where id = ${id}`;
+  if (!r.count) throw new AppError("not_found", "Reason not found.");
+}
+
+export async function exitChecklist(tx: Tx) {
+  return tx<{ id: string; title: string; description: string | null; owner: TaskOwner; due_offset_days: number }[]>`
+    select i.id, i.title, i.description, i.owner, i.due_offset_days from task_template_items i
+    where i.template_id = (select id from task_templates where kind = 'exit' order by created_at limit 1) order by i.position, i.created_at`;
+}
+
 export async function listReasons(tx: Tx) {
   return tx<{ id: string; kind: "resignation" | "termination" | "other"; name: string }[]>`select id, kind, name from exit_reasons order by kind, name`;
 }
