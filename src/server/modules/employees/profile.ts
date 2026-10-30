@@ -5,6 +5,7 @@ import { canFor, type Placement } from "@/server/auth/permissions";
 import { todayIn } from "@/lib/dates";
 import { startApproval } from "@/server/modules/approvals/service";
 import { applyProfileChanges } from "./effects";
+import { audit } from "@/server/modules/audit/service";
 import { SECTIONS, FIELD_LABELS, type SectionKey } from "./fields";
 
 export type Access = "self" | "manager" | "admin" | "colleague";
@@ -115,6 +116,7 @@ export async function updateSection(tx: Tx, actor: Actor, employeeId: string, se
   for (const o of old) await tx`update approval_requests set status = 'cancelled' where entity_type = 'profile_change' and entity_id = ${o.id} and status = 'pending'`;
 
   const [req] = await tx<{ id: string }[]>`insert into profile_change_requests (tenant_id, employee_id, section, changes) values (${actor.tenant.id}, ${employeeId}, ${section}, ${tx.json(diff as never)}) returning id`;
+  await audit(tx, actor, { entityType: "profile_change", entityId: req.id, action: "submit", diff: { section, changes: diff } });
   const summary = `${actor.name} · ${def.label} · ${Object.keys(diff).map((k) => FIELD_LABELS[k] ?? k).join(", ")}`;
   const { status } = await startApproval(tx, { tenantId: actor.tenant.id, entityType: "profile_change", entityId: req.id, requesterId: employeeId, summary });
   if (status === "approved") await applyProfileChanges(tx, actor.tenant.id, employeeId, changes, actor.userId);
@@ -142,6 +144,12 @@ export async function changeJob(tx: Tx, actor: Actor, employeeId: string, input:
     insert into job_changes (tenant_id, employee_id, kind, effective_date, changes, created_by)
     values (${actor.tenant.id}, ${employeeId}, ${input.kind}, ${input.effectiveDate}, ${tx.json({ ...changes, note: input.note ?? null } as never)}, ${actor.userId}) returning id`;
   if (input.effectiveDate <= todayIn()) await applyJobChange(tx, jc.id, actor.userId);
+  else {
+    const cols = Object.keys(changes);
+    const [cur] = await tx<Record<string, unknown>[]>`select ${tx(cols)} from employees where id = ${employeeId}`;
+    await audit(tx, actor, { entityType: "employee", entityId: employeeId, action: "job_change_scheduled",
+      diff: { kind: input.kind, effectiveDate: input.effectiveDate, changes: Object.fromEntries(cols.map((c) => [c, { old: cur[c] ?? null, new: changes[c] ?? null }])), note: input.note ?? null } });
+  }
   return { id: jc.id, scheduled: input.effectiveDate > todayIn() };
 }
 
@@ -155,12 +163,15 @@ export async function applyJobChange(tx: Tx, jobChangeId: string, actorUserId: s
   await tx`update employees set ${tx(fields as Record<string, never>, cols)} where id = ${jc.employee_id}`;
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${jc.tenant_id}, ${jc.employee_id}, ${jc.kind}, ${jc.effective_date}, ${tx.json({ before, after: fields, note } as never)}, ${actorUserId})`;
+  await audit(tx, { tenantId: jc.tenant_id, userId: actorUserId }, { entityType: "employee", entityId: jc.employee_id, action: "job_change",
+    diff: { before, after: fields, kind: jc.kind, effectiveDate: jc.effective_date, note: note ?? null } });
 }
 
 export async function cancelJobChange(tx: Tx, actor: Actor, id: string) {
   const [jc] = await tx<{ employee_id: string }[]>`select employee_id from job_changes where id = ${id}`;
   if (!jc || (await accessTo(tx, actor, jc.employee_id)) !== "admin") throw new AppError("forbidden", "Only HR can change job details.");
-  await tx`update job_changes set status = 'cancelled' where id = ${id} and status = 'scheduled'`;
+  const done = await tx`update job_changes set status = 'cancelled' where id = ${id} and status = 'scheduled' returning id`;
+  if (done.length) await audit(tx, actor, { entityType: "employee", entityId: jc.employee_id, action: "job_change_cancelled", diff: { jobChangeId: id } });
 }
 
 /** Confirm or extend probation. Confirm ends it today (or on a given date); extend moves the end date. */
@@ -171,6 +182,7 @@ export async function setProbation(tx: Tx, actor: Actor, employeeId: string, inp
   await tx`update employees set probation_status = ${status}, probation_end_date = ${input.date} where id = ${employeeId}`;
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${actor.tenant.id}, ${employeeId}, ${"probation_" + status}, ${input.action === "confirm" ? input.date : todayIn()}, ${tx.json({ until: input.date, note: input.note ?? null })}, ${actor.userId})`;
+  await audit(tx, actor, { entityType: "employee", entityId: employeeId, action: "probation", diff: { action: input.action, until: input.date, note: input.note ?? null } });
 }
 
 export async function lookups(tx: Tx) {

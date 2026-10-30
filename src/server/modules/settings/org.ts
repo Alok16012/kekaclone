@@ -56,8 +56,13 @@ export async function saveMaster(tx: Tx, actor: Actor, kind: MasterKind, id: str
   const row = { [m.nameCol]: name, ...extra } as Record<string, never>;
   try {
     if (id) {
-      const r = await tx`update ${tx(m.table)} set ${tx(row)} where id = ${id} returning id`;
-      if (!r.length) throw new AppError("not_found", `${m.label} not found.`);
+      const cols = Object.keys(row);
+      const [before] = await tx<Record<string, unknown>[]>`select ${tx(cols)} from ${tx(m.table)} where id = ${id}`;
+      if (!before) throw new AppError("not_found", `${m.label} not found.`);
+      await tx`update ${tx(m.table)} set ${tx(row)} where id = ${id}`;
+      const diff = Object.fromEntries(cols.filter((c) => (before[c] ?? null) !== ((row as Record<string, unknown>)[c] ?? null))
+        .map((c) => [c === m.nameCol ? "name" : c, { old: before[c] ?? null, new: (row as Record<string, unknown>)[c] ?? null }]));
+      if (Object.keys(diff).length) await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff) values (${actor.tenant.id}, ${actor.userId}, ${kind}, ${id}, 'update', ${tx.json(diff as never)})`;
       return { id };
     }
     const [r] = await tx<{ id: string }[]>`insert into ${tx(m.table)} ${tx({ tenant_id: actor.tenant.id, ...row } as unknown as Record<string, never>)} returning id`;
@@ -73,6 +78,7 @@ export async function deleteMaster(tx: Tx, actor: Actor, kind: MasterKind, id: s
   assertCan(actor, "settings.org");
   const m = MASTERS[kind];
   const [{ n }] = await tx<{ n: number }[]>`select count(*)::int as n from employees where ${tx(m.employeeCol)} = ${id}`;
+  const [cur] = await tx<{ name: string }[]>`select ${tx(m.nameCol)} as name from ${tx(m.table)} where id = ${id}`;
   if (n > 0) throw new AppError("conflict", `${n} ${n === 1 ? "person is" : "people are"} still assigned here. Move them first.`);
   try {
     await tx`delete from ${tx(m.table)} where id = ${id}`;
@@ -80,5 +86,5 @@ export async function deleteMaster(tx: Tx, actor: Actor, kind: MasterKind, id: s
     if ((e as { code?: string }).code === "23503") throw new AppError("conflict", `This ${m.label.toLowerCase()} is still used elsewhere (e.g. as a parent or in a policy).`);
     throw e;
   }
-  await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action) values (${actor.tenant.id}, ${actor.userId}, ${kind}, ${id}, 'delete')`;
+  await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff) values (${actor.tenant.id}, ${actor.userId}, ${kind}, ${id}, 'delete', ${cur ? tx.json({ name: cur.name }) : null})`;
 }
