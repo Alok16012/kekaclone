@@ -164,18 +164,18 @@ export async function acknowledge(tx: Tx, actor: Actor, documentId: string) {
            on conflict (document_id, employee_id) do update set viewed_at = coalesce(document_acks.viewed_at, now()), acknowledged_at = coalesce(document_acks.acknowledged_at, now())`;
 }
 
-export type PendingAck = { id: string; title: string; description: string | null; file_id: string; file_name: string; mime: string; folder: string; blocking: boolean };
+export type PendingAck = { id: string; title: string; description: string | null; file_id: string; file_name: string; mime: string; folder: string; blocking: boolean; viewed: boolean };
 
 /** Documents the actor still has to acknowledge (blocking ones first). */
 export async function pendingAcks(tx: Tx, actor: Actor): Promise<PendingAck[]> {
   const p = await me(tx, actor.employeeId);
   if (p.status === "relieved") return [];
   const rows = await tx<(PendingAck & { access: unknown })[]>`
-    select d.id, d.title, d.description, d.file_id, fl.name as file_name, fl.mime, f.name as folder, d.block_portal_until_ack as blocking, f.access
+    select d.id, d.title, d.description, d.file_id, fl.name as file_name, fl.mime, f.name as folder, d.block_portal_until_ack as blocking, (a.viewed_at is not null) as viewed, f.access
     from org_documents d join document_folders f on f.id = d.folder_id join files fl on fl.id = d.file_id
     left join document_acks a on a.document_id = d.id and a.employee_id = ${actor.employeeId}
     where d.requires_ack and a.acknowledged_at is null order by d.block_portal_until_ack desc, d.created_at`;
-  return rows.filter((r) => canSeeFolder(parseAccess(r.access), p)).map((r) => ({ id: r.id, title: r.title, description: r.description, file_id: r.file_id, file_name: r.file_name, mime: r.mime, folder: r.folder, blocking: r.blocking }));
+  return rows.filter((r) => canSeeFolder(parseAccess(r.access), p)).map((r) => ({ id: r.id, title: r.title, description: r.description, file_id: r.file_id, file_name: r.file_name, mime: r.mime, folder: r.folder, blocking: r.blocking, viewed: r.viewed }));
 }
 
 export type TrackingRow = { employee_id: string; name: string; department: string | null; viewed_at: Date | null; acknowledged_at: Date | null };

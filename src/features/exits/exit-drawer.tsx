@@ -45,7 +45,7 @@ export function ExitSummary({ d }: { d: ExitDetail }) {
       <div><dt className="text-sm text-text-muted">Resignation date</dt><dd className="font-medium">{fmtDate(x.resignation_date)}</dd></div>
       <div><dt className="text-sm text-text-muted">Last working day</dt><dd className="font-medium">{fmtDate(x.last_working_date)}</dd></div>
       <div className="col-span-2"><dt className="text-sm text-text-muted">Notice period</dt>
-        <dd>{d.notice.policy ? `${d.notice.policy} · ${d.notice.days} days` : "No notice period set"}{x.notice_waived_days > 0 ? ` · ${x.notice_waived_days} ${x.notice_waived_days === 1 ? "day" : "days"} waived` : ""}
+        <dd>{d.notice.policy ? (d.notice.policy.includes(String(d.notice.days)) ? d.notice.policy : `${d.notice.policy} · ${d.notice.days} days`) : "No notice period set"}{x.notice_waived_days > 0 ? ` · ${x.notice_waived_days} ${x.notice_waived_days === 1 ? "day" : "days"} waived` : ""}
           {x.requested_lwd && x.requested_lwd !== x.last_working_date ? <span className="block text-sm text-text-muted">Asked for {fmtDate(x.requested_lwd)}</span> : null}</dd></div>
       <div><dt className="text-sm text-text-muted">Reason</dt><dd>{x.reason ?? <span className="text-text-muted">Not given</span>}</dd></div>
       <div><dt className="text-sm text-text-muted">OK to rehire</dt><dd>{x.ok_to_rehire == null ? <span className="text-text-muted">Not decided</span> : x.ok_to_rehire ? "Yes" : "No"}</dd></div>

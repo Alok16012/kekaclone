@@ -9,14 +9,14 @@ import { toast } from "@/ui/toast";
 import { acknowledgeDocumentAction } from "@/app/(app)/org/documents/actions";
 import { logoutAction } from "@/app/(auth)/actions";
 
-export type GateDoc = { id: string; title: string; description: string | null; file_id: string; file_name: string; folder: string };
+export type GateDoc = { id: string; title: string; description: string | null; file_id: string; file_name: string; folder: string; viewed: boolean };
 
 /**
  * S49: a blocking interstitial. It can't be dismissed (no close button, Esc and outside clicks do nothing) and the page
  * underneath is inert, until every blocking document is acknowledged. Signing out is always possible.
  */
 export function AckInterstitial({ docs }: { docs: GateDoc[] }) {
-  const [opened, setOpened] = React.useState<Set<string>>(new Set());
+  const [opened, setOpened] = React.useState<Set<string>>(() => new Set(docs.filter((d) => d.viewed).map((d) => d.id)));   // opening the file records a view on the server
   const [checked, setChecked] = React.useState<Set<string>>(new Set());
   const [done, setDone] = React.useState<Set<string>>(new Set());
   const [error, setError] = React.useState<string | null>(null);

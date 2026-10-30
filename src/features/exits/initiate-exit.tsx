@@ -75,7 +75,7 @@ export function InitiateExit({ people, reasons, today, trigger, defaultEmployeeI
             <Input type="date" value={resignationDate} onChange={(e) => { setResignationDate(e.target.value); preview(employee[0], e.target.value); }} />
           </Field>
           <Field label="Last working day" required error={error?.field === "lastWorkingDate" ? error.message : undefined}
-            help={notice ? (notice.policy ? `${notice.policy} notice${notice.inProbation ? " (probation)" : ""}: ${notice.days} days` : "No notice period set") : employee[0] ? "Working it out…" : "Pick a person first"}>
+            help={notice ? (notice.policy ? `Notice period: ${notice.days} days${notice.inProbation ? " (on probation)" : ""}` : "No notice period set") : employee[0] ? "Working it out…" : "Pick a person first"}>
             <Input type="date" value={lwd} min={resignationDate} readOnly={!override} onChange={(e) => setLwd(e.target.value)} aria-readonly={!override} />
           </Field>
         </div>

@@ -12,5 +12,5 @@ export async function AckGate() {
   if (!actor) return null;
   const docs = (await withTenant(actor.tenant.id, (tx) => pendingAcks(tx, actor))).filter((d) => d.blocking);
   if (!docs.length) return null;
-  return <AckInterstitial docs={docs.map((d) => ({ id: d.id, title: d.title, description: d.description, file_id: d.file_id, file_name: d.file_name, folder: d.folder }))} />;
+  return <AckInterstitial docs={docs.map((d) => ({ id: d.id, title: d.title, description: d.description, file_id: d.file_id, file_name: d.file_name, folder: d.folder, viewed: d.viewed }))} />;
 }
