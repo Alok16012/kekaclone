@@ -279,10 +279,12 @@ export function allocateDeductions(penalties: Penalty[], balances: { id: string;
  * The key encodes the before and after totals, so re-running with no change posts nothing and a concurrent
  * duplicate collides on the unique key.
  */
-export function ledgerDelta(employeeId: string, date: ISODate, leaveTypeId: string, postedDays: number, targetDays: number) {
+export function ledgerDelta(employeeId: string, date: ISODate, leaveTypeId: string, postedDays: number, targetDays: number, seq = 0) {
   const r = (n: number) => Math.round(n * 100);
   if (r(postedDays) === r(targetDays)) return null;
-  return { amount: -(targetDays - postedDays), key: `penalty:${employeeId}:${date}:${leaveTypeId}:${r(postedDays)}>${r(targetDays)}` };
+  // `seq` = entries already posted for this person, day and type. Without it a penalty that is reversed and then
+  // re-applied (0>50, 50>0, 0>50 again) would reuse the first key and be silently dropped by the idempotency check.
+  return { amount: -(targetDays - postedDays), key: `penalty:${employeeId}:${date}:${leaveTypeId}:${r(postedDays)}>${r(targetDays)}${seq ? `#${seq}` : ""}` };
 }
 
 // ---------------------------------------------------------------- capture: IP allowlist and geofences

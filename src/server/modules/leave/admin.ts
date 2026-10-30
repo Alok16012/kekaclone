@@ -336,6 +336,7 @@ export async function adjustBalance(tx: Tx, actor: Actor, raw: unknown) {
   const [p] = await placed(tx, [v.employeeId]);
   if (!p) throw new AppError("not_found", "Person not found.");
   if (!canAdminLeaveFor(actor, p)) throw new AppError("forbidden", "You can't adjust leave for this person.");
+  if (v.employeeId === actor.employeeId) throw new AppError("forbidden", "You can't adjust your own leave balance. Ask another leave admin.");
   const [t] = await tx<{ name: string }[]>`
     select t.name from employees e join leave_plan_rules r on r.leave_plan_id = e.leave_plan_id join leave_types t on t.id = r.leave_type_id
     where e.id = ${v.employeeId} and t.id = ${v.leaveTypeId}`;
@@ -427,6 +428,7 @@ async function checkBalanceImport(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
     if (emp && type && seen.has(k)) errors.push("This person and leave type appear on an earlier row too.");
     seen.add(k);
     const current = cell && cell.available != null ? round2(cell.credited - cell.used) : null;
+    if (emp && emp.id === actor.employeeId && balance != null && current != null && round2(balance - current) !== 0) errors.push("You can't change your own balance. Ask another leave admin.");
     return { rowNumber: r.rowNumber, employee: r.employee, name: emp?.name ?? null, type: r.type, balance, current,
       change: balance != null && current != null ? round2(balance - current) : null, errors, employeeId: emp?.id, typeId: type?.id };
   });

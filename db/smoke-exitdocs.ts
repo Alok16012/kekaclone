@@ -202,6 +202,42 @@ async function main() {
   });
   ok("HR edits the last day, cancels an exit (person active again, open tasks skipped), declines a resignation (inbox cleared)");
 
+  // review fix: HR can't push their own resignation through, edit it, cancel it or tick their own checklist as HR
+  await rollback(tenant.id, async (tx) => {
+    const [reason] = await tx<{ id: string }[]>`select id from exit_reasons limit 1`;
+    const r = await exits.resign(tx, priya, { reasonId: reason.id });
+    if (r.status === "under_review") {
+      await assert.rejects(exits.hrDecide(tx, priya, r.id, "approved"), /your own exit/);
+      const d = await exits.exitDetail(tx, priya, r.id);
+      assert.ok(d && !d.can.manage && !d.can.decide, "no HR controls on your own exit");
+    }
+    await assert.rejects(exits.updateExit(tx, priya, r.id, { lastWorkingDate: addDaysISO(today, 1) }), /your own exit/);
+    await assert.rejects(exits.cancelExit(tx, priya, r.id), /your own exit/);
+    await assert.rejects(exits.completeExit(tx, priya, r.id), /your own exit/);
+  });
+  ok("own exit: HR can't accept, edit, cancel or complete their own resignation");
+
+  // review fix: company-wide documents, letter templates and exit settings need an unscoped grant
+  await rollback(tenant.id, async (tx) => {
+    const forbidden = /access/;
+    await assert.rejects(docs.saveFolder(tx, salesHr, null, { name: "Scoped", access: { type: "org" } }), forbidden);
+    const [cp] = await tx<{ id: string }[]>`select id from document_folders where name = 'Company policies'`;
+    await assert.rejects(docs.uploadDocument(tx, salesHr, { folderId: cp.id, title: "x", requiresAck: false, blockUntilAck: false, file: { name: "a.pdf", bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]) } }), forbidden);
+    const [doc] = await tx<{ id: string }[]>`select id from org_documents limit 1`;
+    await assert.rejects(docs.tracking(tx, salesHr, doc.id), forbidden);
+    await assert.rejects(docs.deleteDocument(tx, salesHr, doc.id), forbidden);
+    await assert.rejects(letters.saveTemplate(tx, salesHr, null, { name: "Scoped letter", kind: "relieving", body: "<p>Hi</p>" }), forbidden);
+    assert.equal(docs.canManageDocs(salesHr), false);
+    assert.equal(docs.canManageDocs(priya), true);
+    await assert.rejects(exits.saveNoticePolicy(tx, salesHr, null, { name: "Scoped", days: 10, probationDays: null, isDefault: true }), forbidden);
+    const [p30] = await tx<{ id: string }[]>`select id from notice_period_policies where days = 30`;
+    await assert.rejects(exits.assignNoticePolicy(tx, salesHr, p30.id, [arjun.employeeId]), forbidden);
+    // they still see only the folders their own placement allows
+    const own = await actor("Karan");
+    assert.deepEqual((await docs.libraryFor(tx, salesHr)).map((f) => f.name).sort(), (await docs.libraryFor(tx, own)).map((f) => f.name).sort());
+  });
+  ok("scoped HR: can't manage company folders, documents, tracking, letter templates or notice periods");
+
   // ---------- documents ----------
   const pdf = await renderLetterPdf({ html: "<p>Smoke</p>", title: "Smoke", company: "Acme", footer: "smoke" });
   await rollback(tenant.id, async (tx) => {

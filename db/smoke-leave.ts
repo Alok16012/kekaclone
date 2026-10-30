@@ -182,6 +182,7 @@ async function main() {
     assert.equal(after.available, before.available + 1.5);
     await assert.rejects(admin.adjustBalance(tx, asha, { employeeId: P.Karan.id, leaveTypeId: el, amount: 0, reason: "nothing" }), /days to add or remove/);
     await assert.rejects(admin.adjustBalance(tx, asha, { employeeId: P.Karan.id, leaveTypeId: el, amount: 1, reason: "" }), /Say why/);
+    await assert.rejects(admin.adjustBalance(tx, asha, { employeeId: P.Asha.id, leaveTypeId: el, amount: 5, reason: "Treating myself" }), /your own leave balance/, "no self-adjustment");
     const [trainee] = await tx<{ id: string }[]>`select id from leave_plans where name = 'Trainees'`;
     const [aditya] = await tx<{ leave_plan_id: string }[]>`select leave_plan_id from employees where id = ${P.Aditya.id}`;
     assert.equal(aditya.leave_plan_id, trainee.id);
@@ -194,7 +195,7 @@ async function main() {
     assert.deepEqual(led.entries.filter((e) => e.kind === "adjust").map((e) => Number(e.amount)).sort(), [-1, 2.5]);
     await assert.rejects(admin.ledgerFor(tx, arjun, P.Karan.id), /don't have access/);
   });
-  ok("balances: credit/debit with a reason → ledger 'adjust', audit log, notification; zero and reasonless refused; type must be in the plan");
+  ok("balances: credit/debit with a reason → ledger 'adjust', audit log, notification; zero, reasonless and self-adjustment refused; type must be in the plan");
 
   // ---------- opening balance import
   await rolled(async (tx) => {
@@ -222,10 +223,20 @@ async function main() {
     assert.equal(errs.length, 3);
     assert.match(errs[0], /No one has employee number/); assert.match(errs[1], /Unknown leave type code ZZ.*number of days/); assert.match(errs[2], /no limit/);
     await assert.rejects(admin.commitBalanceImport(tx, asha, bad), /Some rows have problems/);
+    // the importer's own row may ride along unchanged, but can't be changed
+    const [ashaNo] = await tx<{ n: string }[]>`select employee_number as n from employees where id = ${P.Asha.id}`;
+    const wb2 = new ExcelJS.Workbook(); await wb2.xlsx.load(new Uint8Array(tpl).buffer);
+    let own = 0;
+    wb2.getWorksheet("Balances")!.eachRow((r, i) => { if (i > 1 && !own && r.getCell(1).value === ashaNo.n) { r.getCell(4).value = Number(r.getCell(4).value) + 10; own = i; } });
+    if (own) {
+      const p3 = await admin.previewBalanceImport(tx, asha, (await wb2.xlsx.writeBuffer()) as ArrayBuffer);
+      assert.equal(p3.valid, false);
+      assert.match(p3.results.find((r) => r.rowNumber === own)!.errors.join(" "), /your own balance/);
+    }
     const scoped = await admin.previewBalanceImport(tx, scopedHr, good);
     assert.equal(scoped.valid, false, "scoped HR can't import balances for people outside their department");
   });
-  ok("balance import: template round-trip sets balances by difference (re-import is a no-op), row errors, all-or-nothing, scope enforced");
+  ok("balance import: template round-trip sets balances by difference (re-import is a no-op), row errors, all-or-nothing, scope enforced, own balance locked");
 
   // ---------- year-end
   await rolled(async (tx) => {

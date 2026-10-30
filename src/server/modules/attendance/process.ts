@@ -136,10 +136,11 @@ export async function processAttendance(tx: Tx, tenantId: string, employeeId: st
     where employee_id = ${employeeId} and date >= ${monthStart} and date < ${date} and exists (select 1 from jsonb_array_elements(penalties) x where x->>'rule' = 'late_arrival')`;
   const pens = penaltiesFor(policy ?? null, day, inputs, prior);
 
-  const posted = await tx<{ leave_type_id: string; days: string }[]>`
-    select leave_type_id, -sum(amount) as days from leave_ledger
+  const posted = await tx<{ leave_type_id: string; days: string; entries: number }[]>`
+    select leave_type_id, -sum(amount) as days, count(*)::int as entries from leave_ledger
     where employee_id = ${employeeId} and kind = 'penalty' and ref_type = 'attendance_day' and entry_date = ${date} group by leave_type_id`;
   const postedBy = new Map(posted.map((p) => [p.leave_type_id, Number(p.days)]));
+  const entriesBy = new Map(posted.map((p) => [p.leave_type_id, p.entries]));
   const order = policy?.deduct_from_leave_type_ids ?? [];
   const bal = order.length && pens.some((p) => p.days > 0 && !p.lopOnly) ? await balances(tx, employeeId, date) : [];
   const ordered = order.map((id) => bal.find((b) => b.id === id)).filter((b) => !!b)
@@ -170,7 +171,7 @@ export async function processAttendance(tx: Tx, tenantId: string, employeeId: st
   if (typeIds.size) {
     const cycle = await cycleStartFor(tx, employeeId, date);
     for (const typeId of typeIds) {
-      const delta = ledgerDelta(employeeId, date, typeId, postedBy.get(typeId) ?? 0, target.get(typeId) ?? 0);
+      const delta = ledgerDelta(employeeId, date, typeId, postedBy.get(typeId) ?? 0, target.get(typeId) ?? 0, entriesBy.get(typeId) ?? 0);
       if (!delta) continue;
       await tx`
         insert into leave_ledger (tenant_id, employee_id, leave_type_id, cycle_start, entry_date, kind, amount, ref_type, ref_id, note, idempotency_key)

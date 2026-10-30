@@ -178,6 +178,9 @@ describe("deductions and the ledger", () => {
     expect(ledgerDelta("e", "2026-10-26", "CL", 0.5, 0.5)).toBeNull();
     expect(ledgerDelta("e", "2026-10-26", "CL", 0, 0.5)).toEqual({ amount: -0.5, key: "penalty:e:2026-10-26:CL:0>50" });
     expect(ledgerDelta("e", "2026-10-26", "CL", 0.5, 0)).toEqual({ amount: 0.5, key: "penalty:e:2026-10-26:CL:50>0" });
+    // reversed and re-applied: every posting gets its own key, so the third one isn't swallowed by the first's
+    const keys = [ledgerDelta("e", "2026-10-26", "CL", 0, 0.5, 0), ledgerDelta("e", "2026-10-26", "CL", 0.5, 0, 1), ledgerDelta("e", "2026-10-26", "CL", 0, 0.5, 2)].map((d) => d!.key);
+    expect(new Set(keys).size).toBe(3);
   });
 });
 

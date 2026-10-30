@@ -129,6 +129,23 @@ async function main() {
   });
   ok("penalties: 4th late costs ½ CL, re-runs post nothing, no attendance = LOP, empty balance falls back to LOP with a reversing entry");
 
+  // review fix: a penalty that is reversed and then applies again must be posted again (unique ledger key per posting)
+  await rolledBack(tenant.id, async (tx) => {
+    const d = pastWorking.slice(0, 4).sort()[3];
+    const pen = async () => Number((await tx<{ s: string }[]>`select coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${arjun.employeeId} and kind = 'penalty' and entry_date = ${d}`)[0].s);
+    const [{ pid }] = await tx<{ pid: string }[]>`select penalization_policy_id as pid from employees where id = ${arjun.employeeId}`;
+    assert.equal(await pen(), -0.5);
+    await tx`update employees set penalization_policy_id = null where id = ${arjun.employeeId}`;
+    await processAttendance(tx, tenant.id, arjun.employeeId, d);
+    assert.equal(await pen(), 0, "policy off: penalty reversed");
+    await tx`update employees set penalization_policy_id = ${pid} where id = ${arjun.employeeId}`;
+    await processAttendance(tx, tenant.id, arjun.employeeId, d);
+    assert.equal(await pen(), -0.5, "policy back: penalty posted again");
+    await processAttendance(tx, tenant.id, arjun.employeeId, d);
+    assert.equal(await pen(), -0.5, "and re-runs still post nothing");
+  });
+  ok("penalties: reversed then re-applied penalty is posted again, not swallowed by the idempotency key");
+
   // ---------------------------------------------------------------- requests through approvals
   await rolledBack(tenant.id, async (tx) => {
     const d = pastWorking.slice(0, 4).sort()[3];   // a late day with a ½ CL penalty
@@ -143,6 +160,9 @@ async function main() {
     const detail = await requests.requestDetail(tx, rohan, r.id);
     assert.ok(detail && detail.day?.firstIn, "approver sees the day as recorded");
     assert.equal(await requests.requestDetail(tx, karan, r.id), null, "a colleague can't read it");
+    const salesDept = (await tx<{ id: string }[]>`select id from departments where name = 'Sales'`)[0]?.id ?? randomUUID();
+    assert.equal(await requests.requestDetail(tx, actor("Karan", ["attendance.admin"], [{ type: "department", ids: [salesDept] }]), r.id), null, "an admin scoped to another department can't read it");
+    assert.ok(await requests.requestDetail(tx, actor("Karan", ["attendance.admin"], [{ type: "department", ids: [people.find((p) => p.first_name === "Arjun")!.department_id] }]), r.id), "an admin scoped to Arjun's department can");
     await approvals.decide(tx, rohan, step.step_id, "approved", "ok");
     const [day] = await tx<{ first_in: Date; late_minutes: number; status: string }[]>`select first_in, late_minutes, status from attendance_days where employee_id = ${arjun.employeeId} and date = ${d}`;
     assert.equal(day.first_in.toISOString(), ist(d, "09:28").toISOString()); assert.equal(day.late_minutes, 0);

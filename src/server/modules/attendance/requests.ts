@@ -1,7 +1,7 @@
 import "server-only";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
-import { can } from "@/server/auth/permissions";
+import { canFor, type Placement } from "@/server/auth/permissions";
 import { addDaysISO, todayIn, type ISODate } from "@/lib/dates";
 import { cancelApproval, startApproval, timeline } from "@/server/modules/approvals/service";
 import { fmtRange } from "@/server/modules/leave/service";
@@ -132,14 +132,17 @@ export async function requestAllowance(tx: Tx, employeeId: string, date: ISODate
 
 /** Detail for the approver's drawer: the request, the day as recorded now, and the approval chain. */
 export async function requestDetail(tx: Tx, actor: Actor, id: string) {
-  const [r] = await tx<{ id: string; employee_id: string; name: string; kind: string; from_date: string; to_date: string; payload: Payload; reason: string | null; status: MyRequest["status"]; created_at: Date }[]>`
-    select r.id, r.employee_id, e.display_name as name, r.kind, r.from_date::text, r.to_date::text, r.payload, r.reason, r.status, r.created_at
+  const [row] = await tx<({ id: string; employee_id: string; name: string; kind: string; from_date: string; to_date: string; payload: Payload; reason: string | null; status: MyRequest["status"]; created_at: Date } & Placement)[]>`
+    select r.id, r.employee_id, e.display_name as name, r.kind, r.from_date::text, r.to_date::text, r.payload, r.reason, r.status, r.created_at,
+      e.department_id, e.location_id, e.legal_entity_id, e.business_unit_id
     from attendance_requests r join employees e on e.id = r.employee_id where r.id = ${id}`;
-  if (!r) return null;
+  if (!row) return null;
+  const { department_id, location_id, legal_entity_id, business_unit_id, ...r } = row;
+  const placement: Placement = { department_id, location_id, legal_entity_id, business_unit_id };
   const [approver] = await tx<{ ok: boolean }[]>`
     select true as ok from approval_requests q join approval_steps s on s.request_id = q.id
     where q.entity_type = 'attendance_request' and q.entity_id = ${id} and s.approver_employee_id = ${actor.employeeId} limit 1`;
-  if (r.employee_id !== actor.employeeId && !approver && !can(actor, "attendance.admin")) return null;
+  if (r.employee_id !== actor.employeeId && !approver && !canFor(actor, "attendance.admin", placement)) return null;   // scoped admins: their people only
   const [day] = await tx<{ first_in: Date | null; last_out: Date | null; status: string; late_minutes: number }[]>`
     select first_in, last_out, status, late_minutes from attendance_days where employee_id = ${r.employee_id} and date = ${r.from_date}`;
   const [usage] = await tx<{ regs: number; minutes: number }[]>`

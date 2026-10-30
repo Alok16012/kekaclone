@@ -1,13 +1,18 @@
 import "server-only";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
-import { can, canFor, type Placement } from "@/server/auth/permissions";
+import { canFor, type Placement } from "@/server/auth/permissions";
 import { notifyEmployee } from "@/server/modules/approvals/service";
 import { saveFile } from "@/server/storage";
 import { canSeeFolder, parseAccess, validateUpload, type FolderAccess } from "./rules";
 
 export const DOCS = "documents.manage";
-export const canManageDocs = (actor: Actor) => can(actor, DOCS);
+const EVERYWHERE: Placement = { department_id: null, location_id: null, legal_entity_id: null, business_unit_id: null };
+/**
+ * Company documents, folders and letter templates are company-wide, so managing them needs documents.manage with no
+ * department / location scope. A scoped HR admin still handles their own people's documents and letters (canFor).
+ */
+export const canManageDocs = (actor: Actor) => canFor(actor, DOCS, EVERYWHERE);
 
 async function me(tx: Tx, employeeId: string) {
   const [p] = await tx<(Placement & { status: string })[]>`select department_id, location_id, legal_entity_id, business_unit_id, status from employees where id = ${employeeId}`;

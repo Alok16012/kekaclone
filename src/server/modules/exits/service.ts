@@ -1,7 +1,7 @@
 import "server-only";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
-import { can, canFor, type Placement } from "@/server/auth/permissions";
+import { canFor, type Placement } from "@/server/auth/permissions";
 import { todayIn, type ISODate } from "@/lib/dates";
 import { cancelApproval, notifyEmployee, startApproval, timeline } from "@/server/modules/approvals/service";
 import { fmtRange } from "@/server/modules/leave/service";
@@ -13,6 +13,10 @@ import {
 import { onExitDecided, startExitProcess } from "./effects";
 
 const PERM = "exits.manage";
+const EVERYWHERE: Placement = { department_id: null, location_id: null, legal_entity_id: null, business_unit_id: null };
+/** Notice periods and exit reasons are company-wide settings: settings.org or exits.manage, without a scope. */
+export const canEditExitSettings = (actor: Actor) => canFor(actor, "settings.org", EVERYWHERE) || canFor(actor, PERM, EVERYWHERE);
+const assertExitSettings = (actor: Actor) => { if (!canEditExitSettings(actor)) throw new AppError("forbidden", "You don't have access to do this."); };
 
 /** Notice policies, exit reasons and the exit checklist for a company. Safe to run any number of times. */
 export async function ensureExitDefaults(tx: Tx, tenantId: string) {
@@ -43,7 +47,7 @@ export async function listNoticePolicies(tx: Tx) {
 }
 
 export async function saveNoticePolicy(tx: Tx, actor: Actor, id: string | null, input: { name: string; days: number; probationDays: number | null; isDefault: boolean }) {
-  if (!can(actor, "settings.org") && !can(actor, PERM)) throw new AppError("forbidden", "You don't have access to do this.");
+  assertExitSettings(actor);
   const name = input.name.trim();
   if (!name) throw new AppError("invalid", "Give the policy a name.", "name");
   if (!Number.isInteger(input.days) || input.days < 0 || input.days > 365) throw new AppError("invalid", "Notice must be between 0 and 365 days.", "days");
@@ -66,7 +70,7 @@ export async function saveNoticePolicy(tx: Tx, actor: Actor, id: string | null, 
 }
 
 export async function deleteNoticePolicy(tx: Tx, actor: Actor, id: string) {
-  if (!can(actor, "settings.org") && !can(actor, PERM)) throw new AppError("forbidden", "You don't have access to do this.");
+  assertExitSettings(actor);
   const [p] = await tx<{ is_default: boolean; people: number }[]>`select is_default, (select count(*)::int from employees where notice_period_policy_id = ${id}) as people from notice_period_policies where id = ${id}`;
   if (!p) throw new AppError("not_found", "Notice period not found.");
   if (p.is_default) throw new AppError("invalid", "This is the default notice period. Make another one the default first.");
@@ -76,7 +80,7 @@ export async function deleteNoticePolicy(tx: Tx, actor: Actor, id: string) {
 
 /** Put people on a notice period (HR). */
 export async function assignNoticePolicy(tx: Tx, actor: Actor, policyId: string, employeeIds: string[]) {
-  if (!can(actor, "settings.org") && !can(actor, PERM)) throw new AppError("forbidden", "You don't have access to do this.");
+  assertExitSettings(actor);
   const [p] = await tx<{ id: string }[]>`select id from notice_period_policies where id = ${policyId}`;
   if (!p) throw new AppError("not_found", "Notice period not found.");
   const r = await tx`update employees set notice_period_policy_id = ${policyId} where id = any(${employeeIds}::uuid[]) and status <> 'relieved'`;
@@ -109,6 +113,12 @@ async function placement(tx: Tx, employeeId: string) {
   return p;
 }
 export const canManageExitOf = (actor: Actor, p: Placement) => canFor(actor, PERM, p);
+
+/** HR actions on an exit: in scope, and never on your own exit (your resignation goes through your manager and HR). */
+async function assertManagesExit(tx: Tx, actor: Actor, employeeId: string) {
+  if (employeeId === actor.employeeId) throw new AppError("forbidden", "Someone else in HR has to handle your own exit.");
+  if (!canManageExitOf(actor, await placement(tx, employeeId))) throw new AppError("forbidden", "You can't manage exits for this person.");
+}
 
 type ExitRow = { id: string; employee_id: string; status: ExitStatus; kind: ExitKind; resignation_date: string; last_working_date: string; process_id: string | null };
 async function loadExit(tx: Tx, exitId: string, lock = false) {
@@ -199,7 +209,7 @@ export async function withdraw(tx: Tx, actor: Actor, exitId: string) {
  */
 export async function hrDecide(tx: Tx, actor: Actor, exitId: string, decision: "approved" | "rejected", comment?: string) {
   const x = await loadExit(tx, exitId, true);
-  if (!canManageExitOf(actor, await placement(tx, x.employee_id))) throw new AppError("forbidden", "You can't manage exits for this person.");
+  await assertManagesExit(tx, actor, x.employee_id);
   move(x, decision === "approved" ? "approve" : "reject");
   const [req] = await tx<{ id: string; requester_employee_id: string; summary: string }[]>`
     update approval_requests set status = ${decision} where entity_type = 'exit' and entity_id = ${exitId} and status = 'pending' returning id, requester_employee_id, summary`;
@@ -212,7 +222,7 @@ export async function hrDecide(tx: Tx, actor: Actor, exitId: string, decision: "
 /** HR edits an open exit: last working day, reason, rehire flag, comments. */
 export async function updateExit(tx: Tx, actor: Actor, exitId: string, input: { lastWorkingDate?: string; reasonId?: string | null; okToRehire?: boolean | null; comments?: string | null }) {
   const x = await loadExit(tx, exitId, true);
-  if (!canManageExitOf(actor, await placement(tx, x.employee_id))) throw new AppError("forbidden", "You can't manage exits for this person.");
+  await assertManagesExit(tx, actor, x.employee_id);
   if (x.status !== "under_review" && x.status !== "in_progress") throw new AppError("conflict", "Closed exits can't be changed.");
   const lwd = input.lastWorkingDate ?? x.last_working_date;
   const problems = validateExitDates({ resignationDate: x.resignation_date, lastWorkingDate: lwd, today: todayIn(), by: "hr" }).filter((p) => p.field === "lastWorkingDate");
@@ -233,7 +243,7 @@ export async function updateExit(tx: Tx, actor: Actor, exitId: string, input: { 
 /** HR cancels an exit (the person stays). Checklist closed, person back to active. */
 export async function cancelExit(tx: Tx, actor: Actor, exitId: string) {
   const x = await loadExit(tx, exitId, true);
-  if (!canManageExitOf(actor, await placement(tx, x.employee_id))) throw new AppError("forbidden", "You can't manage exits for this person.");
+  await assertManagesExit(tx, actor, x.employee_id);
   await tx`update exit_requests set status = ${move(x, "cancel")} where id = ${exitId}`;
   await cancelApproval(tx, "exit", exitId);
   if (x.process_id) {
@@ -295,7 +305,7 @@ async function withdrawOpenRequests(tx: Tx, employeeId: string, lastWorkingDate:
 /** HR completes an exit by hand, from the last working day onwards. */
 export async function completeExit(tx: Tx, actor: Actor, exitId: string) {
   const x = await loadExit(tx, exitId, true);
-  if (!canManageExitOf(actor, await placement(tx, x.employee_id))) throw new AppError("forbidden", "You can't manage exits for this person.");
+  await assertManagesExit(tx, actor, x.employee_id);
   move(x, "complete");
   if (!canCompleteNow(x.last_working_date, todayIn())) throw new AppError("invalid", "You can complete the exit from the last working day. Change the last working day if they're leaving earlier.");
   await relieve(tx, exitId, actor.userId);
@@ -316,7 +326,7 @@ export async function setTaskStatus(tx: Tx, actor: Actor, taskId: string, status
     select t.id, t.assignee_employee_id, t.subject_employee_id, p.status as process_status
     from tasks t left join lifecycle_processes p on p.id = t.process_id where t.id = ${taskId} and p.kind = 'exit'`;
   if (!t) throw new AppError("not_found", "Task not found.");
-  const hr = canManageExitOf(actor, await placement(tx, t.subject_employee_id));
+  const hr = t.subject_employee_id !== actor.employeeId && canManageExitOf(actor, await placement(tx, t.subject_employee_id));
   if (!hr && t.assignee_employee_id !== actor.employeeId) throw new AppError("forbidden", "Only the task owner or HR can update this task.");
   if (status === "skipped" && !hr) throw new AppError("forbidden", "Only HR can skip a task.");
   if (t.process_status !== "in_progress") throw new AppError("conflict", "This checklist is closed.");
@@ -371,8 +381,8 @@ export async function exitDetail(tx: Tx, actor: Actor, exitId: string): Promise<
     where x.id = ${exitId}`;
   if (!x) return null;
   const p = await placement(tx, x.employee_id);
-  const manage = canManageExitOf(actor, p);
   const self = x.employee_id === actor.employeeId;
+  const manage = !self && canManageExitOf(actor, p);   // HR can't act on their own exit
   const [{ approver }] = await tx<{ approver: boolean }[]>`
     select exists(select 1 from approval_requests r join approval_steps s on s.request_id = r.id where r.entity_type = 'exit' and r.entity_id = ${exitId} and s.approver_employee_id = ${actor.employeeId}) as approver`;
   if (!manage && !self && !approver && p.manager_id !== actor.employeeId) return null;
@@ -419,7 +429,7 @@ export async function myExit(tx: Tx, employeeId: string) {
 }
 
 export async function addReason(tx: Tx, actor: Actor, input: { kind: string; name: string }) {
-  if (!can(actor, "settings.org") && !can(actor, PERM)) throw new AppError("forbidden", "You don't have access to do this.");
+  assertExitSettings(actor);
   const name = input.name.trim().slice(0, 120);
   if (!name) throw new AppError("invalid", "Write the reason.", "name");
   if (!["resignation", "termination", "other"].includes(input.kind)) throw new AppError("invalid", "Pick a type.", "kind");
@@ -430,7 +440,7 @@ export async function addReason(tx: Tx, actor: Actor, input: { kind: string; nam
 
 /** Past exits keep their history; the reason is just cleared on them. */
 export async function deleteReason(tx: Tx, actor: Actor, id: string) {
-  if (!can(actor, "settings.org") && !can(actor, PERM)) throw new AppError("forbidden", "You don't have access to do this.");
+  assertExitSettings(actor);
   const r = await tx`delete from exit_reasons where id = ${id}`;
   if (!r.count) throw new AppError("not_found", "Reason not found.");
 }
