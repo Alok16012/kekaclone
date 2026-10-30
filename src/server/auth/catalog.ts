@@ -20,6 +20,11 @@ export const PERMISSIONS = [
   { group: "Documents", items: [
     { key: "documents.manage", label: "Manage company documents, letter templates and issue letters" },
   ] },
+  { group: "Expenses", items: [
+    { key: "expenses.admin", label: "Set up expense policies and categories" },
+    { key: "expenses.approve", label: "Review expense claims and advances as finance" },
+    { key: "expenses.payout", label: "Pay out expense claims and advances, or schedule them into payroll" },
+  ] },
   { group: "Settings", items: [
     { key: "settings.org", label: "Edit company structure (departments, locations, …)" },
     { key: "settings.roles", label: "Manage roles and who has them" },
