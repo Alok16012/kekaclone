@@ -21,7 +21,7 @@ export async function provisionTenant(s: Signup) {
   const tenantId = randomUUID();
   return sql.begin(async (tx) => {
     await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
-    await tx`insert into tenants (id, subdomain, name, seats, trial_ends_at) values (${tenantId}, ${sub}, ${s.company.trim()}, ${Math.max(25, s.employees ?? 25)}, now() + interval '30 days')`;
+    await tx`insert into tenants (id, subdomain, name, seats, trial_ends_at, setup_state) values (${tenantId}, ${sub}, ${s.company.trim()}, ${Math.max(25, s.employees ?? 25)}, now() + interval '30 days', ${tx.json({ status: "pending" })})`;
     await tx`insert into legal_entities (tenant_id, name) values (${tenantId}, ${s.company.trim()})`;
     await tx`insert into locations (tenant_id, name) values (${tenantId}, 'Head office')`;
     for (const d of ["Management", "People", "Engineering", "Sales", "Finance", "Operations"]) await tx`insert into departments (tenant_id, name) values (${tenantId}, ${d})`;
@@ -58,6 +58,7 @@ export async function provisionTenant(s: Signup) {
       joiningDate: todayIn(), designationId: founder.id, departmentId: mgmt.id,
     }, null);
     await tx`insert into role_assignments (tenant_id, role_id, employee_id) values (${tenantId}, ${ga.id}, ${admin.employeeId})`;
+    await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff) values (${tenantId}, ${admin.userId}, 'tenant', ${tenantId}, 'create', ${tx.json({ name: s.company.trim(), subdomain: sub })})`;
     return { tenantId, subdomain: sub, userId: admin.userId };
   });
 }

@@ -11,7 +11,7 @@ const INVITE_DAYS = 7, RESET_MINUTES = 60;
 
 /** Send (or re-send) invites. Older invite links stop working. Already-active people are skipped with a reason. */
 export async function invite(tx: Tx, actor: Actor, employeeIds: string[]) {
-  const sent: string[] = [], skipped: { name: string; reason: string }[] = [];
+  const sent: string[] = [], sentIds: string[] = [], skipped: { name: string; reason: string }[] = [];
   for (const id of employeeIds) {
     const [p] = await tx<{ user_id: string | null; display_name: string; work_email: string; status: string; user_status: string | null }[]>`
       select e.user_id, e.display_name, e.work_email, e.status, u.status as user_status from employees e left join users u on u.id = e.user_id where e.id = ${id}`;
@@ -27,9 +27,9 @@ export async function invite(tx: Tx, actor: Actor, employeeIds: string[]) {
     await tx`update users set invited_at = now() where id = ${p.user_id}`;
     const mail = inviteEmail({ company: actor.tenant.name, name: p.display_name, inviter: actor.name, url: appUrl(actor.tenant.subdomain, `/auth/invite?t=${token}`), days: INVITE_DAYS });
     await queueEmail(tx, actor.tenant.id, { kind: "invite", to: p.work_email, ...mail });
-    sent.push(p.display_name);
+    sent.push(p.display_name); sentIds.push(id);
   }
-  if (sent.length) await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, action, diff) values (${actor.tenant.id}, ${actor.userId}, 'user', 'invite', ${tx.json({ count: sent.length })})`;
+  if (sent.length) await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, action, diff) values (${actor.tenant.id}, ${actor.userId}, 'user', 'invite', ${tx.json({ count: sent.length, employeeIds: sentIds })})`;
   return { sent: sent.length, skipped };
 }
 
@@ -60,7 +60,8 @@ export async function setPasswordWithToken(tenant: Tenant, token: string, purpos
     if (problem) throw new AppError("invalid", problem, "password");
     await tx`update users set password_hash = ${await hashPassword(password)}, status = 'active', email_verified_at = coalesce(email_verified_at, now()),
              failed_logins = 0, locked_until = null where id = ${t.user_id}`;
-    await tx`update auth_tokens set consumed_at = now() where user_id = ${t.user_id} and purpose in ('invite', 'reset_password') and consumed_at is null`;
+    // a new password also forgets every remembered device, so the sign-in code is asked again
+    await tx`update auth_tokens set consumed_at = now() where user_id = ${t.user_id} and purpose in ('invite', 'reset_password', 'trusted_device') and consumed_at is null`;
     if (purpose === "reset_password") {
       await tx`delete from sessions where user_id = ${t.user_id}`;   // sign out everywhere
       await queueEmail(tx, tenant.id, { kind: "password_changed", to: t.email, ...passwordChangedEmail({ company: tenant.name, name: t.name }) });

@@ -15,6 +15,7 @@ export const PERMISSIONS = [
     { key: "settings.org", label: "Edit company structure (departments, locations, …)" },
     { key: "settings.roles", label: "Manage roles and who has them" },
     { key: "settings.security", label: "Change sign-in security (codes, login methods)" },
+    { key: "settings.audit", label: "View the audit log and sign-in history" },
   ] },
   { group: "Reports", items: [
     { key: "reports.read", label: "View and export reports" },

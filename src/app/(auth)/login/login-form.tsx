@@ -5,6 +5,7 @@ import { MailCheck } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Field, Input } from "@/ui/field";
 import { Banner } from "@/ui/feedback";
+import { Checkbox } from "@/ui/choice";
 import { loginAction, verifyCodeAction, type FormState } from "../actions";
 
 export function LoginForm({ next }: { next?: string }) {
@@ -43,6 +44,7 @@ function CodeStep({ initial }: { initial: FormState }) {
       <Field label="Sign-in code">
         <Input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={7} autoFocus required className="text-lg tracking-[0.4em] tabular" />
       </Field>
+      <Checkbox name="remember" value="on" label="Remember this device for 30 days" />
       <Button type="submit" size="lg" block loading={pending || !!state.redirectTo}>Verify and sign in</Button>
       <Button type="submit" name="intent" value="resend" variant="ghost" formNoValidate>Send a new code</Button>
     </form>

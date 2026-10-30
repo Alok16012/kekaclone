@@ -44,10 +44,11 @@ export async function saveRole(tx: Tx, actor: Actor, id: string | null, input: {
 
 export async function deleteRole(tx: Tx, actor: Actor, id: string) {
   assertCan(actor, "settings.roles");
-  const [r] = await tx<{ is_system: boolean }[]>`select is_system from roles where id = ${id}`;
+  const [r] = await tx<{ is_system: boolean; name: string }[]>`select is_system, name from roles where id = ${id}`;
   if (!r) throw new AppError("not_found", "Role not found.");
   if (r.is_system) throw new AppError("invalid", "Built-in roles can't be deleted.");
   await tx`delete from roles where id = ${id}`;
+  await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff) values (${actor.tenant.id}, ${actor.userId}, 'role', ${id}, 'delete', ${tx.json({ name: r.name })})`;
 }
 
 export async function assign(tx: Tx, actor: Actor, roleId: string, employeeId: string, scopes: Scope[]) {

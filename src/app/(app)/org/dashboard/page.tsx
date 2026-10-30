@@ -9,6 +9,9 @@ import { Avatar } from "@/ui/avatar";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Banner, EmptyState } from "@/ui/feedback";
+import { redirect } from "next/navigation";
+import { setupSummary } from "@/server/modules/setup/service";
+import { SetupChecklist } from "@/features/setup/setup-checklist";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -28,7 +31,8 @@ function PendingRow({ href, icon, label, count }: { href: string; icon: React.Re
 }
 
 export default async function DashboardPage() {
-  const d = await load((tx, actor) => orgDashboard(tx, actor));
+  const { d, setup } = await load(async (tx, actor) => ({ d: await orgDashboard(tx, actor), setup: await setupSummary(tx, actor) }));
+  if (setup?.autoOpen) redirect("/setup");   // first visit after signup: straight into the setup wizard
   const h = d.headcount;
   const maxDept = Math.max(1, ...d.byDepartment.map((x) => x.count));
   const maxLogin = Math.max(1, ...d.logins.map((x) => x.people));
@@ -37,6 +41,8 @@ export default async function DashboardPage() {
     <>
       <PageHeader title="Dashboard" description={d.scoped ? "For the departments and locations you manage." : "Your company at a glance."}
         actions={<><Button asChild variant="secondary"><Link href="/org/employees/import"><FileSpreadsheet />Import</Link></Button><Button asChild><Link href="/org/employees/new"><UserPlus />Add employee</Link></Button></>} />
+
+      {setup && <SetupChecklist summary={setup} />}
 
       {h.notInvited > 0 && (
         <Banner tone="info" className="mb-6" title={`${h.notInvited} ${h.notInvited === 1 ? "person hasn't" : "people haven't"} been invited yet`}
