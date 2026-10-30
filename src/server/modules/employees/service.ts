@@ -1,8 +1,7 @@
 import "server-only";
 import { AppError, type Tx } from "@/server/db";
 import { hashPassword } from "@/server/auth/password";
-import { proratedOpening } from "@/server/modules/leave/rules";
-import { todayIn } from "@/lib/dates";
+import { creditOnJoining } from "@/server/modules/leave/accrual";
 
 export type NewEmployee = {
   firstName: string; lastName?: string | null; workEmail: string; mobile?: string | null;
@@ -47,25 +46,8 @@ export async function createEmployee(tx: Tx, tenantId: string, input: NewEmploye
   if (defaults.shift_id) await tx`insert into shift_assignments (tenant_id, employee_id, shift_id, period) values (${tenantId}, ${emp.id}, ${defaults.shift_id}, daterange(${input.joiningDate}::date, null))`;
   if (defaults.weekly_off_id) await tx`insert into weekly_off_assignments (tenant_id, employee_id, policy_id, period) values (${tenantId}, ${emp.id}, ${defaults.weekly_off_id}, daterange(${input.joiningDate}::date, null))`;
 
-  // opening balances for the leave year running today (prorated from the joining date if they join during it).
-  // M0 credits upfront; the monthly accrual + year-rollover job replaces this in M2.
-  if (defaults.leave_plan_id) {
-    const rules = await tx<{ leave_type_id: string; yearly_quota: string | null; year_start: string }[]>`
-      select r.leave_type_id, r.yearly_quota, p.year_start from leave_plan_rules r join leave_plans p on p.id = r.leave_plan_id where r.leave_plan_id = ${defaults.leave_plan_id}`;
-    const today = todayIn();
-    for (const r of rules) {
-      if (r.yearly_quota == null) continue;
-      const startMonth = r.year_start === "apr" ? 4 : 1;
-      const ty = Number(today.slice(0, 4)), tm = Number(today.slice(5, 7));
-      const cycleStart = `${tm >= startMonth ? ty : ty - 1}-${String(startMonth).padStart(2, "0")}-01`;
-      const from = input.joiningDate > cycleStart ? input.joiningDate : cycleStart;
-      const amount = proratedOpening(Number(r.yearly_quota), from, startMonth);
-      if (amount > 0) await tx`
-        insert into leave_ledger (tenant_id, employee_id, leave_type_id, cycle_start, entry_date, kind, amount, note, idempotency_key, created_by)
-        values (${tenantId}, ${emp.id}, ${r.leave_type_id}, ${cycleStart}, ${from}, 'opening', ${amount}, 'Opening balance for the leave year',
-                ${`opening:${emp.id}:${r.leave_type_id}:${cycleStart}`}, ${actorUserId})`;
-    }
-  }
+  // first leave credits under the default plan (upfront plans: the prorated year; accruing plans: the joining period)
+  if (defaults.leave_plan_id) await creditOnJoining(tx, tenantId, emp.id, input.joiningDate, actorUserId);
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, actor_user_id) values (${tenantId}, ${emp.id}, 'joined', ${input.joiningDate}, ${actorUserId})`;
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action) values (${tenantId}, ${actorUserId}, 'employee', ${emp.id}, 'create')`;
   return { employeeId: emp.id, userId: user.id, employeeNumber: number };

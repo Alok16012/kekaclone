@@ -10,7 +10,7 @@ export type Signup = { company: string; subdomain: string; firstName: string; la
 
 /**
  * New tenant with sensible defaults so the first screen already works:
- * Head office, General shift (09:30–18:30), Sat/Sun off, Casual/Sick/Earned/Unpaid leave, admin as Global admin.
+ * Head office, General shift (09:30–18:30), Sat/Sun off, Casual/Sick/Earned/Comp off/Unpaid leave, admin as Global admin.
  */
 export async function provisionTenant(s: Signup) {
   const sub = s.subdomain.trim().toLowerCase();
@@ -34,22 +34,25 @@ export async function provisionTenant(s: Signup) {
     await tx`insert into holiday_lists (tenant_id, name, year) values (${tenantId}, 'Head office', ${Number(todayIn().slice(0, 4))})`;
 
     const [plan] = await tx<{ id: string }[]>`insert into leave_plans (tenant_id, name, year_start, is_default) values (${tenantId}, 'Standard', 'jan', true) returning id`;
+    const monthly = { frequency: "monthly", day: 1, prorate_joining: true, stop_in_probation: false };
     const types = [
-      { name: "Casual leave", code: "CL", kind: "regular", paid: true, color: "#2a78d6", quota: 12, app: { allowHalfDay: true, backdateDays: 7, sandwich: { enabled: false } } },
-      { name: "Sick leave", code: "SL", kind: "regular", paid: true, color: "#1baf7a", quota: 8, app: { allowHalfDay: true, backdateDays: 30, attachmentAfterDays: 2 } },
-      { name: "Earned leave", code: "EL", kind: "regular", paid: true, color: "#4a3aa7", quota: 15, app: { allowHalfDay: false, noticeDays: 7, backdateDays: null, sandwich: { enabled: true, ignoreHalfDays: true } } },
-      { name: "Unpaid leave", code: "LWP", kind: "unpaid", paid: false, color: "#eb6834", quota: null, app: { allowHalfDay: true, backdateDays: 7 } },
+      { name: "Casual leave", code: "CL", kind: "regular", paid: true, color: "#2a78d6", quota: 12, accrual: monthly, yearEnd: { carry: "none" }, app: { allowHalfDay: true, backdateDays: 7, sandwich: { enabled: false } } },
+      { name: "Sick leave", code: "SL", kind: "regular", paid: true, color: "#1baf7a", quota: 8, accrual: { ...monthly, frequency: "upfront" }, yearEnd: { carry: "none" }, app: { allowHalfDay: true, backdateDays: 30, attachmentAfterDays: 2 } },
+      { name: "Earned leave", code: "EL", kind: "regular", paid: true, color: "#4a3aa7", quota: 15, accrual: monthly, yearEnd: { carry: "upto", carry_max: 30, encash_max: 10 }, app: { allowHalfDay: false, noticeDays: 7, backdateDays: null, sandwich: { enabled: true, ignoreHalfDays: true } } },
+      { name: "Comp off", code: "CO", kind: "comp_off", paid: true, color: "#eda100", quota: null, accrual: monthly, yearEnd: { carry: "all" }, app: { allowHalfDay: true, backdateDays: 7, compOffExpiryDays: 60, compOffWindowDays: 30 } },
+      { name: "Unpaid leave", code: "LWP", kind: "unpaid", paid: false, color: "#eb6834", quota: null, accrual: monthly, yearEnd: { carry: "none" }, app: { allowHalfDay: true, backdateDays: 7 } },
     ];
     for (const t of types) {
       const [lt] = await tx<{ id: string }[]>`insert into leave_types (tenant_id, name, code, kind, is_paid, color) values (${tenantId}, ${t.name}, ${t.code}, ${t.kind}, ${t.paid}, ${t.color}) returning id`;
-      await tx`insert into leave_plan_rules (tenant_id, leave_plan_id, leave_type_id, yearly_quota, application) values (${tenantId}, ${plan.id}, ${lt.id}, ${t.quota}, ${tx.json(t.app)})`;
+      await tx`insert into leave_plan_rules (tenant_id, leave_plan_id, leave_type_id, yearly_quota, accrual, year_end, application)
+               values (${tenantId}, ${plan.id}, ${lt.id}, ${t.quota}, ${tx.json(t.accrual)}, ${tx.json(t.yearEnd)}, ${tx.json(t.app)})`;
     }
-
     const [ga] = await tx<{ id: string }[]>`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'global_admin', 'Global admin', true, ${["*"]}) returning id`;
     await tx`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'hr_admin', 'HR admin', true,
       ${["employees.read", "employees.write", "leave.admin", "attendance.admin", "approvals.override", "reports.read", "settings.org"]})`;
     await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'leave', 'Leave: reporting manager', ${tx.json([{ approver: "manager" }])})`;
     await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'attendance_request', 'Attendance: reporting manager', ${tx.json([{ approver: "manager" }])})`;
+    await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'comp_off', 'Comp-off: reporting manager', ${tx.json([{ approver: "manager" }])})`;
 
     const [founder] = await tx<{ id: string }[]>`select id from designations where title = 'Founder'`;
     const [mgmt] = await tx<{ id: string }[]>`select id from departments where name = 'Management'`;
