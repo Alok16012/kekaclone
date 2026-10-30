@@ -55,7 +55,8 @@ async function main() {
   const arjun = await actor("Arjun"), rohan = await actor("Rohan");
   const [eng] = await withTenant(tenant.id, (tx) => tx<{ id: string }[]>`select id from departments where name = 'Engineering'`);
   const scoped = await actor("Fatima", ["payroll.admin", "payroll.run"], [{ type: "department", ids: [eng.id] }]);
-  const today = todayIn(), thisMonth = monthStart(today), lastMonth = addMonths(thisMonth, -1);
+  // the seed leaves the month before last paid and last month open (this month has no run, so other suites can make one)
+  const today = todayIn(), thisMonth = addMonths(monthStart(today), -1), lastMonth = addMonths(thisMonth, -1);
   const seeded = await withTenant(tenant.id, (tx) => tx<{ id: string; period_month: string; status: string; pay_group_id: string }[]>`select id, period_month::text, status, pay_group_id from payroll_runs order by period_month`);
   const prevRun = seeded.find((r) => r.period_month === lastMonth)!, openRun = seeded.find((r) => r.period_month === thisMonth)!;
 
@@ -72,8 +73,6 @@ async function main() {
     assert.ok(v.inputs.some((i) => i.kind === "bonus") && v.inputs.some((i) => i.kind === "lop_adjust"));
     const vik = v.lines.find((l) => l.name.startsWith("Vikram"))!;
     assert.ok(vik.earnings.some((e) => e.kind === "lop" && e.sourceMonth === lastMonth && e.paise < 0), "last month's late LOP adjustment is deducted at last month's rate");
-    const nik = v.lines.find((l) => l.name.startsWith("Nikhil"));
-    if (nik) assert.equal(nik.action, "void");
     const mine = await slips.myPay(tx, arjun);
     assert.equal(mine.slips.length, 1); assert.equal(mine.slips[0].month, lastMonth);
     assert.ok(mine.finances?.current, "salary breakup shown");
@@ -91,7 +90,7 @@ async function main() {
     const card = home.cards.find((c) => c.name === "Monthly")!;
     assert.equal(card.run?.id, openRun.id); assert.equal(card.trend.length, 1); assert.ok(card.trend[0].cost > 0);
   });
-  ok("seed: last month paid with released PDF payslips and locked attendance; this month open with inputs; payslips and bank files open only for their owner or payroll");
+  ok("seed: the month before last paid with released PDF payslips and locked attendance; last month open with inputs; payslips and bank files open only for their owner or payroll");
 
   // ---------- permissions ----------
   await rollback(tenant.id, async (tx) => {
@@ -319,10 +318,18 @@ async function main() {
     const [x] = await tx<{ id: string; employee_id: string }[]>`select x.id, x.employee_id from exit_requests x join employees e on e.id = x.employee_id where e.first_name = 'Nikhil'`;
     const d = await fnf.fnfDetail(tx, karan, x.id);
     assert.equal(d.settlement?.status, "draft");
-    assert.ok(d.prerequisite.ok);
     const nikhil = { ...karan, employeeId: x.employee_id };
     await assert.rejects(fnf.buildSettlement(tx, nikhil, x.id), /your own/);
     await assert.rejects(fnf.buildSettlement(tx, arjun, x.id), /whole company/);
+    const lwdMonth = (await tx<{ m: string }[]>`select date_trunc('month', last_working_date)::date::text as m from exit_requests where id = ${x.id}`)[0].m;
+    if (lwdMonth > thisMonth) {
+      // the month before Nikhil's last day is the open seeded run: settling has to wait for it
+      assert.equal(d.prerequisite.ok, false);
+      await assert.rejects(fnf.finalizeSettlement(tx, karan, x.id), /Finalise the/);
+      for (const s of (await runs.runView(tx, karan, openRun.id)).steps) if (!s.done) await runs.markReviewed(tx, karan, openRun.id, s.key, true);
+      await runs.finalizeRun(tx, karan, openRun.id);
+    }
+    assert.ok((await fnf.fnfDetail(tx, karan, x.id)).prerequisite.ok);
     await fnf.finalizeSettlement(tx, karan, x.id);
     const me = await slips.myPay(tx, { ...arjun, employeeId: x.employee_id });
     assert.ok(me.fnf?.fileId);

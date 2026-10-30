@@ -1,6 +1,7 @@
 /**
- * Demo payroll runs for the seeded tenant (called last from db/seed.ts): last month's run finalised, payslips released and
- * paid; this month's run calculated with a few inputs; and a draft full and final settlement for the person who left.
+ * Demo payroll runs for the seeded tenant (called last from db/seed.ts): the month before last finalised, payslips released
+ * and paid; last month's run calculated with a few inputs and still open (this month has no run yet, so other demo checks
+ * can create one); and a draft full and final settlement for the person who left.
  * PAN numbers below are made-up test values in the PAN format, not real ones.
  */
 import { withTenant } from "@/server/db";
@@ -18,7 +19,7 @@ import type { Actor } from "@/server/auth/session";
 
 export async function seedPayrun(tenantId: string) {
   const today = todayIn();
-  const month = monthStart(today), prev = addMonths(month, -1);
+  const month = addMonths(monthStart(today), -1), prev = addMonths(month, -1);
   const tenant = { id: tenantId, name: "Acme Technologies", status: "trial", subdomain: "acme" };
   const actor = async (first: string, permissions: string[]): Promise<Actor> => {
     const [e] = await withTenant(tenantId, (tx) => tx<{ id: string; user_id: string; display_name: string }[]>`select id, user_id, display_name from employees where first_name = ${first}`);
@@ -27,8 +28,9 @@ export async function seedPayrun(tenantId: string) {
   const karan = await actor("Karan", ["payroll.admin"]), asha = await actor("Asha", ["*"]);
 
   const group = await withTenant(tenantId, async (tx) => {
-    // professional tax needs a state: the seeded office is in Karnataka
-    await tx`update locations set state_code = 'KA' where state_code is null`;
+    // professional tax needs a state: everyone works in Karnataka except Arjun, left without one to show the warning
+    // (the seeded office keeps no state code; other demo checks set it themselves)
+    await tx`update employee_statutory s set pt_state = 'KA' from employees e where e.id = s.employee_id and e.first_name <> 'Arjun' and s.pt_state is null`;
     const people = await tx<{ id: string; first_name: string; employee_number: string }[]>`select id, first_name, employee_number from employees order by employee_number`;
     for (const [i, p] of people.entries()) {
       if (p.first_name === "Fatima") continue;   // no PAN on file: shows the payroll warning
@@ -58,7 +60,7 @@ export async function seedPayrun(tenantId: string) {
   const ids = async (...names: string[]) => withTenant(tenantId, (tx) => tx<{ id: string; first_name: string }[]>`select id, first_name from employees where first_name = any(${names})`)
     .then((r) => Object.fromEntries(r.map((x) => [x.first_name, x.id])));
 
-  // last month: finalised, payslips out, paid (Asha confirms the bank file because it includes Karan's own salary)
+  // the month before last: finalised, payslips out, paid (Asha confirms the bank file because it includes Karan's own salary)
   const { id: prevRun } = await withTenant(tenantId, (tx) => runs.createRun(tx, karan, group, prev, today));
   await withTenant(tenantId, (tx) => computeRun(tx, prevRun));
   await reviewAll(prevRun);
@@ -71,7 +73,7 @@ export async function seedPayrun(tenantId: string) {
     if (l) await runs.markLinePaidOutside(tx, asha, l.id, "Cheque 004512");
   });
 
-  // this month: open, with a few inputs, calculated
+  // last month: open, with a few inputs, calculated
   const { id: run } = await withTenant(tenantId, (tx) => runs.createRun(tx, karan, group, month, today));
   const p = await ids("Rohan", "Sneha", "Vikram", "Imran", "Nikhil");
   await withTenant(tenantId, async (tx) => {
@@ -79,7 +81,6 @@ export async function seedPayrun(tenantId: string) {
     await runs.saveInput(tx, karan, run, null, { employeeId: p.Sneha, kind: "adhoc_deduction", amountPaise: 1200_00, note: "Canteen" });
     await runs.saveInput(tx, karan, run, null, { employeeId: p.Vikram, kind: "lop_adjust", days: 1, sourceMonth: prev, note: "Unpaid absence found after last month closed" });
     await runs.saveInput(tx, karan, run, null, { employeeId: p.Imran, kind: "overtime", amountPaise: 2000_00, note: "Weekend stock count" });
-    if (p.Nikhil) await runs.setPayAction(tx, karan, run, p.Nikhil, "void", "Final month paid in the full and final settlement");
   });
   await withTenant(tenantId, (tx) => computeRun(tx, run));
   await withTenant(tenantId, async (tx) => { await runs.markReviewed(tx, karan, run, STEPS[0].key, true); });
