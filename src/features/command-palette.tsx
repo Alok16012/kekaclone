@@ -15,7 +15,7 @@ import type { ShellData } from "@/ui/app-shell";
 import type { PersonHit } from "@/server/modules/employees/service";
 import { searchPeopleAction } from "@/app/(app)/actions";
 
-type Item = { id: string; kind: "page" | "action" | "person" | "recent"; label: string; hint?: string; href: string; icon?: React.ReactNode; keywords?: string; admin?: boolean; person?: PersonHit };
+type Item = { id: string; kind: "page" | "action" | "person" | "recent"; label: string; hint?: string; href: string; icon?: React.ReactNode; keywords?: string; admin?: boolean; area?: string; person?: PersonHit };
 
 const PAGES: Item[] = [
   { id: "p-home", kind: "page", label: "Home", href: "/home", icon: <Home />, keywords: "dashboard feed start" },
@@ -25,10 +25,10 @@ const PAGES: Item[] = [
   { id: "p-pay", kind: "page", label: "My finances", href: "/me/pay", icon: <Wallet />, keywords: "payslip salary tax" },
   { id: "p-exp", kind: "page", label: "Expenses", href: "/me/expenses", icon: <Receipt />, keywords: "claims reimbursement" },
   { id: "p-exp-adv", kind: "page", label: "Expense advances", href: "/me/expenses/advances", icon: <Receipt />, keywords: "advance cash trip money before" },
-  { id: "p-exp-desk", kind: "page", label: "Expense approvals", hint: "Expense desk", href: "/expenses/approvals", icon: <Receipt />, keywords: "claims approve finance review receipts" },
-  { id: "p-exp-pay", kind: "page", label: "Expense payouts", hint: "Expense desk", href: "/expenses/payouts", icon: <Wallet />, keywords: "reimburse pay payroll off-cycle finance" },
-  { id: "p-exp-rep", kind: "page", label: "Expense reports", hint: "Expense desk", href: "/expenses/reports", icon: <ChartBar />, keywords: "spend category department month csv export" },
-  { id: "p-exp-set", kind: "page", label: "Expense policies", hint: "Settings", href: "/settings/expenses", icon: <Settings />, keywords: "categories limits mileage per diem receipt gl", admin: true },
+  { id: "p-exp-desk", kind: "page", label: "Expense approvals", hint: "Expense desk", href: "/expenses/approvals", icon: <Receipt />, keywords: "claims approve finance review receipts", admin: true, area: "expenses" },
+  { id: "p-exp-pay", kind: "page", label: "Expense payouts", hint: "Expense desk", href: "/expenses/payouts", icon: <Wallet />, keywords: "reimburse pay payroll off-cycle finance", admin: true, area: "expenses" },
+  { id: "p-exp-rep", kind: "page", label: "Expense reports", hint: "Expense desk", href: "/expenses/reports", icon: <ChartBar />, keywords: "spend category department month csv export", admin: true, area: "expenses" },
+  { id: "p-exp-set", kind: "page", label: "Expense policies", hint: "Settings", href: "/settings/expenses", icon: <Settings />, keywords: "categories limits mileage per diem receipt gl", admin: true, area: "expenses-settings" },
   { id: "p-perf", kind: "page", label: "Performance", href: "/me/performance", icon: <Target />, keywords: "goals okr review feedback" },
   { id: "p-help", kind: "page", label: "Helpdesk", href: "/me/helpdesk", icon: <LifeBuoy />, keywords: "ticket question support" },
   { id: "p-me", kind: "page", label: "My profile", href: "/me", icon: <User />, keywords: "profile details address" },
@@ -37,13 +37,13 @@ const PAGES: Item[] = [
   { id: "p-docs", kind: "page", label: "Documents", href: "/org/documents", icon: <FileText />, keywords: "policies letters" },
   { id: "p-dash", kind: "page", label: "Dashboard", href: "/org/dashboard", icon: <LayoutDashboard />, keywords: "headcount overview hr", admin: true },
   { id: "p-hire", kind: "page", label: "Hiring", href: "/hire/jobs", icon: <BriefcaseBusiness />, keywords: "jobs candidates recruit", admin: true },
-  { id: "p-set", kind: "page", label: "Settings", href: "/settings", icon: <Settings />, keywords: "configuration", admin: true },
+  { id: "p-set", kind: "page", label: "Settings", href: "/settings", icon: <Settings />, keywords: "configuration", admin: true, area: "settings" },
   { id: "p-org", kind: "page", label: "Company structure", hint: "Settings", href: "/settings/org/departments", icon: <Settings />, keywords: "departments designations locations bands legal entities", admin: true },
   { id: "p-roles", kind: "page", label: "Roles & permissions", hint: "Settings", href: "/settings/roles", icon: <ShieldCheck />, keywords: "access admin", admin: true },
   { id: "p-ann", kind: "page", label: "Announcements", href: "/engage/announcements", icon: <Megaphone />, keywords: "engage news pin schedule wall", admin: true },
   { id: "p-polls", kind: "page", label: "Poll results", href: "/engage/polls", icon: <ChartBar />, keywords: "engage vote survey wall", admin: true },
   { id: "p-sec", kind: "page", label: "Sign-in security", hint: "Settings", href: "/settings/security", icon: <ShieldCheck />, keywords: "otp code 2fa mfa password", admin: true },
-  { id: "p-statutory", kind: "page", label: "Statutory rates", hint: "Settings", href: "/settings/payroll/statutory", icon: <Settings />, keywords: "pf esi professional tax pt lwf gratuity income tax tds slabs ca verification", admin: true },
+  { id: "p-statutory", kind: "page", label: "Statutory rates", hint: "Settings", href: "/settings/payroll/statutory", icon: <Settings />, keywords: "pf esi professional tax pt lwf gratuity income tax tds slabs ca verification", admin: true, area: "payroll" },
   { id: "p-audit", kind: "page", label: "Audit log", hint: "Settings", href: "/settings/audit", icon: <History />, keywords: "history changes who did logins sign-ins compliance", admin: true },
   { id: "p-setup", kind: "page", label: "Company setup", hint: "Getting started", href: "/setup", icon: <Settings />, keywords: "wizard onboarding first run checklist", admin: true },
   { id: "p-team-leave", kind: "page", label: "Team leave calendar", href: "/team/leave", icon: <CalendarDays />, keywords: "who is off away absent vacation" },
@@ -55,15 +55,14 @@ const PAGES: Item[] = [
   { id: "p-time-assign", kind: "page", label: "Shift and policy assignments", href: "/settings/time/assignments", icon: <Users />, keywords: "assign shift weekly off bulk", admin: true },
   { id: "p-exits", kind: "page", label: "Exits", href: "/org/exits", icon: <DoorOpen />, keywords: "offboarding resignation notice leaving relieving", admin: true },
   { id: "p-notice", kind: "page", label: "Notice periods & exit reasons", hint: "Settings", href: "/settings/exits", icon: <Settings />, keywords: "notice period exit reasons checklist", admin: true },
-  { id: "p-pay-comp", kind: "page", label: "Salary components", hint: "Payroll settings", href: "/settings/payroll/components", icon: <Wallet />, keywords: "payroll basic hra allowance deduction earning", admin: true },
-  { id: "p-pay-groups", kind: "page", label: "Pay groups", hint: "Payroll settings", href: "/settings/payroll/pay-groups", icon: <Wallet />, keywords: "payroll cycle cut-off payable days", admin: true },
-  { id: "p-pay-struct", kind: "page", label: "Salary structures", hint: "Payroll settings", href: "/settings/payroll/structures", icon: <Wallet />, keywords: "payroll ctc breakup formula template", admin: true },
-  { id: "p-pay-rev", kind: "page", label: "Salary revisions", hint: "Payroll settings", href: "/settings/payroll/revisions", icon: <FileSpreadsheet />, keywords: "increment hike appraisal ctc bulk import", admin: true },
-  { id: "p-pay-stat", kind: "page", label: "Statutory compliance", hint: "Payroll settings", href: "/settings/payroll/compliance", icon: <ShieldCheck />, keywords: "pf esi pt lwf tds ca verification rates", admin: true },
+  { id: "p-pay-comp", kind: "page", label: "Salary components", hint: "Payroll settings", href: "/settings/payroll/components", icon: <Wallet />, keywords: "payroll basic hra allowance deduction earning", admin: true, area: "payroll" },
+  { id: "p-pay-groups", kind: "page", label: "Pay groups", hint: "Payroll settings", href: "/settings/payroll/pay-groups", icon: <Wallet />, keywords: "payroll cycle cut-off payable days", admin: true, area: "payroll" },
+  { id: "p-pay-struct", kind: "page", label: "Salary structures", hint: "Payroll settings", href: "/settings/payroll/structures", icon: <Wallet />, keywords: "payroll ctc breakup formula template", admin: true, area: "payroll" },
+  { id: "p-pay-rev", kind: "page", label: "Salary revisions", hint: "Payroll settings", href: "/settings/payroll/revisions", icon: <FileSpreadsheet />, keywords: "increment hike appraisal ctc bulk import", admin: true, area: "payroll" },
   { id: "p-assets-me", kind: "page", label: "My assets", href: "/me/assets", icon: <Laptop />, keywords: "laptop equipment issued id card acknowledge" },
-  { id: "p-helpdesk-q", kind: "page", label: "Helpdesk queue", href: "/helpdesk", icon: <Headset />, keywords: "tickets agent support sla assign reply" },
-  { id: "p-assets", kind: "page", label: "Assets", href: "/org/assets", icon: <Package />, keywords: "inventory laptop hand over return recovery", admin: true },
-  { id: "p-helpdesk-set", kind: "page", label: "Helpdesk categories", hint: "Settings", href: "/settings/helpdesk", icon: <Settings />, keywords: "sla escalation agents ticket", admin: true },
+  { id: "p-helpdesk-q", kind: "page", label: "Helpdesk queue", href: "/helpdesk", icon: <Headset />, keywords: "tickets agent support sla assign reply", admin: true, area: "helpdesk" },
+  { id: "p-assets", kind: "page", label: "Assets", href: "/org/assets", icon: <Package />, keywords: "inventory laptop hand over return recovery", admin: true, area: "assets" },
+  { id: "p-helpdesk-set", kind: "page", label: "Helpdesk categories", hint: "Settings", href: "/settings/helpdesk", icon: <Settings />, keywords: "sla escalation agents ticket", admin: true, area: "helpdesk-settings" },
   { id: "p-letters", kind: "page", label: "Letter templates", hint: "Settings", href: "/settings/documents", icon: <FilePen />, keywords: "letters relieving experience placeholders templates", admin: true },
 ];
 const ACTIONS: Item[] = [
@@ -102,7 +101,9 @@ const score = (it: Item, q: string) => {
 
 /** ⌘K / Ctrl+K palette: pages, actions and people. Arrow keys move, Enter opens, Esc closes. */
 export function CommandPalette({ data }: { data?: Promise<ShellData | null> }) {
-  const isAdmin = data ? !!React.use(data)?.isAdmin : false;
+  const shell = data ? React.use(data) : null;
+  const isAdmin = !!shell?.isAdmin;
+  const areas = shell?.areas ?? [];
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
@@ -140,7 +141,7 @@ export function CommandPalette({ data }: { data?: Promise<ShellData | null> }) {
   }, [q]);
 
   const term = q.trim().toLowerCase();
-  const allowed = (i: Item) => isAdmin || !i.admin;
+  const allowed = (i: Item) => isAdmin || !i.admin || (!!i.area && areas.includes(i.area));
   const sections: { label: string; items: Item[] }[] = term
     ? [
         { label: "People", items: term.length >= 2 ? people.map((p) => ({ id: "e-" + p.id, kind: "person" as const, label: p.name, hint: [p.title, p.department].filter(Boolean).join(" · "), href: `/people/${p.id}`, person: p })) : [] },

@@ -1,7 +1,6 @@
 "use server";
 import { z } from "zod";
 import { runAction } from "@/server/action";
-import { todayIn } from "@/lib/dates";
 import * as setup from "@/server/modules/payroll/setup";
 import * as revisions from "@/server/modules/payroll/revisions";
 
@@ -46,11 +45,6 @@ export async function saveStructureAction(id: string | null, input: unknown) {
 export async function deleteStructureAction(id: string) {
   if (!isId(id)) return bad("Unknown structure.");
   return runAction((tx, actor) => setup.deleteStructure(tx, actor, id));
-}
-
-// ---------- statutory sign-off
-export async function recordCaVerificationAction(input: unknown) {
-  return runAction((tx, actor) => setup.recordCaVerification(tx, actor, input, todayIn()));
 }
 
 // ---------- bulk revisions

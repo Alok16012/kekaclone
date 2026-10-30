@@ -15,7 +15,7 @@ import { IconButton } from "./button";
 import { Menu } from "./overlay";
 import { ThemeToggle } from "./theme";
 
-export type ShellData = { tenant: string; user: { name: string; title: string }; isAdmin: boolean; inboxCount: number; unread: number };
+export type ShellData = { tenant: string; user: { name: string; title: string }; isAdmin: boolean; areas?: string[]; inboxCount: number; unread: number };
 
 export type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number };
 export type NavGroup = { label?: string; items: NavItem[] };
@@ -98,11 +98,14 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
 const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk"]);
+/** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
+const AREA: Record<string, string> = { "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk" };
+const showItem = (d: ShellData | null, href: string) => !ADMIN_ONLY.has(href) || !!d?.isAdmin || (!!AREA[href] && !!d?.areas?.includes(AREA[href]));
 
 function navFor(d: ShellData | null): NavGroup[] {
   return DEFAULT_NAV.map((g) => ({
     ...g,
-    items: g.items.filter((i) => d?.isAdmin || !ADMIN_ONLY.has(i.href)).map((i) => (i.href === "/inbox" ? { ...i, badge: d?.inboxCount || undefined } : i)),
+    items: g.items.filter((i) => showItem(d, i.href)).map((i) => (i.href === "/inbox" ? { ...i, badge: d?.inboxCount || undefined } : i)),
   }));
 }
 

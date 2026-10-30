@@ -280,42 +280,5 @@ export async function deleteStructure(tx: Tx, actor: Actor, id: string) {
 }
 
 // ---------------------------------------------------------------- statutory sign-off
-
-export type CaVerification = { at: Date; by: string | null; caName: string; firm: string | null; membershipNo: string | null; verifiedOn: string; note: string | null };
-
-/**
- * The latest recorded CA sign-off of the statutory rates, and whether it still holds (no rate added or changed since).
- * Payroll screens show a warning until `current` is true.
- */
-export async function caStatus(tx: Tx) {
-  const [row] = await tx<{ created_at: Date; diff: Omit<CaVerification, "at" | "by">; by: string | null }[]>`
-    select a.created_at, a.diff, e.display_name as by from audit_logs a
-    left join employees e on e.user_id = a.actor_user_id
-    where a.entity_type = 'statutory_rates' and a.action = 'payroll.ca_verified' order by a.created_at desc limit 1`;
-  const [rates] = await tx<{ n: number; changed: Date | null }[]>`select count(*)::int as n, max(greatest(created_at, updated_at)) as changed from statutory_rates`;
-  const verification: CaVerification | null = row ? { ...row.diff, at: row.created_at, by: row.by } : null;
-  return { verification, rates: rates.n, current: !!verification && (!rates.changed || rates.changed <= verification.at) };
-}
-
-export async function listStatutoryRates(tx: Tx) {
-  return tx<{ id: string; kind: string; state_code: string | null; regime: string | null; effective_from: string; effective_to: string | null; source_note: string }[]>`
-    select id, kind, state_code, regime, effective_from::text, effective_to::text, source_note from statutory_rates order by kind, state_code nulls first, effective_from desc`;
-}
-
-const caInput = z.object({
-  caName: z.string().trim().min(2, "Enter the CA's name").max(120),
-  firm: z.string().trim().max(160).nullable().optional(),
-  membershipNo: z.string().trim().regex(/^\d{6}$/, "ICAI membership numbers are 6 digits").nullable().optional().or(z.literal("").transform(() => null)),
-  verifiedOn: z.iso.date("Pick the date they checked the rates"),
-  note: z.string().trim().max(1000).nullable().optional(),
-  confirm: z.literal(true, "Tick the box to confirm a CA has reviewed every rate"),
-});
-
-export async function recordCaVerification(tx: Tx, actor: Actor, raw: unknown, today: string) {
-  assertPayrollAdmin(actor);
-  const p = caInput.safeParse(raw);
-  if (!p.success) throw invalid(p.error);
-  const v = { caName: p.data.caName, firm: p.data.firm, membershipNo: p.data.membershipNo, verifiedOn: p.data.verifiedOn, note: p.data.note };
-  if (v.verifiedOn > today) throw new AppError("invalid", "The review date can't be in the future.", "verifiedOn");
-  await audit(tx, actor, { entityType: "statutory_rates", entityId: null, action: "payroll.ca_verified", diff: { ...v, firm: v.firm || null, membershipNo: v.membershipNo || null, note: v.note || null } });
-}
+// The CA sign-off lives in the statutory module (statutory_verifications, fingerprinted against the whole
+// rates table); payroll screens read it through verificationStatus() from "@/server/modules/statutory/service".

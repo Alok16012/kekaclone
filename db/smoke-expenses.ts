@@ -230,6 +230,8 @@ async function main() {
   await rollback(tenant.id, async (tx) => {
     const [vc] = await tx<{ id: string }[]>`select id from expense_claims where employee_id = ${vikram.employeeId} and status = 'approved'`;
     const month = monthOf(today);
+    // the payroll seed puts everyone in a pay group; take Vikram out to check the guard
+    await tx`update employees set pay_group_id = null where id = ${vikram.employeeId}`;
     await assert.rejects(exp.scheduleExpensePayout(tx, karan, vc.id, month), /isn't in a pay group/);
     const [le] = await tx<{ id: string }[]>`select id from legal_entities limit 1`;
     const [pg] = await tx<{ id: string }[]>`insert into pay_groups (tenant_id, legal_entity_id, name) values (${tenant.id}, ${le.id}, 'Smoke monthly') returning id`;

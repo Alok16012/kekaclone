@@ -21,7 +21,7 @@ const ok = (name: string) => { passed++; console.log(`  ✓ ${name}`); };
 const rollback = async (tenantId: string, fn: (tx: Tx) => Promise<void>) =>
   withTenant(tenantId, async (tx) => { await fn(tx); throw new Error("rollback"); }).catch((e) => { if (e.message !== "rollback") throw e; });
 const blobs: string[] = [];
-const track = async (tx: Tx) => { for (const f of await tx<{ storage_key: string }[]>`select storage_key from files where created_at > now() - interval '10 minutes'`) blobs.push(f.storage_key); };
+const track = async (tx: Tx) => { for (const f of await tx<{ storage_key: string }[]>`select storage_key from files where created_at >= now()`) blobs.push(f.storage_key); };
 const P = (n: number | string) => BigInt(n);
 const HOUR = 3600_000;
 

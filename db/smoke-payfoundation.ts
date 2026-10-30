@@ -9,6 +9,8 @@ import postgres from "postgres";
 import ExcelJS from "exceljs";
 import { withTenant, sql, AppError, type Tx } from "@/server/db";
 import * as setup from "@/server/modules/payroll/setup";
+import * as statutory from "@/server/modules/statutory/service";
+import { bannerProps } from "@/features/payroll/page-data";
 import * as salary from "@/server/modules/payroll/salary";
 import * as revisions from "@/server/modules/payroll/revisions";
 import { ensurePayrollDefaults } from "@/server/modules/payroll/defaults";
@@ -105,7 +107,8 @@ async function main() {
     await assert.rejects(setup.savePayGroup(tx, karan, null, { name: "X", legalEntityId: le.id, cutoffDay: 32, payableDaysBasis: "calendar" }), /1 to 31/);
     await assert.rejects(setup.deletePayGroup(tx, karan, std.pay_group_id), /Move everyone/);
     await setup.deletePayGroup(tx, karan, g.id);
-    await assert.rejects(setup.recordCaVerification(tx, engPayroll, { caName: "R Kumar", verifiedOn: today, confirm: true }, today), /whole company/);
+    const { fingerprint } = await statutory.verificationStatus(tx);
+    await assert.rejects(statutory.recordVerification(tx, engPayroll, { verifiedByName: "R Kumar", verifiedOn: today, note: "ICAI 123456", fingerprint, confirm: true }, today), /company-wide access/);
   });
   ok("setup: components, pay groups and CA sign-off need payroll.admin for the whole company (scoped payroll and HR refused); codes unique, reserved and frozen once used; protected deletes");
 
@@ -279,14 +282,14 @@ async function main() {
 
   // ---------- CA sign-off ----------
   await rollback(tenant.id, async (tx) => {
-    const before = await setup.caStatus(tx);
-    assert.equal(before.current, false, "warning shows until a CA signs off");
-    await assert.rejects(setup.recordCaVerification(tx, karan, { caName: "R Kumar", verifiedOn: today }, today), /Tick the box/);
-    await assert.rejects(setup.recordCaVerification(tx, karan, { caName: "R Kumar", verifiedOn: addDaysISO(today, 1), confirm: true }, today), /future/);
-    await assert.rejects(setup.recordCaVerification(tx, karan, { caName: "R Kumar", membershipNo: "12", verifiedOn: today, confirm: true }, today), /6 digits/);
-    await setup.recordCaVerification(tx, karan, { caName: "R Kumar", firm: "Kumar & Co", membershipNo: "123456", verifiedOn: today, confirm: true }, today);
-    const after = await setup.caStatus(tx);
-    assert.equal(after.current, true); assert.equal(after.verification?.caName, "R Kumar"); assert.equal(after.verification?.by, karan.name);
+    const before = await bannerProps(tx, karan);
+    assert.equal(before.verified, false, "warning shows until a CA signs off");
+    const { fingerprint } = await statutory.verificationStatus(tx);
+    await assert.rejects(statutory.recordVerification(tx, karan, { verifiedByName: "R Kumar", verifiedOn: today, note: "ICAI 123456", fingerprint } as never, today), /Confirm/);
+    await assert.rejects(statutory.recordVerification(tx, karan, { verifiedByName: "R Kumar", verifiedOn: addDaysISO(today, 1), note: "ICAI 123456", fingerprint, confirm: true }, today), /future/);
+    await statutory.recordVerification(tx, karan, { verifiedByName: "R Kumar", verifiedOn: today, note: "Kumar & Co, ICAI 123456", fingerprint, confirm: true }, today);
+    const after = await bannerProps(tx, karan);
+    assert.equal(after.verified, true); assert.equal(after.caName, "R Kumar");
     await assert.rejects(tx`insert into statutory_rates (kind, effective_from, config, source_note) values ('pf', '2026-04-01', '{}', 'x')`, /permission denied/, "the app can't edit statutory rates");
   });
   ok("statutory: warning until an unscoped payroll admin records a CA review (confirmed, dated, not future); the app can't write statutory_rates");

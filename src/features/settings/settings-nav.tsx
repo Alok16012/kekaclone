@@ -33,7 +33,6 @@ const ITEMS = [
     { href: "/settings/payroll/structures", label: "Salary structures" },
     { href: "/settings/payroll/revisions", label: "Salary revisions" },
     { href: "/settings/payroll/statutory", label: "Statutory rates" },
-    { href: "/settings/payroll/compliance", label: "Statutory compliance" },
   ] },
   { group: "Finance", links: [{ href: "/settings/expenses", label: "Expenses" }] },
   { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
