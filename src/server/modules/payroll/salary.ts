@@ -161,7 +161,7 @@ const bankInput = z.object({
 const bankScope = (tenantId: string, employeeId: string) => ["bank_account", tenantId, employeeId];
 
 /** Save (replace) the primary bank account. The number is encrypted at rest; only the last 4 digits are ever shown. */
-export async function saveBankAccount(tx: Tx, actor: Actor, employeeId: string, raw: unknown) {
+export async function saveBankAccount(tx: Tx, actor: Actor, employeeId: string, raw: unknown, opts: { notify?: boolean } = {}) {
   await assertCanChangePay(tx, actor, employeeId);
   const p = bankInput.safeParse(raw);
   if (!p.success) throw new AppError("invalid", p.error.issues[0].message, String(p.error.issues[0].path[0] ?? ""));
@@ -171,7 +171,7 @@ export async function saveBankAccount(tx: Tx, actor: Actor, employeeId: string, 
   if (cur) await tx`update employee_bank_accounts set bank_name = ${v.bankName}, ifsc = ${v.ifsc}, account_number_enc = ${enc}, account_last4 = ${last4(v.accountNumber)}, holder_name = ${v.holderName}, updated_at = now() where id = ${cur.id}`;
   else await tx`insert into employee_bank_accounts (tenant_id, employee_id, bank_name, ifsc, account_number_enc, account_last4, holder_name) values (${actor.tenant.id}, ${employeeId}, ${v.bankName}, ${v.ifsc}, ${enc}, ${last4(v.accountNumber)}, ${v.holderName})`;
   await audit(tx, actor, { entityType: "employee_bank_account", entityId: employeeId, action: "bank.update", diff: { employeeId, bankName: v.bankName, ifsc: v.ifsc, last4: last4(v.accountNumber) } });
-  await notifyEmployee(tx, actor.tenant.id, employeeId, "bank.updated", "Your salary bank account was changed",
+  if (opts.notify !== false) await notifyEmployee(tx, actor.tenant.id, employeeId, "bank.updated", "Your salary bank account was changed",
     `Salary will be paid to ${v.bankName} account ending ${last4(v.accountNumber)}. Tell HR straight away if you didn't ask for this.`, `/people/${employeeId}?tab=finances`);
 }
 
