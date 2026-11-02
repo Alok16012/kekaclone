@@ -248,7 +248,8 @@ async function main() {
     const lib = await docs.libraryFor(tx, priya);
     const leavePolicy = lib.flatMap((f) => f.docs).find((d) => d.title === "Leave and holiday policy")!;
     const salesDoc = lib.flatMap((f) => f.docs).find((d) => d.title === "Customer data handling")!;
-    assert.equal(leavePolicy.audience, 13 - 1, "everyone who hasn't left (Nikhil has)");
+    const [{ working }] = await tx<{ working: number }[]>`select count(*)::int as working from employees where status <> 'relieved'`;   // other seeds add joiners
+    assert.equal(leavePolicy.audience, working, "everyone who hasn't left (Nikhil has)");
     assert.equal((await docs.libraryFor(tx, arjun)).flatMap((f) => f.docs).some((d) => d.audience != null), false, "employees don't get tracking numbers");
 
     // the gate: Sneha is blocked by the Sales document, Arjun only has a non-blocking one
