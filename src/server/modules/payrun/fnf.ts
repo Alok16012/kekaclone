@@ -106,7 +106,7 @@ async function autoItems(tx: Tx, actor: Actor, x: ExitRow): Promise<{ items: Fnf
   // 3. gratuity (statutory engine)
   const rates = await loadRates(tx, lwd, null);
   const g = gratuity({ config: rates.gratuity.config, lastMonthlyWagePaise: basic, joiningDate: x.joining_date, lastWorkingDate: lwd, reason: x.kind === "company_action" ? "termination" : "resignation" });
-  items.push(item("gratuity", `Gratuity (${g.countedYears} ${g.countedYears === 1 ? "year" : "years"} counted)`, "earning", g.amountPaise,
+  items.push(item("gratuity", g.eligible ? `Gratuity (${g.countedYears} ${g.countedYears === 1 ? "year" : "years"} counted)` : "Gratuity (not eligible)", "earning", g.amountPaise,
     g.eligible ? `15 ÷ 26 × last basic × years served; rates not CA-verified` : `Not eligible: ${g.completedYears} completed ${g.completedYears === 1 ? "year" : "years"} of service, ${rates.gratuity.config.minYears} needed`));
   // 4. notice shortfall recovery (resignations)
   if (x.kind === "resignation") {
