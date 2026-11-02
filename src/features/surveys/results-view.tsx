@@ -4,8 +4,6 @@ import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Card, CardBody, CardHeader, StatTile } from "@/ui/card";
 import { Banner, EmptyState } from "@/ui/feedback";
-import { controlBase } from "@/ui/field";
-import { cn } from "@/lib/cn";
 import type { Results } from "@/server/modules/surveys/service";
 import type { QuestionSummary } from "@/server/modules/surveys/rules";
 
@@ -43,7 +41,8 @@ function Summary({ s }: { s: QuestionSummary }) {
   }
 }
 
-const select = cn(controlBase, "h-9 px-3");
+// native select (this is a server component, so no Radix select): same look as the form controls
+const select = "h-9 w-full rounded-md border border-border-input bg-surface px-3 text-base text-text hover:border-text-muted focus-visible:outline-none focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/25 sm:w-48";
 
 /** Results for one round: response rate, eNPS, a chart per question, filters by department and location, CSV. */
 export function ResultsView({ r }: { r: Results }) {
