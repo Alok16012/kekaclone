@@ -58,7 +58,7 @@ export async function seedAttendance(tenantId: string) {
 
     // Arjun came in late on the last four working days; Karan forgot to clock out once
     const past = Array.from({ length: 14 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
-    for (const d of past.slice(0, 4)) await moveIn(tx, id("Arjun"), d, "10:05");
+    for (const d of lateDaysOf(past)) await moveIn(tx, id("Arjun"), d, "10:05");
     await tx`delete from punches where employee_id = ${id("Karan")} and direction = 'out' and (at at time zone 'Asia/Kolkata')::date = ${past[2]}::date`;
 
     // re-run the last two weeks with the policies in place
@@ -77,4 +77,15 @@ export async function seedAttendance(tenantId: string) {
 async function moveIn(tx: Tx, employeeId: string, date: string, hhmm: string) {
   await tx`update punches set at = ${new Date(`${date}T${hhmm}:00+05:30`)}
     where employee_id = ${employeeId} and direction = 'in' and (at at time zone 'Asia/Kolkata')::date = ${date}::date`;
+}
+
+/**
+ * Arjun's four late days: the latest four past working days in a single calendar month, so the fourth one is always
+ * the fourth late arrival of its month (early in a month the last four working days would span two months).
+ * db/smoke-attendance.ts picks the same days.
+ */
+export function lateDaysOf(pastWorkingNewestFirst: string[]) {
+  const last4 = pastWorkingNewestFirst.slice(0, 4);
+  if (last4.every((d) => d.slice(0, 7) === last4[0].slice(0, 7))) return last4;
+  return pastWorkingNewestFirst.filter((d) => d.slice(0, 7) === last4[3].slice(0, 7)).slice(0, 4);
 }

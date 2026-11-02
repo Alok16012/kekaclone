@@ -321,10 +321,10 @@ async function main() {
     await assert.rejects(holidays.saveHolidayList(tx, asha, null, { name: "Head office", year, floaterLimit: 0 }), /already a list called/);
     let fd = addDaysISO(today, 3); while (["sat", "sun"].includes(weekday(fd))) fd = addDaysISO(fd, 1);
     const extra: string[] = [];
-    let prev = addDaysISO(fd, -1);
+    let next = fd;   // consecutive working days, so no two floaters share a date (skipping a weekend used to collide)
     for (const name of ["Smoke floater A", "Smoke floater B", "Smoke floater C"]) {
-      let d = addDaysISO(prev, 1); while (["sat", "sun"].includes(weekday(d))) d = addDaysISO(d, 1);   // three distinct working days
-      prev = d;
+      let d = next; while (["sat", "sun"].includes(weekday(d))) d = addDaysISO(d, 1);
+      next = addDaysISO(d, 1);
       if (d.slice(0, 4) !== String(year)) continue;
       extra.push((await holidays.saveHoliday(tx, asha, head.id, null, { name, date: d, floater: true })).id);
     }
