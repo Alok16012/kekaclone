@@ -25,8 +25,9 @@
     "jobs:statutory-rates": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-statutory-rates.ts",
     "smoke:expenses": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-expenses.ts",
     "smoke:servicedesk": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-servicedesk.ts",
+    "smoke:taxloans": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-taxloans.ts",
     "jobs:helpdesk": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-helpdesk.ts",
-    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk"
+    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:taxloans"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
