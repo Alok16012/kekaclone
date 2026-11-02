@@ -14,6 +14,10 @@ export const PERMISSIONS = [
   { group: "Payroll", items: [
     { key: "payroll.admin", label: "Set up and run payroll, manage people's salaries, bank and statutory details, and record a CA check of statutory rates" },
   ] },
+  { group: "Performance", items: [
+    { key: "performance.admin", label: "Run review cycles, calibrate and publish ratings, set goal and rating settings, manage the skills library and see everyone's goals" },
+    { key: "compensation.admin", label: "Plan compensation cycles: budgets, increment matrix, recommendations for anyone, and applying raises to payroll" },
+  ] },
   { group: "Approvals", items: [
     { key: "approvals.override", label: "Approve or decline on anyone's behalf" },
   ] },
