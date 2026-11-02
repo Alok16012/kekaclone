@@ -17,6 +17,8 @@ import { AttendanceRequestDetail } from "@/features/attendance/request-detail";
 import { ExitSummary, useExitDetail } from "@/features/exits/exit-drawer";
 import { ExpenseReviewDetail } from "@/features/expenses/review";
 import { AssetRequestDetail } from "@/features/assets/request-detail";
+import { InboxBulkBar, useBulkSelection } from "@/features/corehr/inbox-bulk";
+import { Checkbox } from "@/ui/choice";
 
 export type InboxRow = { stepId: string; entityType: string; entityId: string; summary: string; requester: string; requesterTitle: string | null; createdAt: string; ago: string };
 type Detail = Awaited<ReturnType<typeof leaveRequestDetailAction>>;
@@ -35,6 +37,7 @@ export function InboxList({ items }: { items: InboxRow[] }) {
   const [comment, setComment] = React.useState("");
   const [busy, start] = React.useTransition();
   const visible = items.filter((i) => !hidden.has(i.stepId));
+  const bulk = useBulkSelection(visible.map((v) => v.stepId));
 
   const decide = (row: InboxRow, decision: "approved" | "rejected") => {
     setHidden((h) => new Set(h).add(row.stepId));   // optimistic: the row leaves the list now
@@ -59,10 +62,12 @@ export function InboxList({ items }: { items: InboxRow[] }) {
   }
   return (
     <>
+      <InboxBulkBar bulk={bulk} rows={visible} onDone={(ids) => setHidden((h) => new Set([...h, ...ids]))} />
       <Card>
         <ul className="divide-y divide-border">
           {visible.map((row) => (
             <li key={row.stepId} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+              <Checkbox aria-label={`Select: ${row.summary}`} checked={bulk.selected.has(row.stepId)} onCheckedChange={(c) => bulk.toggle(row.stepId, !!c)} className="hidden sm:block" />
               <button type="button" onClick={() => openRow(row)} className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-offset-4">
                 <Avatar name={row.requester} />
                 <span className="min-w-0">

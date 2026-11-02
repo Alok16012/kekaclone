@@ -14,6 +14,14 @@ export const canEditStructure = (actor: Actor) => canFor(actor, "settings.org", 
 const assertStructure = (actor: Actor) => { if (!canEditStructure(actor)) throw new AppError("forbidden", "You don't have access to company settings."); };
 const unique = (e: unknown, msg: string, field = "name") => { if ((e as { code?: string }).code === "23505") throw new AppError("conflict", msg, field); throw e; };
 
+/** New tenants start with two probation policies (idempotent: only when none exist). */
+export async function ensureCoreHrDefaults(tx: Tx, tenantId: string) {
+  const [has] = await tx`select 1 from probation_policies limit 1`;
+  if (!has) {
+    await tx`insert into probation_policies (tenant_id, name, duration_days, auto_confirm) values (${tenantId}, 'Standard (6 months)', 180, false), (${tenantId}, 'Short (3 months, auto-confirm)', 90, true)`;
+  }
+}
+
 // ---------------------------------------------------------------- groups
 
 export type GroupTypeRow = { id: string; name: string; groups: { id: string; name: string; people: number }[] };

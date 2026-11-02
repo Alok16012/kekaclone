@@ -80,6 +80,18 @@ export async function directoryExport(tx: Tx, actor: Actor, f: DirectoryFilters)
   return { header, rows: rows.map((r) => [r.employee_number, r.display_name, r.work_email, r.mobile ?? "", r.designation ?? "", r.department ?? "", r.location ?? "", r.manager ?? "", r.status, r.worker_type, r.joining_date, r.exit_date ?? ""]) };
 }
 
+/** Directory filters from the URL (?department=…&status=…&from=…), with anything malformed dropped. */
+export function filtersFrom(sp: Record<string, string | string[] | undefined>): DirectoryFilters {
+  const one = (v: string | string[] | undefined) => (typeof v === "string" && v ? v : undefined);
+  const date = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+  const id = (v?: string) => (v && /^[0-9a-f-]{36}$/i.test(v) ? [v] : undefined);
+  const status = one(sp.status);
+  return {
+    q: one(sp.q), departmentIds: id(one(sp.department)), locationIds: id(one(sp.location)), designationIds: id(one(sp.designation)),
+    status: (STATUSES as readonly string[]).includes(status ?? "") ? (status as DirectoryFilters["status"]) : "current", joinedFrom: date(one(sp.from)), joinedTo: date(one(sp.to)),
+  };
+}
+
 export async function filterOptions(tx: Tx) {
   const [departments, locations, designations] = await Promise.all([
     tx<{ id: string; name: string }[]>`select id, name from departments order by name`,
@@ -318,3 +330,25 @@ export async function timeTab(tx: Tx, actor: Actor, employeeId: string, month?: 
 }
 
 export { EVERYWHERE };
+
+// ---------------------------------------------------------------- Job tab: assigned policies
+
+/** The policies that apply to someone today (self, managers and HR). */
+export async function assignedPolicies(tx: Tx, actor: Actor, employeeId: string) {
+  if ((await accessTo(tx, actor, employeeId)) === "colleague") return null;
+  const today = todayIn();
+  const [p] = await tx<Record<string, string | null>[]>`
+    select lp.name as leave_plan, coalesce(hl.name, lhl.name) as holiday_list,
+      (select s.name from shift_assignments a join shifts s on s.id = a.shift_id where a.employee_id = e.id and a.period @> ${today}::date limit 1) as shift,
+      (select w.name from weekly_off_assignments a join weekly_off_policies w on w.id = a.policy_id where a.employee_id = e.id and a.period @> ${today}::date limit 1) as weekly_off,
+      cp.name as capture, pp.name as penalty, pg.name as pay_group, pr.name as probation, np.name as notice, ep.name as expense
+    from employees e
+    left join leave_plans lp on lp.id = e.leave_plan_id left join holiday_lists hl on hl.id = e.holiday_list_id
+    left join locations l on l.id = e.location_id left join holiday_lists lhl on lhl.id = l.default_holiday_list_id
+    left join capture_policies cp on cp.id = e.capture_policy_id left join penalization_policies pp on pp.id = e.penalization_policy_id
+    left join pay_groups pg on pg.id = e.pay_group_id left join probation_policies pr on pr.id = e.probation_policy_id
+    left join notice_period_policies np on np.id = e.notice_period_policy_id left join expense_policies ep on ep.id = e.expense_policy_id
+    where e.id = ${employeeId}`;
+  const groups = await tx<{ type: string; name: string }[]>`select t.name as type, g.name from employee_groups eg join groups g on g.id = eg.group_id join group_types t on t.id = g.group_type_id where eg.employee_id = ${employeeId} order by t.name, g.name`;
+  return { ...(p ?? {}), groups };
+}

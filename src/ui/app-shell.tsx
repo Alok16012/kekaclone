@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { DoorOpen } from "lucide-react";
 import { Headset, Laptop, Package } from "lucide-react";
+import { Network } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "./avatar";
 import { IconButton } from "./button";
@@ -38,6 +39,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/team", label: "My team", icon: Users },
     { href: "/org/employees", label: "People", icon: LayoutGrid },
+    { href: "/org/tree", label: "Org chart", icon: Network },
     { href: "/org/documents", label: "Documents", icon: FileText },
     { href: "/org/exits", label: "Exits", icon: DoorOpen },
     { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
