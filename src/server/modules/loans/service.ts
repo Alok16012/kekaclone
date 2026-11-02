@@ -6,6 +6,7 @@ import type { Placement } from "@/server/auth/permissions";
 import { audit } from "@/server/modules/audit/service";
 import { cancelApproval, notifyEmployee, startApproval, timeline } from "@/server/modules/approvals/service";
 import { canPayrollFor, hasAnyPayrollAdmin, isPayrollAdmin } from "@/server/modules/payroll/access";
+import { markOpenRunStale } from "@/server/modules/payrun/stale";
 import { todayIn } from "@/lib/dates";
 import {
   bpToRate, buildSchedule, checkFirstEmiMonth, checkRequest, defaultFirstEmiMonth, emiFor, formatPaise, isMonth, monthLabel, monthOf,
@@ -196,6 +197,7 @@ export async function disburseLoan(tx: Tx, actor: Actor, id: string, raw: unknow
   for (const r of rows) {
     await tx`insert into loan_installments (tenant_id, loan_id, due_month, principal_paise, interest_paise) values (${actor.tenant.id}, ${l.id}, ${r.dueMonth}, ${r.principalPaise}, ${r.interestPaise})`;
   }
+  await markOpenRunStale(tx, p.pay_group_id, first);   // an already-calculated run for that month must pick the first EMI up
   await tx`update loans set status = 'active', disbursed_on = ${v.data.disbursedOn}, first_emi_month = ${first}, pre_emi_interest_paise = ${pre.interestPaise},
              emi_paise = ${emiFor({ principalPaise: N(l.principal_paise), rateBp, rateType: l.rate_type, months: l.tenure_months })},
              disbursed_by = ${actor.userId}, disbursal_ref = ${v.data.reference || null} where id = ${l.id}`;
@@ -216,8 +218,12 @@ export async function cancelApprovedLoan(tx: Tx, actor: Actor, id: string) {
 
 /** Remove an installment's payroll input if payroll hasn't locked that month (the EMI changed or was skipped). */
 async function dropInput(tx: Tx, installmentId: string) {
-  await tx`delete from payroll_inputs p where p.kind = 'loan_emi' and p.source_ref->>'loan_installment_id' = ${installmentId}
-             and not exists (select 1 from payroll_runs r where r.pay_group_id = p.pay_group_id and r.period_month = p.period_month and r.status in ${tx(LOCKED_RUN)})`;
+  const gone = await tx<{ pay_group_id: string; period_month: string }[]>`
+    delete from payroll_inputs p where p.kind = 'loan_emi' and p.source_ref->>'loan_installment_id' = ${installmentId}
+      and not exists (select 1 from payroll_runs r where r.pay_group_id = p.pay_group_id and r.period_month = p.period_month and r.status in ${tx(LOCKED_RUN)})
+    returning p.pay_group_id, p.period_month::text`;
+  // an open run that already took this EMI must be recalculated before it can be finalised
+  for (const g of gone) await markOpenRunStale(tx, g.pay_group_id, g.period_month);
 }
 
 /** Skip one month's EMI: it moves after the last EMI (no extra interest). Not for a month payroll has finalised. */

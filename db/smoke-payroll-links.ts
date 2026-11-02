@@ -6,7 +6,9 @@
  * Checks that: a payroll run turns the month's loan EMIs into deductions by itself (idempotent, follows the schedule);
  * paying a run marks only the EMIs that were really deducted; a submitted declaration drives the TDS regime and
  * deductions while a draft doesn't; and a leaver's full and final settlement recovers the loan's outstanding principal
- * and closes the loan when finalised.
+ * and closes the loan when finalised. Review regressions: an expense claim is only marked paid when the run really paid it;
+ * changing a claim or an EMI after a run was calculated makes the run recalculate before finalising; and a leaver's
+ * scheduled claim is paid once in the settlement (not also inside the last month's salary) and closed when it's finalised.
  */
 import assert from "node:assert/strict";
 import { withTenant, sql, type Tx } from "@/server/db";
@@ -14,6 +16,8 @@ import { computeRun } from "@/server/modules/payrun/engine";
 import * as runs from "@/server/modules/payrun/runs";
 import * as fnf from "@/server/modules/payrun/fnf";
 import * as loans from "@/server/modules/loans/service";
+import * as exp from "@/server/modules/expenses/service";
+import { getStatutoryProfile, saveStatutory } from "@/server/modules/payroll/salary";
 import { addMonths, monthStart } from "@/server/modules/payrun/rules";
 import { todayIn } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
@@ -34,7 +38,7 @@ async function main() {
     assert.ok(e, `${first} exists`);
     return { tenant, userId: e.user_id, employeeId: e.id, name: e.display_name, email: "", title: null, roles: [], permissions: new Set(permissions), grants: permissions.length ? [{ permissions, scopes: [] }] : [] } as Actor;
   });
-  const karan = await actor("Karan", ["payroll.admin"]), sneha = await actor("Sneha"), arjun = await actor("Arjun"), meera = await actor("Meera");
+  const karan = await actor("Karan", ["payroll.admin", "expenses.payout"]), sneha = await actor("Sneha"), arjun = await actor("Arjun"), meera = await actor("Meera");
   const today = todayIn(), openMonth = addMonths(monthStart(today), -1);
   const [open] = await withTenant(tenant.id, (tx) => tx<{ id: string; pay_group_id: string }[]>`select id, pay_group_id from payroll_runs where period_month = ${openMonth} and status in ('draft','in_progress')`);
   assert.ok(open, "the seed leaves last month's run open");
@@ -122,6 +126,104 @@ async function main() {
     assert.equal((await loans.outstandingForFnf(tx, x.employee_id)).totalPaise, 0);
   });
   ok("loans → F&F: the settlement recovers the outstanding principal per loan and finalising records it and closes the loan");
+
+
+  // ---------- expenses ↔ payroll (review regressions) ----------
+  // put a seeded approved claim in the open run's month for someone (as finance would have scheduled it during that month)
+  const scheduleIn = async (tx: Tx, claimNo: number, who: string) => {
+    const [c] = await tx<{ id: string; payable: string }[]>`select id, (total_paise - advance_applied_paise)::text as payable from expense_claims where number = ${claimNo}`;
+    const [e] = await tx<{ id: string }[]>`select id from employees where id = ${who}`;
+    await tx`update expense_claims set employee_id = ${e.id}, status = 'approved', payout = 'payroll', payout_month = ${openMonth} where id = ${c.id}`;
+    await tx`update expenses set employee_id = ${e.id} where claim_id = ${c.id}`;
+    const [i] = await tx<{ id: string }[]>`
+      insert into payroll_inputs (tenant_id, pay_group_id, period_month, employee_id, kind, amount_paise, source_ref, action, note)
+      values (app_tenant(), ${open.pay_group_id}, ${openMonth}, ${e.id}, 'expense', ${Number(c.payable)}, ${tx.json({ expense_claim_id: c.id, number: claimNo })}, 'pay', 'Smoke claim')
+      returning id`;
+    return { claimId: c.id, inputId: i.id, payable: Number(c.payable) };
+  };
+  const claimOf = async (tx: Tx, id: string) => (await tx<{ status: string; payout_month: string | null; payment_ref: string | null }[]>`
+    select status, payout_month::text, payment_ref from expense_claims where id = ${id}`)[0];
+  await rollback(tenant.id, async (tx) => {
+    const c = await scheduleIn(tx, 4, sneha.employeeId);
+    await runs.setPayAction(tx, karan, open.id, sneha.employeeId, "hold_processing", "Smoke hold");
+    await computeRun(tx, open.id);
+    assert.equal((await lineOf(tx, sneha)).action, "hold_processing");
+    assert.equal(await exp.markPayrollExpensesPaid(tx, open.pay_group_id, openMonth, { runId: open.id }), 0, "a held line didn't pay the claim");
+    const after = await claimOf(tx, c.claimId);
+    assert.equal(after.status, "approved", "the claim is still owed");
+    assert.equal(after.payout_month, null, "and goes back to the payout queue unscheduled");
+    await exp.markClaimPaid(tx, karan, c.claimId, "UPI smoke");   // so finance can still pay it
+    assert.equal((await claimOf(tx, c.claimId)).status, "paid");
+  });
+  await rollback(tenant.id, async (tx) => {
+    const c = await scheduleIn(tx, 4, sneha.employeeId);
+    await computeRun(tx, open.id);
+    assert.ok((await lineOf(tx, sneha)).deductions !== undefined);
+    assert.equal(await exp.markPayrollExpensesPaid(tx, open.pay_group_id, openMonth, { runId: open.id }), 1, "a processed line paid the claim");
+    assert.match((await claimOf(tx, c.claimId)).payment_ref ?? "", /payroll/);
+  });
+  await rollback(tenant.id, async (tx) => {
+    const c = await scheduleIn(tx, 4, sneha.employeeId);
+    await computeRun(tx, open.id);
+    const [l] = await tx<{ earnings: Item[] }[]>`select earnings from payroll_lines where run_id = ${open.id} and employee_id = ${sneha.employeeId}`;
+    assert.ok(l.earnings.some((e) => e.inputId === c.inputId), "the calculated line carries the claim");
+    await exp.markClaimPaid(tx, karan, c.claimId, "UPI smoke");
+    assert.equal((await runs.runView(tx, karan, open.id)).fresh, false, "paying the claim off-cycle makes the calculated run stale");
+    for (const st of (await runs.runView(tx, karan, open.id)).steps) if (!st.done) await runs.markReviewed(tx, karan, open.id, st.key, true);
+    await assert.rejects(runs.finalizeRun(tx, karan, open.id), /Recalculate/, "a stale run can't be finalised (the claim would be paid twice)");
+    await runs.calculate(tx, karan, open.id);
+    const [l2] = await tx<{ earnings: Item[] }[]>`select earnings from payroll_lines where run_id = ${open.id} and employee_id = ${sneha.employeeId}`;
+    assert.ok(!l2.earnings.some((e) => e.code === "EXPENSE"), "after recalculating the claim is gone from the run");
+  });
+  await rollback(tenant.id, async (tx) => {
+    const [first] = await tx<{ id: string }[]>`select id from loan_installments where loan_id = ${loan.id} and status = 'scheduled' order by due_month limit 1`;
+    await tx`update loan_installments set due_month = ${openMonth} where id = ${first.id}`;
+    await computeRun(tx, open.id);
+    assert.equal((await runs.runView(tx, karan, open.id)).fresh, true);
+    await loans.skipEmi(tx, karan, loan.id, openMonth, "Smoke test");
+    assert.equal((await runs.runView(tx, karan, open.id)).fresh, false, "skipping an EMI the run already took makes it stale");
+  });
+  await rollback(tenant.id, async (tx) => {
+    await computeRun(tx, open.id);
+    const st = await getStatutoryProfile(tx, arjun.employeeId);
+    await saveStatutory(tx, karan, arjun.employeeId, { pfEnabled: !st.pfEnabled, uan: st.uan, pfNumber: st.pfNumber, pfOnFullWage: false, esiEnabled: st.esiEnabled,
+      esiNumber: st.esiNumber, ptState: st.ptStateOverride, lwfState: null, taxRegime: st.taxRegime });
+    assert.equal((await runs.runView(tx, karan, open.id)).fresh, false, "changing someone's statutory details makes their open run stale");
+  });
+  ok("expenses/loans → payroll: claims are marked paid only from lines that paid them (others return to the queue); off-cycle payments, EMI skips and statutory changes force a recalculation");
+
+  await rollback(tenant.id, async (tx) => {
+    const [x] = await tx<{ id: string; employee_id: string }[]>`select x.id, x.employee_id from exit_requests x join employees e on e.id = x.employee_id where e.first_name = 'Nikhil'`;
+    const lwdMonth = (await tx<{ m: string }[]>`select date_trunc('month', last_working_date)::date::text as m from exit_requests where id = ${x.id}`)[0].m;
+    await fnf.buildSettlement(tx, karan, x.id);
+    const before = (await fnf.fnfDetail(tx, karan, x.id)).settlement!.items.find((i) => i.key === "salary")?.paise ?? 0;
+    const [c] = await tx<{ id: string; payable: string }[]>`select id, (total_paise - advance_applied_paise)::text as payable from expense_claims where number = 4`;
+    await tx`update expense_claims set employee_id = ${x.employee_id}, status = 'approved', payout = 'payroll', payout_month = ${lwdMonth} where id = ${c.id}`;
+    await tx`update expenses set employee_id = ${x.employee_id} where claim_id = ${c.id}`;
+    await tx`insert into payroll_inputs (tenant_id, pay_group_id, period_month, employee_id, kind, amount_paise, source_ref, action, note)
+             values (app_tenant(), ${open.pay_group_id}, ${lwdMonth}, ${x.employee_id}, 'expense', ${Number(c.payable)}, ${tx.json({ expense_claim_id: c.id, number: 4 })}, 'pay', 'Smoke claim')`;
+    await fnf.buildSettlement(tx, karan, x.id);
+    const d = await fnf.fnfDetail(tx, karan, x.id);
+    assert.equal(d.settlement!.items.find((i) => i.key === "salary")?.paise ?? 0, before, "the scheduled claim isn't folded into the last salary");
+    const claimItem = d.settlement!.items.find((i) => i.key === `expense:${c.id}`);
+    assert.ok(claimItem && claimItem.paise === Number(c.payable), "it is paid once, as its own line");
+    if (!d.prerequisite.ok) {
+      for (const s of (await runs.runView(tx, karan, open.id)).steps) if (!s.done) await runs.markReviewed(tx, karan, open.id, s.key, true);
+      await runs.finalizeRun(tx, karan, open.id);
+    }
+    if (lwdMonth === openMonth && d.settlement!.items.some((i) => i.key === "salary" && i.action === "pay")) {
+      const inOpen = (await runs.runView(tx, karan, open.id)).lines.some((l) => l.employee_id === x.employee_id && l.action === "process");
+      if (inOpen) await fnf.setItemAction(tx, karan, x.id, "salary", "paid_outside");
+    }
+    await fnf.finalizeSettlement(tx, karan, x.id);
+    const after = await claimOf(tx, c.id);
+    assert.equal(after.status, "paid", "finalising the settlement closes the claim");
+    assert.match(after.payment_ref ?? "", /Final settlement/);
+    const [{ n }] = await tx<{ n: number }[]>`select count(*)::int as n from payroll_inputs i join payroll_runs r on r.pay_group_id = i.pay_group_id and r.period_month = i.period_month
+      where i.kind = 'expense' and i.source_ref->>'expense_claim_id' = ${c.id} and r.status in ('draft','in_progress')`;
+    assert.equal(n, 0, "and takes it out of any open payroll month, so the regular run can't pay it again");
+  });
+  ok("expenses → F&F: a leaver's scheduled claim is paid once in the settlement and marked paid when it's finalised");
 
   console.log(`\n${passed} checks passed`);
   await sql.end();

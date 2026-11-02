@@ -4,6 +4,7 @@ import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { audit } from "@/server/modules/audit/service";
 import { notifyEmployee } from "@/server/modules/approvals/service";
+import { markPersonRunsStale } from "@/server/modules/payrun/stale";
 import { todayIn } from "@/lib/dates";
 import { assertCanChangePay, canPayrollFor, placementOf } from "./access";
 import { arrearsFromMonth, computeBreakup, INDIAN_STATES, isAccountNumber, isEsiNumber, isIfsc, isPfNumber, isStateCode, isUan, last4, MAX_CTC_PAISE, normaliseAccount, normaliseIfsc, REVISION_REASONS, type ComponentKind } from "./rules";
@@ -124,6 +125,7 @@ export async function saveSalary(tx: Tx, actor: Actor, raw: unknown, opts: { tod
     returning id`;
   await restatus(tx, v.employeeId);
   if (!emp.pay_group_id) await tx`update employees set pay_group_id = ${st.pay_group_id}, updated_at = now() where id = ${v.employeeId}`;
+  await markPersonRunsStale(tx, v.employeeId, arrears ?? v.effectiveFrom);   // an open run already calculated must pick the new salary up
   await audit(tx, actor, { entityType: "employee_salary", entityId: row.id, action: reason === "joining" ? "salary.assign" : "salary.revise",
     diff: { employeeId: v.employeeId, ctcPaise: v.ctcPaise, structureId: v.structureId, effectiveFrom: v.effectiveFrom, reason, arrearsFromMonth: arrears } });
   if (opts.notify !== false) {
@@ -146,6 +148,7 @@ export async function deleteSalary(tx: Tx, actor: Actor, salaryId: string) {
     throw new AppError("invalid", "This is the first salary and later revisions build on it. Delete the later ones first.");
   await tx`delete from employee_salaries where id = ${salaryId}`;
   await restatus(tx, s.employee_id);
+  await markPersonRunsStale(tx, s.employee_id, s.effective_from);
   await audit(tx, actor, { entityType: "employee_salary", entityId: salaryId, action: "salary.delete", diff: { employeeId: s.employee_id, effectiveFrom: s.effective_from } });
 }
 
@@ -209,6 +212,7 @@ export async function saveStatutory(tx: Tx, actor: Actor, employeeId: string, ra
     values (${employeeId}, ${actor.tenant.id}, ${v.pfEnabled}, ${v.uan}, ${v.pfNumber}, ${v.pfEnabled && v.pfOnFullWage}, ${v.esiEnabled}, ${v.esiNumber}, ${v.ptState}, ${v.lwfState}, ${v.taxRegime})
     on conflict (employee_id) do update set pf_enabled = excluded.pf_enabled, uan = excluded.uan, pf_number = excluded.pf_number, pf_on_full_wage = excluded.pf_on_full_wage,
       esi_enabled = excluded.esi_enabled, esi_number = excluded.esi_number, pt_state = excluded.pt_state, lwf_state = excluded.lwf_state, tax_regime = excluded.tax_regime, updated_at = now()`;
+  await markPersonRunsStale(tx, employeeId);
   await audit(tx, actor, { entityType: "employee_statutory", entityId: employeeId, action: "statutory.update", diff: { employeeId, ...v } });
 }
 

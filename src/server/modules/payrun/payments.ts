@@ -88,7 +88,7 @@ export async function settleIfPaid(tx: Tx, runId: string) {
   const [holds] = await tx`select 1 from payroll_lines where run_id = ${runId} and action = 'hold_payout' limit 1`;
   if (left.some((l) => bankable(l.action, N(l.net_paise))) || pending || holds) return false;
   await tx`update payroll_runs set status = 'paid', lock_version = lock_version + 1, updated_at = now() where id = ${runId}`;
-  await markPayrollExpensesPaid(tx, run.pay_group_id, run.period_month);
+  await markPayrollExpensesPaid(tx, run.pay_group_id, run.period_month, { runId });
   await markLoanEmisDeducted(tx, run.pay_group_id, run.period_month, { runId });
   return true;
 }

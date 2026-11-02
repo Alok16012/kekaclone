@@ -11,6 +11,7 @@ import { loadRates, ratesNeedVerification } from "@/server/modules/statutory/ser
 import { gratuity } from "@/server/modules/statutory/rules";
 import { saveFile } from "@/server/storage";
 import { outstandingForFnf, recoverLoanInFnf } from "@/server/modules/loans/service";
+import { settleClaimsInFnf } from "@/server/modules/expenses/service";
 import { assertNotSelf, assertRunPayroll, canRunPayroll } from "./access";
 import { components, draftLine, loadPeople, runPeople, type RunRow } from "./engine";
 import { renderFnfStatement } from "./pdf";
@@ -70,7 +71,8 @@ async function autoItems(tx: Tx, actor: Actor, x: ExitRow): Promise<{ items: Fnf
   const basic = sal?.breakup.BASIC ?? 0;
   const monthlyGross = sal ? Object.entries(sal.breakup).reduce((t, [c, v]) => t + (comps[c]?.kind === "employer_contribution" ? 0 : v), 0) : 0;
 
-  // 1. salary for the last month, unless a finalised regular run already paid it
+  // 1. salary for the last month, unless a finalised regular run already paid it. Loan EMIs and scheduled expense claims are
+  //    left out of it: outstanding loans (6) and unpaid claims (7) are settled as their own lines.
   if (x.pay_group_id && x.cutoff != null && x.basis) {
     const [paid] = await tx<{ action: string }[]>`
       select l.action from payroll_lines l join payroll_runs r on r.id = l.run_id
@@ -81,7 +83,7 @@ async function autoItems(tx: Tx, actor: Actor, x: ExitRow): Promise<{ items: Fnf
         created_at: new Date(), pay_group: x.pay_group!, cutoff: 31, basis: x.basis, legal_entity_id: x.legal_entity_id!, legal_entity: x.legal_entity! } satisfies RunRow;
       const person = (await runPeople(tx, x.pay_group_id, lwdMonth)).find((p) => p.id === x.employee_id);
       const [d] = person ? await loadPeople(tx, run, [person]) : [];
-      const line = d ? await draftLine(tx, run, { ...d, inputs: d.inputs.filter((i) => i.kind !== "pay_action" && i.kind !== "processing_hold" && i.kind !== "payout_hold" && i.kind !== "loan_emi") },
+      const line = d ? await draftLine(tx, run, { ...d, inputs: d.inputs.filter((i) => i.kind !== "pay_action" && i.kind !== "processing_hold" && i.kind !== "payout_hold" && i.kind !== "loan_emi" && i.kind !== "expense") },
         { components: comps, rates: new Map(), prevLocked: true, tenantId: actor.tenant.id }) : null;
       if (!line) notes.push("No salary is on record for the last month, so there's no final salary to pay.");
       else {
@@ -250,6 +252,9 @@ export async function finalizeSettlement(tx: Tx, actor: Actor, exitId: string) {
     if (!i.key.startsWith("loan:") || i.action !== "pay" || i.paise <= 0) continue;
     await recoverLoanInFnf(tx, actor, i.key.slice(5), { amountPaise: i.paise, paidOn: today, reference: `Final settlement ${x.number}` }, today);
   }
+  // expense claims the settlement pays (or that were paid separately) are closed, and leave any open payroll month
+  const claimIds = s.items.filter((i) => i.key.startsWith("expense:") && (i.action === "pay" || i.action === "paid_outside")).map((i) => i.key.slice(8));
+  await settleClaimsInFnf(tx, actor, claimIds, `Final settlement ${x.number}`);
   await tx`update fnf_settlements set status = 'finalized', net_paise = ${net}, statement_file_id = ${fileId}, settlement_month = ${lwdMonth}, updated_at = now() where id = ${s.id}`;
   await notifyEmployee(tx, actor.tenant.id, x.employee_id, "payroll.fnf", "Your full and final settlement is ready", "Open My finances to download the statement.", "/me/pay");
   await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.finalized", diff: { net, items: s.items.length } });

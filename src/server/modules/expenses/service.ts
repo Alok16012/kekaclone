@@ -5,6 +5,7 @@ import { canFor, type Placement } from "@/server/auth/permissions";
 import { cancelApproval, decide, notifyEmployee, startApproval, timeline, type Level } from "@/server/modules/approvals/service";
 import { validateUpload } from "@/server/modules/documents/rules";
 import { saveFile } from "@/server/storage";
+import { markOpenRunStale } from "@/server/modules/payrun/stale";
 import { addDaysISO, todayIn } from "@/lib/dates";
 import { canFinanceFor, canPayFor, canReportFor, EXP_APPROVE, canAdminExpenses } from "./access";
 import { audit, policyFor } from "./admin";
@@ -601,11 +602,13 @@ export async function scheduleExpensePayout(tx: Tx, actor: Actor, claimId: strin
     if (existing.period_month === month && existing.pay_group_id === who.pay_group_id && N(existing.amount_paise) === payable) return { inputId: existing.id, changed: false };
     if (await runLocked(tx, existing.pay_group_id, existing.period_month)) throw new AppError("conflict", `It's already in the finalised ${monthLabel(existing.period_month)} payroll.`);
     await tx`update payroll_inputs set pay_group_id = ${who.pay_group_id}, period_month = ${month}, amount_paise = ${payable}, created_by = ${actor.userId} where id = ${existing.id}`;
+    await markOpenRunStale(tx, existing.pay_group_id, existing.period_month);
   }
   const [input] = existing ? [{ id: existing.id }] : await tx<{ id: string }[]>`
     insert into payroll_inputs (tenant_id, pay_group_id, period_month, employee_id, kind, amount_paise, source_ref, action, note, created_by)
     values (${actor.tenant.id}, ${who.pay_group_id}, ${month}, ${who.id}, 'expense', ${payable}, ${tx.json({ expense_claim_id: claimId, number: N(c.number) })}, 'pay',
             ${`Expense claim #${c.number}`}, ${actor.userId}) returning id`;
+  await markOpenRunStale(tx, who.pay_group_id, month);   // an open run for that month must be recalculated to include it
   await tx`update expense_claims set payout = 'payroll', payout_month = ${month} where id = ${claimId}`;
   await audit(tx, actor, "expense_claim", claimId, "payout.scheduled", { month, amount_paise: payable });
   await notifyEmployee(tx, actor.tenant.id, who.id, "expense.scheduled", `Claim #${c.number} will be paid with your salary`, `${inr(payable)} in ${monthLabel(month)} payroll.`, "/me/expenses");
@@ -618,6 +621,7 @@ export async function unscheduleExpensePayout(tx: Tx, actor: Actor, claimId: str
   if (!existing) return { changed: false };
   if (await runLocked(tx, existing.pay_group_id, existing.period_month)) throw new AppError("conflict", `It's already in the finalised ${monthLabel(existing.period_month)} payroll.`);
   await tx`delete from payroll_inputs where id = ${existing.id}`;
+  await markOpenRunStale(tx, existing.pay_group_id, existing.period_month);
   await tx`update expense_claims set payout_month = null where id = ${claimId}`;
   await audit(tx, actor, "expense_claim", claimId, "payout.unscheduled", { month: existing.period_month });
   return { changed: true };
@@ -630,6 +634,8 @@ export async function markClaimPaid(tx: Tx, actor: Actor, claimId: string, refer
   if (existing) {
     if (await runLocked(tx, existing.pay_group_id, existing.period_month)) throw new AppError("conflict", `It's already in the finalised ${monthLabel(existing.period_month)} payroll.`);
     await tx`delete from payroll_inputs where id = ${existing.id}`;
+    // a run that already calculated this claim into someone's pay must be recalculated, or it would be paid twice
+    await markOpenRunStale(tx, existing.pay_group_id, existing.period_month);
   }
   const r = await tx`update expense_claims set status = 'paid', payout = 'off_cycle', payout_month = null, paid_at = now(), paid_by = ${actor.userId},
                      payment_ref = ${reference?.trim().slice(0, 120) || "Paid off-cycle"} where id = ${claimId} and status = 'approved'`;
@@ -638,14 +644,53 @@ export async function markClaimPaid(tx: Tx, actor: Actor, claimId: string, refer
   await notifyEmployee(tx, actor.tenant.id, who.id, "expense.paid", `Claim #${c.number} was paid`, `${inr(payable)} paid to you.`, "/me/expenses");
 }
 
-/** For the payroll run: once a month is paid, the expense claims it carried are marked paid. Returns how many. */
-export async function markPayrollExpensesPaid(tx: Tx, payGroupId: string, month: string) {
+/**
+ * For the payroll run: once a month is paid, the expense claims it carried are marked paid. With `runId`, only claims
+ * whose reimbursement really is on a line that was paid (not held from processing, not skipped) count. Claims that were
+ * scheduled for the month but not paid with it (input held, or the person's pay held or skipped) go back to the payout
+ * queue unscheduled, so finance can schedule them again or pay them off-cycle. Returns how many were marked paid.
+ */
+export async function markPayrollExpensesPaid(tx: Tx, payGroupId: string, month: string, opts: { runId?: string } = {}) {
+  const onPaidLine = opts.runId
+    ? tx`and exists (select 1 from payroll_lines l where l.run_id = ${opts.runId} and l.employee_id = i.employee_id and l.action not in ('hold_processing','void')
+                     and l.earnings @> jsonb_build_array(jsonb_build_object('inputId', i.id::text)))`
+    : tx``;
   const r = await tx`
     update expense_claims c set status = 'paid', paid_at = now(), payment_ref = ${`Paid with ${monthLabel(month)} payroll`}
     where c.status = 'approved' and c.payout = 'payroll' and c.payout_month = ${month}
       and exists (select 1 from payroll_inputs i where i.kind = 'expense' and i.pay_group_id = ${payGroupId} and i.period_month = ${month}
-                  and i.action = 'pay' and i.source_ref->>'expense_claim_id' = c.id::text)`;
+                  and i.action = 'pay' and i.source_ref->>'expense_claim_id' = c.id::text ${onPaidLine})`;
+  if (opts.runId) {
+    // not paid by this run: unlink the (now locked) input, keeping a note of the claim, and put the claim back in the queue
+    const left = await tx<{ id: string }[]>`
+      update payroll_inputs i set source_ref = (i.source_ref - 'expense_claim_id') || jsonb_build_object('unpaid_expense_claim_id', i.source_ref->>'expense_claim_id'), updated_at = now()
+      from expense_claims c
+      where i.kind = 'expense' and i.pay_group_id = ${payGroupId} and i.period_month = ${month} and i.source_ref->>'expense_claim_id' = c.id::text and c.status = 'approved'
+      returning c.id`;
+    if (left.length) await tx`update expense_claims set payout_month = null where id = any(${left.map((x) => x.id)}::uuid[]) and status = 'approved'`;
+  }
   return r.count;
+}
+
+/**
+ * Full and final settlement: claims the settlement pays (or records as paid separately) are marked paid, and taken out of
+ * any payroll month that hasn't been finalised, so the regular run can't pay them again. Returns the claims marked paid.
+ */
+export async function settleClaimsInFnf(tx: Tx, actor: Actor, claimIds: string[], reference: string) {
+  if (!claimIds.length) return 0;
+  const inputs = await tx<{ id: string; pay_group_id: string; period_month: string }[]>`
+    select i.id, i.pay_group_id, i.period_month::text from payroll_inputs i
+    where i.kind = 'expense' and i.source_ref->>'expense_claim_id' = any(${claimIds}::text[])`;
+  for (const i of inputs) {
+    if (await runLocked(tx, i.pay_group_id, i.period_month)) continue;
+    await tx`delete from payroll_inputs where id = ${i.id}`;
+    await markOpenRunStale(tx, i.pay_group_id, i.period_month);
+  }
+  const r = await tx<{ id: string }[]>`
+    update expense_claims set status = 'paid', payout = 'off_cycle', payout_month = null, paid_at = now(), paid_by = ${actor.userId}, payment_ref = ${reference.slice(0, 120)}
+    where id = any(${claimIds}::uuid[]) and status = 'approved' returning id`;
+  for (const c of r) await audit(tx, actor, "expense_claim", c.id, "paid", { reference });
+  return r.length;
 }
 
 export async function payoutQueue(tx: Tx, actor: Actor) {
