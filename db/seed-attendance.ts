@@ -13,6 +13,19 @@ import type { Actor } from "@/server/auth/session";
 const weekdays5 = ["mon", "tue", "wed", "thu", "fri"];
 const working = (d: string) => !["sat", "sun"].includes(weekday(d));
 
+/**
+ * Arjun's four seeded late arrivals (ascending): the most recent four past working days that fall in ONE calendar month,
+ * so the monthly "3 free, then ½ CL" penalty always fires on the 4th, even in the first days of a month.
+ */
+export function arjunLateDays(today: string): string[] {
+  const past = Array.from({ length: 14 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
+  for (const month of [...new Set(past.map((d) => d.slice(0, 7)))]) {
+    const inMonth = past.filter((d) => d.slice(0, 7) === month);
+    if (inMonth.length >= 4) return inMonth.slice(0, 4).sort();
+  }
+  return past.slice(0, 4).sort();
+}
+
 export async function seedAttendance(tenantId: string) {
   const today = todayIn();
   await withTenant(tenantId, async (tx) => {
@@ -58,7 +71,7 @@ export async function seedAttendance(tenantId: string) {
 
     // Arjun came in late on the last four working days; Karan forgot to clock out once
     const past = Array.from({ length: 14 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
-    for (const d of past.slice(0, 4)) await moveIn(tx, id("Arjun"), d, "10:05");
+    for (const d of arjunLateDays(today)) await moveIn(tx, id("Arjun"), d, "10:05");
     await tx`delete from punches where employee_id = ${id("Karan")} and direction = 'out' and (at at time zone 'Asia/Kolkata')::date = ${past[2]}::date`;
 
     // re-run the last two weeks with the policies in place

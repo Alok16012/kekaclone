@@ -21,6 +21,7 @@ import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 import type { Scope } from "@/server/auth/catalog";
 import { DEMO_SUBDOMAIN } from "./demo";
+import { arjunLateDays } from "./seed-attendance";
 
 const admin = postgres(process.env.DATABASE_ADMIN_URL!, { max: 1, onnotice: () => {} });
 let passed = 0;
@@ -45,6 +46,8 @@ async function main() {
   const arjun = actor("Arjun"), rohan = actor("Rohan"), meera = actor("Meera"), karan = actor("Karan"), sneha = actor("Sneha"), vikram = actor("Vikram");
   const today = todayIn();
   const pastWorking = Array.from({ length: 10 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
+  const lateDays = arjunLateDays(today);   // ascending; [3] is the 4th late arrival of its month (½ CL penalty)
+  const notLate = pastWorking.filter((d) => !lateDays.includes(d));
   const nextWorking = (() => { let d = addDaysISO(today, 1); while (!working(d)) d = addDaysISO(d, 1); return d; })();
   const stepFor = async (tx: Tx, entityId: string, who: Actor) => (await approvals.inbox(tx, who)).find((i) => i.entity_id === entityId);
 
@@ -103,14 +106,14 @@ async function main() {
   await rolledBack(tenant.id, async (tx) => {
     const cl = (await tx<{ id: string }[]>`select id from leave_types where code = 'CL'`)[0].id;
     const ledger = async () => (await tx<{ n: number; s: string }[]>`select count(*)::int as n, coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${arjun.employeeId} and kind = 'penalty'`)[0];
-    const late = pastWorking.slice(0, 4).sort();
+    const late = lateDays;
     const before = await ledger();
     assert.equal(Number(before.s), -0.5, "seed: Arjun's 4th late arrival this month cost half a casual leave");
     for (const d of late) await processAttendance(tx, tenant.id, arjun.employeeId, d);
     for (const d of late) await processAttendance(tx, tenant.id, arjun.employeeId, d);
     assert.deepEqual(await ledger(), before, "re-processing posts nothing new");
     // no attendance → absent + loss of pay, never from leave
-    const gap = pastWorking[5];
+    const gap = notLate[1] ?? notLate[0];
     await tx`delete from punches where employee_id = ${arjun.employeeId} and at >= ${ist(gap, "00:00")} and at < ${ist(gap, "23:59")}`;
     const r = await processAttendance(tx, tenant.id, arjun.employeeId, gap);
     assert.equal(r!.status, "absent"); assert.equal(r!.lop, 1);
@@ -131,7 +134,7 @@ async function main() {
 
   // review fix: a penalty that is reversed and then applies again must be posted again (unique ledger key per posting)
   await rolledBack(tenant.id, async (tx) => {
-    const d = pastWorking.slice(0, 4).sort()[3];
+    const d = lateDays[3];
     const pen = async () => Number((await tx<{ s: string }[]>`select coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${arjun.employeeId} and kind = 'penalty' and entry_date = ${d}`)[0].s);
     const [{ pid }] = await tx<{ pid: string }[]>`select penalization_policy_id as pid from employees where id = ${arjun.employeeId}`;
     assert.equal(await pen(), -0.5);
@@ -148,7 +151,7 @@ async function main() {
 
   // ---------------------------------------------------------------- requests through approvals
   await rolledBack(tenant.id, async (tx) => {
-    const d = pastWorking.slice(0, 4).sort()[3];   // a late day with a ½ CL penalty
+    const d = lateDays[3];   // a late day with a ½ CL penalty
     const pen0 = (await tx<{ s: string }[]>`select coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${arjun.employeeId} and kind = 'penalty' and entry_date = ${d}`)[0].s;
     assert.equal(Number(pen0), -0.5);
     const r = await requests.createRequest(tx, arjun, { kind: "regularization", date: d, inTime: "09:28", outTime: "18:40", reason: "Badge reader skipped me" });
@@ -187,7 +190,7 @@ async function main() {
     await requests.cancelRequest(tx, arjun, wfh.id);
     assert.equal(await stepFor(tx, wfh.id, rohan), undefined, "withdrawn request leaves the inbox");
     // WFH over a past absent day: approved → status wfh, no LOP
-    const gap = pastWorking[4];   // 5 working days always fit in the 7-day window; [0..3] are the late days
+    const gap = notLate[0];   // the most recent day without a seeded late arrival (inside the 7-day window)
     await tx`delete from punches where employee_id = ${arjun.employeeId} and at >= ${ist(gap, "00:00")} and at < ${ist(gap, "23:59")}`;
     await processAttendance(tx, tenant.id, arjun.employeeId, gap);
     const w = await requests.createRequest(tx, arjun, { kind: "wfh", from: gap, to: gap, half: null, reason: "Worked from home, forgot to ask" });
@@ -287,7 +290,9 @@ async function main() {
     assert.ok(none.members.every((m) => m.id !== arjun.employeeId), "Karan doesn't see Rohan's team");
     const log = await attendance.monthLog(tx, arjun.employeeId, month);
     assert.equal(log[0].date, today, "newest first, ends today");
-    assert.ok(log.some((r) => r.penalties.some((p) => p.rule === "late_arrival")));
+    const penaltyMonth = lateDays[3].slice(0, 8) + "01";   // early in a month the seeded late days sit in the previous one
+    const plog = penaltyMonth === month ? log : await attendance.monthLog(tx, arjun.employeeId, penaltyMonth);
+    assert.ok(plog.some((r) => r.penalties.some((p) => p.rule === "late_arrival")));
   });
   ok("team: Rohan sees Arjun, Meera, Vikram with a full month grid, today's status and pending requests; the log shows penalties");
 
@@ -310,7 +315,7 @@ async function main() {
   await rolledBack(tenant.id, async (tx) => {
     const cl = (await tx<{ id: string }[]>`select id from leave_types where code = 'CL'`)[0].id;
     // approved backdated leave replaces an absence (and its loss of pay) without waiting for the nightly run
-    const gap = pastWorking[5];
+    const gap = notLate[1] ?? notLate[0];
     await tx`delete from punches where employee_id = ${arjun.employeeId} and at >= ${ist(gap, "00:00")} and at < ${ist(gap, "23:59")}`;
     const r0 = await processAttendance(tx, tenant.id, arjun.employeeId, gap);
     assert.equal(r0!.status, "absent"); assert.equal(r0!.lop, 1);
@@ -326,7 +331,7 @@ async function main() {
     assert.equal(day.status, "leave", "the approved leave shows on the attendance day");
     assert.ok(!day.penalties.some((p) => p.deductions.some((x) => x.leaveTypeId === null)), "no loss of pay left on a leave day");
     // a floater the person picked is a holiday for them (same holiday calendar as leave), not for colleagues
-    const fl = pastWorking[6];
+    const fl = pastWorking[Math.min(6, pastWorking.length - 1)];   // only 6 working days fit in 10 days on a Tuesday
     const [list] = await tx<{ id: string }[]>`
       select hl.id from holiday_lists hl where hl.name = ${await leave.holidayListNameFor(tx, arjun.employeeId)} and hl.year = ${Number(fl.slice(0, 4))}`;
     assert.ok(list, "Arjun has a holiday list for this year");
