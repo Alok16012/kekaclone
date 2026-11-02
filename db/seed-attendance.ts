@@ -58,7 +58,7 @@ export async function seedAttendance(tenantId: string) {
 
     // Arjun came in late on the last four working days; Karan forgot to clock out once
     const past = Array.from({ length: 14 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
-    for (const d of past.slice(0, 4)) await moveIn(tx, id("Arjun"), d, "10:05");
+    for (const d of lateArrivalDays(past)) await moveIn(tx, id("Arjun"), d, "10:05");
     await tx`delete from punches where employee_id = ${id("Karan")} and direction = 'out' and (at at time zone 'Asia/Kolkata')::date = ${past[2]}::date`;
 
     // re-run the last two weeks with the policies in place
@@ -73,6 +73,13 @@ export async function seedAttendance(tenantId: string) {
     await createRequest(tx, actor("Arjun"), { kind: "wfh", from: next, to: next, half: null, reason: "Waiting for an internet installation at home" });
   });
 }
+
+/** Four recent working days in one calendar month (penalties count per month; early in a month, use last month's). */
+export const lateArrivalDays = (pastWorking: string[]) => {
+  const month = (m: string) => pastWorking.filter((d) => d.slice(0, 7) === m).slice(0, 4);
+  const first = month(pastWorking[0].slice(0, 7));
+  return first.length === 4 ? first : month(pastWorking.find((d) => d.slice(0, 7) !== pastWorking[0].slice(0, 7))!.slice(0, 7));
+};
 
 async function moveIn(tx: Tx, employeeId: string, date: string, hhmm: string) {
   await tx`update punches set at = ${new Date(`${date}T${hhmm}:00+05:30`)}

@@ -15,6 +15,7 @@ import * as policies from "@/server/modules/attendance/policies";
 import { processAttendance, reprocessFrom } from "@/server/modules/attendance/process";
 import { teamAttendance } from "@/server/modules/attendance/team";
 import { processTenantDate } from "@/server/modules/attendance/job";
+import { lateArrivalDays } from "./seed-attendance";
 import * as approvals from "@/server/modules/approvals/service";
 import * as leave from "@/server/modules/leave/service";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
@@ -44,7 +45,7 @@ async function main() {
   const asha = actor("Asha", ["*"]), priya = actor("Priya", ["attendance.admin", "employees.write"]);
   const arjun = actor("Arjun"), rohan = actor("Rohan"), meera = actor("Meera"), karan = actor("Karan"), sneha = actor("Sneha"), vikram = actor("Vikram");
   const today = todayIn();
-  const pastWorking = Array.from({ length: 10 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
+  const pastWorking = Array.from({ length: 14 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
   const nextWorking = (() => { let d = addDaysISO(today, 1); while (!working(d)) d = addDaysISO(d, 1); return d; })();
   const stepFor = async (tx: Tx, entityId: string, who: Actor) => (await approvals.inbox(tx, who)).find((i) => i.entity_id === entityId);
 
@@ -103,7 +104,7 @@ async function main() {
   await rolledBack(tenant.id, async (tx) => {
     const cl = (await tx<{ id: string }[]>`select id from leave_types where code = 'CL'`)[0].id;
     const ledger = async () => (await tx<{ n: number; s: string }[]>`select count(*)::int as n, coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${arjun.employeeId} and kind = 'penalty'`)[0];
-    const late = pastWorking.slice(0, 4).sort();
+    const late = lateArrivalDays(pastWorking).sort();
     const before = await ledger();
     assert.equal(Number(before.s), -0.5, "seed: Arjun's 4th late arrival this month cost half a casual leave");
     for (const d of late) await processAttendance(tx, tenant.id, arjun.employeeId, d);
@@ -131,7 +132,7 @@ async function main() {
 
   // review fix: a penalty that is reversed and then applies again must be posted again (unique ledger key per posting)
   await rolledBack(tenant.id, async (tx) => {
-    const d = pastWorking.slice(0, 4).sort()[3];
+    const d = lateArrivalDays(pastWorking).sort()[3];
     const pen = async () => Number((await tx<{ s: string }[]>`select coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${arjun.employeeId} and kind = 'penalty' and entry_date = ${d}`)[0].s);
     const [{ pid }] = await tx<{ pid: string }[]>`select penalization_policy_id as pid from employees where id = ${arjun.employeeId}`;
     assert.equal(await pen(), -0.5);
@@ -148,7 +149,7 @@ async function main() {
 
   // ---------------------------------------------------------------- requests through approvals
   await rolledBack(tenant.id, async (tx) => {
-    const d = pastWorking.slice(0, 4).sort()[3];   // a late day with a ½ CL penalty
+    const d = lateArrivalDays(pastWorking).sort()[3];   // a late day with a ½ CL penalty
     const pen0 = (await tx<{ s: string }[]>`select coalesce(sum(amount), 0) as s from leave_ledger where employee_id = ${arjun.employeeId} and kind = 'penalty' and entry_date = ${d}`)[0].s;
     assert.equal(Number(pen0), -0.5);
     const r = await requests.createRequest(tx, arjun, { kind: "regularization", date: d, inTime: "09:28", outTime: "18:40", reason: "Badge reader skipped me" });
@@ -287,7 +288,8 @@ async function main() {
     assert.ok(none.members.every((m) => m.id !== arjun.employeeId), "Karan doesn't see Rohan's team");
     const log = await attendance.monthLog(tx, arjun.employeeId, month);
     assert.equal(log[0].date, today, "newest first, ends today");
-    assert.ok(log.some((r) => r.penalties.some((p) => p.rule === "late_arrival")));
+    const lateLog = await attendance.monthLog(tx, arjun.employeeId, lateArrivalDays(pastWorking)[0].slice(0, 8) + "01");
+    assert.ok(lateLog.some((r) => r.penalties.some((p) => p.rule === "late_arrival")));
   });
   ok("team: Rohan sees Arjun, Meera, Vikram with a full month grid, today's status and pending requests; the log shows penalties");
 
