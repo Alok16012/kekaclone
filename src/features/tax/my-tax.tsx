@@ -107,7 +107,7 @@ function Overview({ d }: { d: MyTax }) {
         <CardHeader title="Your tax regime" description="The new regime has lower rates but ignores most deductions. The old regime counts your investments, rent and home loan."
           action={<Segmented label="Tax regime" value={d.declaration.regime} onChange={(v) => d.window.open && !pending && setRegime(v)} options={[{ value: "new", label: "New regime" }, { value: "old", label: "Old regime" }]} />} />
         <CardBody>
-          {!d.window.open && <p className="mb-3 text-sm text-text-muted">The regime can't change while declarations are closed.</p>}
+          {!d.window.open && <p className="mb-3 text-sm text-text-muted">The regime can&apos;t change while declarations are closed.</p>}
           {!c ? (
             <Banner tone="warning">{d.ratesError ?? "Tax rates for this year aren't set up, so the two regimes can't be compared."}</Banner>
           ) : (

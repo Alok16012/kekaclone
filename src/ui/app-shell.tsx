@@ -8,7 +8,7 @@ import {
   Megaphone, ReceiptIndianRupee,
 } from "lucide-react";
 import { DoorOpen } from "lucide-react";
-import { Headset, Laptop, Package } from "lucide-react";
+import { HandCoins, Headset, Landmark, Laptop, Package } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "./avatar";
 import { IconButton } from "./button";
@@ -29,6 +29,8 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/me/attendance", label: "Attendance", icon: Clock },
     { href: "/me/leave", label: "Leave", icon: CalendarDays },
     { href: "/me/pay", label: "My finances", icon: Wallet },
+    { href: "/me/tax", label: "Income tax", icon: Landmark },
+    { href: "/me/loans", label: "Loans", icon: HandCoins },
     { href: "/me/expenses", label: "Expenses", icon: Receipt },
     { href: "/me/performance", label: "Performance", icon: Target },
     { href: "/me/helpdesk", label: "Helpdesk", icon: LifeBuoy },
@@ -41,6 +43,8 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/org/documents", label: "Documents", icon: FileText },
     { href: "/org/exits", label: "Exits", icon: DoorOpen },
     { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
+    { href: "/payroll/tax", label: "Tax desk", icon: Landmark },
+    { href: "/payroll/loans", label: "Loans desk", icon: HandCoins },
     { href: "/org/assets", label: "Assets", icon: Package },
     { href: "/helpdesk", label: "Helpdesk queue", icon: Headset },
     { href: "/hire/jobs", label: "Hiring", icon: BriefcaseBusiness },
@@ -97,9 +101,9 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll/tax", "/payroll/loans"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
-const AREA: Record<string, string> = { "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk" };
+const AREA: Record<string, string> = { "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll" };
 const showItem = (d: ShellData | null, href: string) => !ADMIN_ONLY.has(href) || !!d?.isAdmin || (!!AREA[href] && !!d?.areas?.includes(AREA[href]));
 
 function navFor(d: ShellData | null): NavGroup[] {

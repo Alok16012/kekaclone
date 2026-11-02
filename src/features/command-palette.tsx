@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { DoorOpen, FilePen, UserMinus } from "lucide-react";
 import { Headset, Laptop, Package, PackagePlus } from "lucide-react";
+import { HandCoins, Landmark } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { cn } from "@/lib/cn";
 import type { ShellData } from "@/ui/app-shell";
@@ -59,6 +60,11 @@ const PAGES: Item[] = [
   { id: "p-pay-groups", kind: "page", label: "Pay groups", hint: "Payroll settings", href: "/settings/payroll/pay-groups", icon: <Wallet />, keywords: "payroll cycle cut-off payable days", admin: true, area: "payroll" },
   { id: "p-pay-struct", kind: "page", label: "Salary structures", hint: "Payroll settings", href: "/settings/payroll/structures", icon: <Wallet />, keywords: "payroll ctc breakup formula template", admin: true, area: "payroll" },
   { id: "p-pay-rev", kind: "page", label: "Salary revisions", hint: "Payroll settings", href: "/settings/payroll/revisions", icon: <FileSpreadsheet />, keywords: "increment hike appraisal ctc bulk import", admin: true, area: "payroll" },
+  { id: "p-tax-me", kind: "page", label: "Income tax", hint: "My finances", href: "/me/tax", icon: <Landmark />, keywords: "tds regime declaration 80c 80d hra rent proof form 16 12bb pan investment" },
+  { id: "p-loans-me", kind: "page", label: "My loans", hint: "My finances", href: "/me/loans", icon: <HandCoins />, keywords: "loan advance emi borrow salary advance" },
+  { id: "p-tax-desk", kind: "page", label: "Tax desk", hint: "Payroll", href: "/payroll/tax", icon: <Landmark />, keywords: "proofs verify declarations form 16 part a traces windows cut-off", admin: true, area: "payroll" },
+  { id: "p-loans-desk", kind: "page", label: "Loans desk", hint: "Payroll", href: "/payroll/loans", icon: <HandCoins />, keywords: "loan disburse emi skip prepay close", admin: true, area: "payroll" },
+  { id: "p-loan-types", kind: "page", label: "Loan types", hint: "Payroll settings", href: "/settings/payroll/loans", icon: <HandCoins />, keywords: "loan categories policy interest flat reducing tenure", admin: true, area: "payroll" },
   { id: "p-assets-me", kind: "page", label: "My assets", href: "/me/assets", icon: <Laptop />, keywords: "laptop equipment issued id card acknowledge" },
   { id: "p-helpdesk-q", kind: "page", label: "Helpdesk queue", href: "/helpdesk", icon: <Headset />, keywords: "tickets agent support sla assign reply", admin: true, area: "helpdesk" },
   { id: "p-assets", kind: "page", label: "Assets", href: "/org/assets", icon: <Package />, keywords: "inventory laptop hand over return recovery", admin: true, area: "assets" },
@@ -77,6 +83,8 @@ const ACTIONS: Item[] = [
   { id: "a-invite", kind: "action", label: "Invite people", hint: "Select them in People", href: "/org/employees", icon: <Mail />, keywords: "send invite password", admin: true },
   { id: "a-regularize", kind: "action", label: "Regularize attendance", hint: "From a day's menu", href: "/me/attendance", icon: <Clock />, keywords: "forgot clock out fix punch missing swipe" },
   { id: "a-wfh", kind: "action", label: "Ask to work from home", href: "/me/attendance?tab=requests", icon: <Home />, keywords: "wfh remote on duty od" },
+  { id: "a-declare", kind: "action", label: "Declare investments for tax", href: "/me/tax?tab=deductions", icon: <Landmark />, keywords: "80c ppf elss insurance tax saving declaration" },
+  { id: "a-loan", kind: "action", label: "Ask for a loan", href: "/me/loans", icon: <HandCoins />, keywords: "salary advance borrow emi" },
   { id: "a-ticket", kind: "action", label: "Raise a helpdesk ticket", href: "/me/helpdesk?new=1", icon: <LifeBuoy />, keywords: "help support it hr question problem issue" },
   { id: "a-asset-req", kind: "action", label: "Request an asset", href: "/me/assets?request=1", icon: <PackagePlus />, keywords: "laptop monitor headset equipment need" },
   { id: "a-resign", kind: "action", label: "Resign", hint: "From your profile", href: "/me", icon: <UserMinus />, keywords: "resignation quit leave job notice" },
