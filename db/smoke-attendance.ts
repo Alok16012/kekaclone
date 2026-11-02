@@ -21,6 +21,7 @@ import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 import type { Scope } from "@/server/auth/catalog";
 import { DEMO_SUBDOMAIN } from "./demo";
+import { lateDaysOf } from "./seed-attendance";
 
 const admin = postgres(process.env.DATABASE_ADMIN_URL!, { max: 1, onnotice: () => {} });
 let passed = 0;
@@ -44,7 +45,10 @@ async function main() {
   const asha = actor("Asha", ["*"]), priya = actor("Priya", ["attendance.admin", "employees.write"]);
   const arjun = actor("Arjun"), rohan = actor("Rohan"), meera = actor("Meera"), karan = actor("Karan"), sneha = actor("Sneha"), vikram = actor("Vikram");
   const today = todayIn();
-  const pastWorking = Array.from({ length: 10 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
+  // [0..3] are Arjun's seeded late days (one calendar month, see lateDaysOf); the rest are the other recent working days, newest first
+  const recentWorking = Array.from({ length: 14 }, (_, i) => addDaysISO(today, -(i + 1))).filter(working);
+  const lateSeeded = lateDaysOf(recentWorking);
+  const pastWorking = [...lateSeeded, ...recentWorking.filter((d) => !lateSeeded.includes(d))];
   const nextWorking = (() => { let d = addDaysISO(today, 1); while (!working(d)) d = addDaysISO(d, 1); return d; })();
   const stepFor = async (tx: Tx, entityId: string, who: Actor) => (await approvals.inbox(tx, who)).find((i) => i.entity_id === entityId);
 
@@ -287,7 +291,9 @@ async function main() {
     assert.ok(none.members.every((m) => m.id !== arjun.employeeId), "Karan doesn't see Rohan's team");
     const log = await attendance.monthLog(tx, arjun.employeeId, month);
     assert.equal(log[0].date, today, "newest first, ends today");
-    assert.ok(log.some((r) => r.penalties.some((p) => p.rule === "late_arrival")));
+    const lateMonth = lateSeeded[0].slice(0, 8) + "01";   // early in a month the seeded late days are last month's
+    const lateLog = lateMonth === month ? log : await attendance.monthLog(tx, arjun.employeeId, lateMonth);
+    assert.ok(lateLog.some((r) => r.penalties.some((p) => p.rule === "late_arrival")));
   });
   ok("team: Rohan sees Arjun, Meera, Vikram with a full month grid, today's status and pending requests; the log shows penalties");
 
