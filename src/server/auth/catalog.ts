@@ -16,6 +16,7 @@ export const PERMISSIONS = [
   ] },
   { group: "Approvals", items: [
     { key: "approvals.override", label: "Approve or decline on anyone's behalf" },
+    { key: "settings.approvals", label: "Set up approval workflows, auto-approval, escalation and delegations" },
   ] },
   { group: "Lifecycle", items: [
     { key: "exits.manage", label: "Run exits: start, approve, complete and cancel them" },

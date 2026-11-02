@@ -7,12 +7,14 @@ import { onAttendanceRequestDecided } from "@/server/modules/attendance/requests
 import { onExitDecided } from "@/server/modules/exits/effects";
 import { onExpenseAdvanceDecided, onExpenseClaimDecided } from "@/server/modules/expenses/effects";
 import { onAssetRequestDecided } from "@/server/modules/assets/effects";
+import { pickWorkflow, type Condition, type RequesterFacts } from "@/server/modules/corehr/rules";
+import { todayIn } from "@/lib/dates";
 
 export type Level = { approver: "manager" | "l2_manager" | "role" | "employee"; role?: string; id?: string };
 export type EntityType = "leave" | "attendance_request" | "profile_change" | "comp_off" | "exit" | "expense_claim" | "expense_advance" | "asset_request";
 
 /** Used when a tenant has no workflow configured for the entity type. */
-const DEFAULT_LEVELS: Record<EntityType, Level[]> = {
+export const DEFAULT_LEVELS: Record<EntityType, Level[]> = {
   leave: [{ approver: "manager" }],
   attendance_request: [{ approver: "manager" }],
   profile_change: [{ approver: "role", role: "hr_admin" }],
@@ -27,16 +29,50 @@ async function resolveApprover(tx: Tx, level: Level, requesterId: string): Promi
   if (level.approver === "manager" || level.approver === "l2_manager") {
     const col = level.approver === "manager" ? "manager_id" : "l2_manager_id";
     const [r] = await tx<{ id: string | null }[]>`select ${tx(col)} as id from employees where id = ${requesterId}`;
-    if (r?.id) return r.id;
+    const who = r?.id ? await effectiveApprover(tx, r.id, requesterId) : null;
+    if (who) return who;
   }
-  if (level.approver === "employee" && level.id) return level.id;
+  if (level.approver === "employee" && level.id) {
+    const [r] = await tx<{ id: string }[]>`select id from employees where id = ${level.id}`;   // resolved inside this tenant (RLS)
+    const who = r ? await effectiveApprover(tx, r.id, requesterId) : null;
+    if (who) return who;
+  }
   // fallback: someone holding the named role (or any global admin) who isn't the requester
   const [r] = await tx<{ id: string }[]>`
     select ra.employee_id as id from role_assignments ra join roles ro on ro.id = ra.role_id
     join employees e on e.id = ra.employee_id and e.status <> 'relieved'
     where ro.key = ${level.role ?? "global_admin"} and ra.employee_id <> ${requesterId}
     order by ra.created_at limit 1`;
-  return r?.id ?? null;
+  return r?.id ? effectiveApprover(tx, r.id, requesterId) : null;
+}
+
+/**
+ * Who actually gets a step meant for `approverId` today: their delegate while a delegation is active (never the
+ * requester, never someone who has left), otherwise the approver. A relieved approver hands over to their own manager.
+ */
+export async function effectiveApprover(tx: Tx, approverId: string, requesterId: string, date = todayIn()): Promise<string | null> {
+  const [d] = await tx<{ id: string }[]>`
+    select g.delegate_employee_id as id from approval_delegations g join employees e on e.id = g.delegate_employee_id and e.status <> 'relieved'
+    where g.delegator_employee_id = ${approverId} and g.cancelled_at is null and g.from_date <= ${date} and (g.to_date is null or g.to_date >= ${date})
+      and g.delegate_employee_id <> ${requesterId}
+    order by g.created_at desc limit 1`;
+  if (d) return d.id;
+  const [a] = await tx<{ status: string; manager_id: string | null }[]>`select status, manager_id from employees where id = ${approverId}`;
+  if (a?.status === "relieved") {
+    if (a.manager_id && a.manager_id !== requesterId) {
+      const [m] = await tx<{ id: string }[]>`select id from employees where id = ${a.manager_id} and status <> 'relieved'`;
+      if (m) return m.id;
+    }
+    return null;
+  }
+  return approverId;
+}
+
+/** Facts about the requester that workflow conditions can test. */
+async function requesterFacts(tx: Tx, requesterId: string): Promise<RequesterFacts> {
+  const [f] = await tx<RequesterFacts[]>`select department_id as department, location_id as location, designation_id as designation,
+    legal_entity_id as legal_entity, business_unit_id as business_unit, worker_type from employees where id = ${requesterId}`;
+  return f ?? {};
 }
 
 /**
@@ -44,8 +80,9 @@ async function resolveApprover(tx: Tx, level: Level, requesterId: string): Promi
  * `levels` overrides the workflow (a leave type's own chain; [] = auto-approve).
  */
 export async function startApproval(tx: Tx, a: { tenantId: string; entityType: EntityType; entityId: string; requesterId: string; summary: string; levels?: Level[] }) {
-  const [wf] = await tx<{ id: string; levels: Level[] }[]>`
-    select id, levels from approval_workflows where entity_type = ${a.entityType} and is_active order by priority desc limit 1`;
+  const wfs = await tx<{ id: string; levels: Level[]; priority: number; conditions: Condition[] | null }[]>`
+    select id, levels, priority, conditions from approval_workflows where entity_type = ${a.entityType} and is_active order by priority desc, created_at`;
+  const wf = pickWorkflow(wfs, await requesterFacts(tx, a.requesterId));
   const levels = a.levels ?? wf?.levels ?? DEFAULT_LEVELS[a.entityType];
   const approvers: string[] = [];
   for (const l of levels) {
