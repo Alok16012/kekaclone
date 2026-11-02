@@ -26,9 +26,10 @@
     "smoke:expenses": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-expenses.ts",
     "smoke:servicedesk": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-servicedesk.ts",
     "smoke:payrun": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-payrun.ts",
+    "smoke:payroll-links": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-payroll-links.ts",
     "smoke:taxloans": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-taxloans.ts",
     "jobs:helpdesk": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-helpdesk.ts",
-    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans"
+    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

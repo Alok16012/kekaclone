@@ -26,8 +26,9 @@ import { describe, expect, it } from "vitest";
 import { RATE_ROWS } from "@/server/modules/statutory/rates-data";
 import type { EsiConfig, IncomeTaxConfig, LwfConfig, PfConfig, PtConfig } from "@/server/modules/statutory/config";
 import { computeBreakup } from "@/server/modules/payroll/rules";
+import { projectTds } from "@/server/modules/statutory/rules";
 import {
-  addMonths, ageBandFor, amountInWords, arrearsDue, attendanceWindows, bankFile, buildSegments, computeLine, countDays, csv, dayRate, ecrLine, epsMember, fnfNet,
+  addMonths, ageBandFor, declaredDeductions, amountInWords, arrearsDue, attendanceWindows, bankFile, buildSegments, computeLine, countDays, csv, dayRate, ecrLine, epsMember, fnfNet,
   halfYear, indianWords, inr, monthEnd, noticeShortfall, periodDays, prorate, remainingMonths, valueDays, variancePct,
   type ComponentMeta, type ExtraItem, type LineInput,
 } from "./rules";
@@ -57,6 +58,7 @@ type Case = {
   from?: string; to?: string; lop?: Record<string, number>; basis?: "calendar" | "working"; state?: string; gender?: "male" | "female";
   regime?: "old" | "new"; pf?: boolean; fullWage?: boolean; ytdTaxable?: number; ytdTds?: number; ytdPt?: number; halfGross?: number;
   extras?: ExtraItem[]; overrides?: LineInput["st"]["overrides"]; bank?: boolean; recurring?: number;
+  taxDeductions?: LineInput["st"]["taxDeductions"]; taxExtra?: LineInput["st"]["taxExtra"];
 };
 const WORKING = new Set(Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`).filter((d) => ![0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay())));
 
@@ -75,7 +77,7 @@ function run(c: Case) {
       tax: c.regime === "old" ? OLD : NEW, regime: c.regime ?? "new", ageBand: "below_60", gender: c.gender ?? "male", ptState: state, hasPan: true, hasUan: true,
       esiCoverageGrossPaise: earn(last), ytdPtPaise: c.ytdPt ?? 0, ytdTaxablePaise: c.ytdTaxable ?? 0, ytdTdsPaise: c.ytdTds ?? 0,
       ptHalfGrossPaise: c.halfGross ?? 0, ptMonthsLeftInHalf: 1, recurringTaxablePaise: c.recurring ?? earn(last),
-      remainingMonths: remainingMonths(M, c.to ?? null), overrides: c.overrides ?? {},
+      remainingMonths: remainingMonths(M, c.to ?? null), overrides: c.overrides ?? {}, taxDeductions: c.taxDeductions ?? null, taxExtra: c.taxExtra ?? null,
     },
   });
 }
@@ -313,5 +315,31 @@ describe("full and final", () => {
     expect(noticeShortfall({ resignationDate: "2026-08-01", lastWorkingDate: "2026-08-31", noticeDays: 60, waivedDays: 10 })).toBe(20);
     expect(noticeShortfall({ resignationDate: "2026-08-01", lastWorkingDate: "2026-10-15", noticeDays: 60, waivedDays: 0 })).toBe(0);
     expect(dayRate(R(98200), 20)).toBe(R(65467));   // 98,200 ÷ 30 × 20 = 65,466.67
+  });
+});
+
+describe("TDS with a submitted tax declaration", () => {
+  const extra = { previousIncomePaise: R(300000), previousTdsPaise: R(20000), previousPfPaise: R(5000), previousPtPaise: R(800), otherIncomePaise: R(10000), ytdEmployeePfPaise: R(9000) };
+  it("adds actual PF to 80C and PT to section 16(iii) for the whole year", () => {
+    const d = declaredDeductions({ section80CPaise: R(50000), hraExemptPaise: R(120000) }, extra, { pfPaise: R(1800), ptPaise: R(200), ytdPtPaise: R(1000), monthsLeft: 7 });
+    // 80C: 50,000 declared + 5,000 previous employer + 9,000 paid here + 1,800 × 7 = 76,600; PT: 800 + 1,000 + 200 × 7 = 3,200 (capped later)
+    expect(d.section80CPaise).toBe(R(76600)); expect(d.professionalTaxPaise).toBe(R(3200)); expect(d.hraExemptPaise).toBe(R(120000));
+  });
+  it("old regime ₹24L: previous employer income and TDS, other income and declarations change this month's TDS", () => {
+    const td = { section80CPaise: R(150000), hraExemptPaise: R(240000), otherChapterVIAPaise: R(25000), homeLoanInterestPaise: R(0) };
+    const r = run({ name: "D1", breakup: S24, regime: "old", ytdTaxable: R(991000), ytdTds: R(119500), ytdPt: R(1000), taxDeductions: td, taxExtra: extra });
+    const plain = run({ name: "D0", breakup: S24, regime: "old", ytdTaxable: R(991000), ytdTds: R(119500), ytdPt: R(1000) });
+    const want = projectTds({ fy: "2026-27", regime: "old", config: OLD, ytdTaxablePaise: R(991000 + 300000 + 10000), projectedTaxablePaise: R(198200) * 7,
+      deductions: declaredDeductions(td, extra, { pfPaise: R(1800), ptPaise: R(200), ytdPtPaise: R(1000), monthsLeft: 7 }), tdsDeductedPaise: R(119500 + 20000), remainingMonths: 7, ageBand: "below_60" });
+    expect(ded(r, "TDS")).toBe(want.monthlyTdsPaise);
+    expect(r.statutory.tds?.standardDeductionOnly).toBe(false);
+    expect(plain.statutory.tds?.standardDeductionOnly).toBe(true);
+    expect(r.statutory.tds?.annualIncomePaise).toBe(R(991000 + 300000 + 10000) + R(198200) * 7);
+    expect(ded(r, "TDS")).not.toBe(ded(plain, "TDS"));
+  });
+  it("without a declaration the extra inputs are ignored", () => {
+    const a = run({ name: "D2", breakup: S24, ytdTaxable: R(991000), ytdTds: R(119500), ytdPt: R(1000), taxExtra: extra });
+    const b = run({ name: "D3", breakup: S24, ytdTaxable: R(991000), ytdTds: R(119500), ytdPt: R(1000) });
+    expect(ded(a, "TDS")).toBe(ded(b, "TDS"));
   });
 });

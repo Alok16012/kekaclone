@@ -189,11 +189,33 @@ export type LineInput = {
     recurringTaxablePaise: number;
     /** months left in the financial year including this one, cut short when the person leaves */
     remainingMonths: number;
+    /** from a submitted tax declaration (null = none: standard deduction only) */
     taxDeductions?: TaxDeductions | null;
+    /** with a declaration: income and TDS from a previous employer this year, other declared income, PF and PT already paid here this year */
+    taxExtra?: TaxExtra | null;
     overrides: StatutoryOverrides;
   };
   hasBank: boolean;
 };
+
+export type TaxExtra = {
+  previousIncomePaise: number; previousTdsPaise: number; previousPfPaise: number; previousPtPaise: number;
+  otherIncomePaise: number; ytdEmployeePfPaise: number;
+};
+
+/**
+ * Declared deductions plus what payroll itself knows: employee PF (80C) and professional tax (section 16(iii)) for the
+ * whole year: paid so far, this month, and this month's amount again for each month left. Previous employer PF and PT count too.
+ */
+export function declaredDeductions(base: TaxDeductions, x: TaxExtra | null | undefined, now: { pfPaise: number; ptPaise: number; ytdPtPaise: number; monthsLeft: number }): TaxDeductions {
+  const e = x ?? { previousIncomePaise: 0, previousTdsPaise: 0, previousPfPaise: 0, previousPtPaise: 0, otherIncomePaise: 0, ytdEmployeePfPaise: 0 };
+  const months = Math.max(1, now.monthsLeft);
+  return {
+    ...base,
+    section80CPaise: (base.section80CPaise ?? 0) + e.previousPfPaise + e.ytdEmployeePfPaise + now.pfPaise * months,
+    professionalTaxPaise: (base.professionalTaxPaise ?? 0) + e.previousPtPaise + now.ytdPtPaise + now.ptPaise * months,
+  };
+}
 
 export type StatutoryDetail = {
   pf: { enabled: boolean; wagePaise: number; employeePaise: number; employerPaise: number; epsPaise: number; epfPaise: number; edliPaise: number; adminPaise: number; epsWagePaise: number; edliWagePaise: number } | null;
@@ -288,9 +310,11 @@ export function computeLine(i: LineInput): LineResult {
   if (i.st.tax) {
     const fy = fyOf(i.month);
     const months = Math.min(12, Math.max(1, i.st.remainingMonths));
-    const r = projectTds({ fy, regime: i.st.regime, config: i.st.tax, ytdTaxablePaise: i.st.ytdTaxablePaise,
-      projectedTaxablePaise: taxable + i.st.recurringTaxablePaise * (months - 1), deductions: i.st.taxDeductions ?? undefined,
-      tdsDeductedPaise: i.st.ytdTdsPaise, remainingMonths: months, ageBand: i.st.ageBand });
+    const td = i.st.taxDeductions, x = td ? i.st.taxExtra ?? null : null;
+    const deds = td ? declaredDeductions(td, x, { pfPaise: statutory.pf?.employeePaise ?? 0, ptPaise: statutory.pt?.amountPaise ?? 0, ytdPtPaise: i.st.ytdPtPaise, monthsLeft: months }) : undefined;
+    const r = projectTds({ fy, regime: i.st.regime, config: i.st.tax, ytdTaxablePaise: i.st.ytdTaxablePaise + (x ? x.previousIncomePaise + x.otherIncomePaise : 0),
+      projectedTaxablePaise: taxable + i.st.recurringTaxablePaise * (months - 1), deductions: deds,
+      tdsDeductedPaise: i.st.ytdTdsPaise + (x?.previousTdsPaise ?? 0), remainingMonths: months, ageBand: i.st.ageBand });
     // never more than what's left of this month's pay: the rest falls into the months ahead, since each month recomputes
     const room = nonneg(gross - sum(deductions));
     const amt = ov.TDS ?? Math.min(r.monthlyTdsPaise, room);

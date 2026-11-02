@@ -7,6 +7,7 @@ import { logoutAction } from "../(auth)/actions";
 import { NotificationsBell } from "@/features/notifications-bell";
 import { CommandPalette } from "@/features/command-palette";
 import { hasAnyPayrollAdmin } from "@/server/modules/payroll/access";
+import { canRunPayroll } from "@/server/modules/payrun/access";
 import { hasAnywhere } from "@/server/modules/expenses/access";
 import { hasAssetsAccess } from "@/server/modules/assets/service";
 import { isAgent, canAdminHelpdesk } from "@/server/modules/helpdesk/service";
@@ -28,6 +29,7 @@ async function shellData(): Promise<ShellData | null> {
   // Admin-only nav/palette entries a person sees without being a general admin (pages still check access themselves).
   const areas: string[] = [];
   if (hasAnyPayrollAdmin(actor)) areas.push("payroll", "settings");
+  if (canRunPayroll(actor)) areas.push("payrun");
   if (canAdminExpenses(actor)) areas.push("expenses-settings", "settings");
   if (["expenses.approve", "expenses.payout", "expenses.admin"].some((p) => hasAnywhere(actor, p))) areas.push("expenses");
   if (hasAssetsAccess(actor)) areas.push("assets");

@@ -4,6 +4,7 @@ import { calendarFor } from "@/server/modules/leave/service";
 import { countLeaveDays, dayType, type Calendar } from "@/server/modules/leave/rules";
 import { loadRates, type EffectiveRates } from "@/server/modules/statutory/service";
 import { esiCoverageMonth, fyOf, fyRange, type Gender } from "@/server/modules/statutory/rules";
+import { loanEmisForMonth } from "@/server/modules/loans/service";
 import { taxInputsFor } from "./tax-inputs";
 import {
   addMonths, ageBandFor, arrearsDue, attendanceWindows, buildSegments, computeLine, dayRate, eachDate, epsMember, halfYear, isLockedStatus, metaFor, monthEnd,
@@ -90,7 +91,7 @@ export type PersonData = {
   person: RunPerson; salaries: SalaryRec[]; lopByDate: Record<string, number>; currentLop: number; rolledLop: number; lateLop: number;
   unpaidLeaveDays: number; absentNoLop: number; overtimeMinutes: number; inputs: InputRow[]; cal: Calendar | null;
   statutory: { pf_enabled: boolean | null; pf_on_full_wage: boolean | null; esi_enabled: boolean | null; uan: string | null; pt_state: string | null; lwf_state: string | null; tax_regime: "old" | "new" | null; location_state: string | null };
-  ytd: { taxable: number; tds: number; pt: number; halfGross: number };
+  ytd: { taxable: number; tds: number; pt: number; pf: number; halfGross: number };
 };
 
 export async function loadPeople(tx: Tx, run: Pick<RunRow, "pay_group_id" | "period_month" | "cutoff" | "basis">, people: RunPerson[]): Promise<PersonData[]> {
@@ -113,11 +114,12 @@ export async function loadPeople(tx: Tx, run: Pick<RunRow, "pay_group_id" | "per
     tx<(PersonData["statutory"] & { employee_id: string })[]>`
       select e.id as employee_id, s.pf_enabled, s.pf_on_full_wage, s.esi_enabled, s.uan, s.pt_state, s.lwf_state, s.tax_regime, l.state_code as location_state
       from employees e left join employee_statutory s on s.employee_id = e.id left join locations l on l.id = e.location_id where e.id = any(${ids}::uuid[])`,
-    tx<{ employee_id: string; taxable: string; tds: string; pt: string; half_gross: string }[]>`
+    tx<{ employee_id: string; taxable: string; tds: string; pt: string; pf: string; half_gross: string }[]>`
       select l.employee_id,
         coalesce(sum((l.statutory->>'taxablePaise')::bigint), 0)::text as taxable,
         coalesce(sum((l.statutory->'tds'->>'monthlyPaise')::bigint), 0)::text as tds,
         coalesce(sum((l.statutory->'pt'->>'amountPaise')::bigint), 0)::text as pt,
+        coalesce(sum((l.statutory->'pf'->>'employeePaise')::bigint), 0)::text as pf,
         coalesce(sum((l.statutory->'pt'->>'grossPaise')::bigint) filter (where r.period_month >= ${half}), 0)::text as half_gross
       from payroll_lines l join payroll_runs r on r.id = l.run_id
       where l.employee_id = any(${ids}::uuid[]) and r.status in ('finalized','payslips_released','paid') and r.period_month >= ${fy} and r.period_month < ${M}
@@ -148,7 +150,7 @@ export async function loadPeople(tx: Tx, run: Pick<RunRow, "pay_group_id" | "per
       overtimeMinutes: mine.filter((d) => inWin(d.date, w.current)).reduce((t, d) => t + (d.overtime_minutes ?? 0), 0),
       inputs: inputs.filter((i) => i.employee_id === p.id), cal,
       statutory: st.find((s) => s.employee_id === p.id)!,
-      ytd: { taxable: N(y?.taxable), tds: N(y?.tds), pt: N(y?.pt), halfGross: N(y?.half_gross) },
+      ytd: { taxable: N(y?.taxable), tds: N(y?.tds), pt: N(y?.pt), pf: N(y?.pf), halfGross: N(y?.half_gross) },
     });
   }
   return out;
@@ -329,7 +331,8 @@ export async function draftLine(tx: Tx, run: RunRow, d: PersonData, shared: Shar
   const ptState = st.pt_state ?? st.location_state ?? null, lwfState = st.lwf_state ?? st.location_state ?? null;
   const rates = await ratesFor(tx, shared, M, ptState);
   const lwfRates = lwfState === ptState ? rates : await ratesFor(tx, shared, M, lwfState);
-  const regime = st.tax_regime ?? "new";
+  const tax = await taxInputsFor(tx, p.id, fyRange(fyOf(M)).from, end);
+  const regime = tax.regime ?? st.tax_regime ?? "new";
   const esiWageOf = (b: Record<string, number>) => Object.entries(b).reduce((t, [c, v]) => { const m = metaFor(shared.components, c); return t + (m.kind !== "employer_contribution" && m.esiWage ? v : 0); }, 0);
   const taxableOf = (b: Record<string, number>) => Object.entries(b).reduce((t, [c, v]) => { const m = metaFor(shared.components, c); return t + (m.kind !== "employer_contribution" && m.taxable ? v : 0); }, 0);
   const coverage = inForce(d.salaries, esiCoverageMonth(M, p.joining_date, rates.esi.config)) ?? current;
@@ -343,7 +346,7 @@ export async function draftLine(tx: Tx, run: RunRow, d: PersonData, shared: Shar
       hasPan: p.has_pan, hasUan: !!st.uan, esiCoverageGrossPaise: esiWageOf(coverage.breakup),
       ytdPtPaise: d.ytd.pt, ytdTaxablePaise: d.ytd.taxable, ytdTdsPaise: d.ytd.tds, ptHalfGrossPaise: d.ytd.halfGross, ptMonthsLeftInHalf: hy.monthsLeft,
       recurringTaxablePaise: taxableOf(current.breakup), remainingMonths: remainingMonths(M, p.last_day),
-      taxDeductions: await taxInputsFor(tx, p.id, fyRange(fyOf(M)).from), overrides,
+      taxDeductions: tax.deductions, taxExtra: tax.extra ? { ...tax.extra, ytdEmployeePfPaise: d.ytd.pf } : null, overrides,
     },
   });
   if (d.absentNoLop) result.warnings.push(`${d.absentNoLop} absent ${d.absentNoLop === 1 ? "day isn't" : "days aren't"} marked as loss of pay. Check attendance before you finalise.`);
@@ -364,6 +367,8 @@ export async function computeRun(tx: Tx, runId: string, opts: { expectedVersion?
   const run = await getRun(tx, runId, true);
   if (run.status !== "draft" && run.status !== "in_progress") throw new AppError("conflict", "This run is finalised. Roll it back before recalculating.");
   if (opts.expectedVersion != null && opts.expectedVersion !== run.lock_version) throw new AppError("conflict", "Someone else changed this run since you opened it. Reload the page to see their changes.");
+  // this month's loan EMIs become loan_emi inputs first (idempotent; follows skips, prepayments and closures)
+  await loanEmisForMonth(tx, run.pay_group_id, run.period_month);
   const [{ tenant_id }] = await tx<{ tenant_id: string }[]>`select tenant_id from payroll_runs where id = ${runId}`;
   const [prev] = await tx<{ status: string }[]>`select status from payroll_runs where pay_group_id = ${run.pay_group_id} and period_month = ${addMonths(run.period_month, -1)} and status <> 'rolled_back'`;
   const settled = await tx<{ employee_id: string }[]>`

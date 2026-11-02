@@ -10,6 +10,7 @@ import { assetRecoveryFor } from "@/server/modules/assets/service";
 import { loadRates, ratesNeedVerification } from "@/server/modules/statutory/service";
 import { gratuity } from "@/server/modules/statutory/rules";
 import { saveFile } from "@/server/storage";
+import { outstandingForFnf, recoverLoanInFnf } from "@/server/modules/loans/service";
 import { assertNotSelf, assertRunPayroll, canRunPayroll } from "./access";
 import { components, draftLine, loadPeople, runPeople, type RunRow } from "./engine";
 import { renderFnfStatement } from "./pdf";
@@ -80,7 +81,7 @@ async function autoItems(tx: Tx, actor: Actor, x: ExitRow): Promise<{ items: Fnf
         created_at: new Date(), pay_group: x.pay_group!, cutoff: 31, basis: x.basis, legal_entity_id: x.legal_entity_id!, legal_entity: x.legal_entity! } satisfies RunRow;
       const person = (await runPeople(tx, x.pay_group_id, lwdMonth)).find((p) => p.id === x.employee_id);
       const [d] = person ? await loadPeople(tx, run, [person]) : [];
-      const line = d ? await draftLine(tx, run, { ...d, inputs: d.inputs.filter((i) => i.kind !== "pay_action" && i.kind !== "processing_hold" && i.kind !== "payout_hold") },
+      const line = d ? await draftLine(tx, run, { ...d, inputs: d.inputs.filter((i) => i.kind !== "pay_action" && i.kind !== "processing_hold" && i.kind !== "payout_hold" && i.kind !== "loan_emi") },
         { components: comps, rates: new Map(), prevLocked: true, tenantId: actor.tenant.id }) : null;
       if (!line) notes.push("No salary is on record for the last month, so there's no final salary to pay.");
       else {
@@ -117,11 +118,14 @@ async function autoItems(tx: Tx, actor: Actor, x: ExitRow): Promise<{ items: Fnf
   // 5. asset damage or loss
   const assets = await assetRecoveryFor(tx, x.employee_id);
   for (const a of assets.items) items.push(item(`asset:${a.tag}`, `Asset recovery: ${a.asset} (${a.tag}, ${a.condition})`, "deduction", N(a.recovery_paise)));
-  // 6. loans still outstanding
-  const [loan] = await tx<{ due: string | null }[]>`
-    select sum(i.principal_paise + i.interest_paise)::text as due from loan_installments i join loans l on l.id = i.loan_id
-    where l.employee_id = ${x.employee_id} and i.status = 'scheduled' and l.status in ('disbursed','active')`;
-  if (Number(loan?.due ?? 0) > 0) items.push(item("loan", "Loan balance recovered", "deduction", Number(loan!.due)));
+  // 6. loans still outstanding: principal left (interest not yet due isn't charged), less EMIs already in a finalised payroll
+  const owed = await outstandingForFnf(tx, x.employee_id);
+  for (const l of owed.loans) {
+    const due = l.outstandingPaise - l.lockedPaise;
+    if (due > 0) items.push(item(`loan:${l.loanId}`, `Loan balance recovered: ${l.category}`, "deduction", due,
+      `Outstanding principal${l.lockedPaise ? `, after EMIs already in a finalised payroll` : ""}; recorded against the loan when you finalise`));
+    else if (l.note) notes.push(`${l.category}: ${l.note}`);
+  }
   // 7. approved expense claims not yet paid (and not already in a finalised payroll)
   const claims = await tx<{ id: string; number: number; title: string | null; total_paise: bigint; advance_applied_paise: bigint }[]>`
     select c.id, c.number, c.title, c.total_paise, c.advance_applied_paise from expense_claims c
@@ -241,6 +245,11 @@ export async function finalizeSettlement(tx: Tx, actor: Actor, exitId: string) {
     items: s.items, net, finalizedOn: today, unverified: await ratesNeedVerification(tx),
   });
   const fileId = await saveFile(tx, { tenantId: actor.tenant.id, userId: actor.userId, name: `Final settlement ${x.number}.pdf`, mime: "application/pdf", bytes, ext: "pdf" });
+  // recovered loan balances close (or reduce) the loans, so payroll stops taking EMIs
+  for (const i of s.items) {
+    if (!i.key.startsWith("loan:") || i.action !== "pay" || i.paise <= 0) continue;
+    await recoverLoanInFnf(tx, actor, i.key.slice(5), { amountPaise: i.paise, paidOn: today, reference: `Final settlement ${x.number}` }, today);
+  }
   await tx`update fnf_settlements set status = 'finalized', net_paise = ${net}, statement_file_id = ${fileId}, settlement_month = ${lwdMonth}, updated_at = now() where id = ${s.id}`;
   await notifyEmployee(tx, actor.tenant.id, x.employee_id, "payroll.fnf", "Your full and final settlement is ready", "Open My finances to download the statement.", "/me/pay");
   await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.finalized", diff: { net, items: s.items.length } });

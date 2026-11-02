@@ -5,6 +5,7 @@ import { audit } from "@/server/modules/audit/service";
 import { notifyEmployee } from "@/server/modules/approvals/service";
 import { bankAccountFor } from "@/server/modules/payroll/salary";
 import { markPayrollExpensesPaid } from "@/server/modules/expenses/service";
+import { markLoanEmisDeducted } from "@/server/modules/loans/service";
 import { saveFile } from "@/server/storage";
 import { todayIn } from "@/lib/dates";
 import { assertRunPayroll } from "./access";
@@ -88,5 +89,6 @@ export async function settleIfPaid(tx: Tx, runId: string) {
   if (left.some((l) => bankable(l.action, N(l.net_paise))) || pending || holds) return false;
   await tx`update payroll_runs set status = 'paid', lock_version = lock_version + 1, updated_at = now() where id = ${runId}`;
   await markPayrollExpensesPaid(tx, run.pay_group_id, run.period_month);
+  await markLoanEmisDeducted(tx, run.pay_group_id, run.period_month, { runId });
   return true;
 }

@@ -251,6 +251,21 @@ const prepayInput = z.object({
  */
 export async function prepayLoan(tx: Tx, actor: Actor, id: string, raw: unknown, today = todayIn()) {
   const { l, p } = await adminLoan(tx, actor, id);
+  return applyPrepayment(tx, actor, l, p, raw, today);
+}
+
+/**
+ * Full and final settlement: recover what's left of a leaver's loan out of the settlement (recorded as a prepayment).
+ * The caller (payrun F&F finalise) has already checked the actor may run payroll and isn't settling their own exit.
+ */
+export async function recoverLoanInFnf(tx: Tx, actor: Actor, id: string, raw: unknown, today = todayIn()) {
+  const l = await loanRow(tx, id, true);
+  if (!l) throw new AppError("not_found", "Loan not found.");
+  if (l.employee_id === actor.employeeId) throw new AppError("forbidden", "You can't settle your own loan. Another payroll admin has to.");
+  return applyPrepayment(tx, actor, l, await person(tx, l.employee_id), raw, today);
+}
+
+async function applyPrepayment(tx: Tx, actor: Actor, l: NonNullable<Awaited<ReturnType<typeof loanRow>>>, p: Awaited<ReturnType<typeof person>>, raw: unknown, today: string) {
   if (l.status !== "active") throw bad("Only a loan being repaid can take a prepayment.");
   const v = prepayInput.safeParse(raw);
   if (!v.success) throw bad(v.error.issues[0].message, String(v.error.issues[0].path[0] ?? ""));
@@ -383,17 +398,22 @@ export async function loanEmisForMonth(tx: Tx, payGroupId: string, month: string
   const keep = due.map((d) => d.id);
   const gone = await tx`
     delete from payroll_inputs where kind = 'loan_emi' and pay_group_id = ${payGroupId} and period_month = ${month}
-      and not ((source_ref->>'loan_installment_id') = any(${keep}::text[]))`;
+      and source_ref ? 'loan_installment_id' and not ((source_ref->>'loan_installment_id') = any(${keep}::text[]))`;   // hand-entered EMIs stay
   return { locked: false, written, updated, removed: gone.count, totalPaise: total };
 }
 
 /** After the payroll run for the month is paid: mark the EMIs it took as deducted and close loans with nothing left. */
-export async function markLoanEmisDeducted(tx: Tx, payGroupId: string, month: string) {
+export async function markLoanEmisDeducted(tx: Tx, payGroupId: string, month: string, opts: { runId?: string } = {}) {
   if (!isMonth(month)) throw bad("Pick a month (the first day of it).");
+  // with a run: only EMIs that actually appear as a deduction on a processed line (not on a held or unpaid one)
+  const inRun = opts.runId
+    ? tx`and exists (select 1 from payroll_lines l where l.run_id = ${opts.runId} and l.employee_id = p.employee_id and l.action not in ('hold_processing','void')
+                     and l.deductions @> jsonb_build_array(jsonb_build_object('inputId', p.id::text)))`
+    : tx``;
   const rows = await tx<{ loan_id: string }[]>`
     update loan_installments i set status = 'deducted'
     from payroll_inputs p where p.kind = 'loan_emi' and p.pay_group_id = ${payGroupId} and p.period_month = ${month} and p.action in ('pay','partial','paid_outside')
-      and p.source_ref->>'loan_installment_id' = i.id::text and i.status = 'scheduled'
+      and p.source_ref->>'loan_installment_id' = i.id::text and i.status = 'scheduled' ${inRun}
     returning i.loan_id`;
   const loans = [...new Set(rows.map((r) => r.loan_id))];
   if (loans.length) {
