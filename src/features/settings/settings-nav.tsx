@@ -35,7 +35,8 @@ const ITEMS = [
     { href: "/settings/payroll/statutory", label: "Statutory rates" },
   ] },
   { group: "Finance", links: [{ href: "/settings/expenses", label: "Expenses" }] },
-  { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
+  { group: "Lifecycle", links: [{ href: "/settings/tasks", label: "Onboarding tasks" }, { href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
+  { group: "Home", links: [{ href: "/settings/quick-links", label: "Quick links" }] },
   { group: "Service desk", links: [{ href: "/settings/helpdesk", label: "Helpdesk" }] },
 ];
 

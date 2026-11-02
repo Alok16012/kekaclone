@@ -5,8 +5,8 @@ import { EmptyState } from "@/ui/feedback";
 import { cn } from "@/lib/cn";
 
 /** Link tabs between the two Engage admin pages. */
-export function EngageNav({ active }: { active: "announcements" | "polls" }) {
-  const items = [{ key: "announcements", href: "/engage/announcements", label: "Announcements" }, { key: "polls", href: "/engage/polls", label: "Poll results" }] as const;
+export function EngageNav({ active }: { active: "announcements" | "polls" | "surveys" }) {
+  const items = [{ key: "announcements", href: "/engage/announcements", label: "Announcements" }, { key: "polls", href: "/engage/polls", label: "Poll results" }, { key: "surveys", href: "/engage/surveys", label: "Surveys" }] as const;
   return (
     <nav aria-label="Engage" className="mb-6 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border">
       {items.map((i) => (

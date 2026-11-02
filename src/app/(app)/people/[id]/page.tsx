@@ -21,6 +21,8 @@ import { FinancesTab } from "@/features/payroll/finances-tab";
 import { personAssets } from "@/server/modules/assets/service";
 import { PersonAssets } from "@/features/assets/person-assets";
 import { toPersonAssetsDTO } from "@/features/assets/dto";
+import { onboardingForProfile } from "@/server/modules/onboarding/service";
+import { ProfileOnboarding } from "@/features/onboarding/profile-tab";
 
 export const metadata: Metadata = { title: "Profile" };
 
@@ -34,13 +36,13 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
     const [m] = await tx<(Placement & { manager_id: string | null })[]>`select manager_id, department_id, location_id, legal_entity_id, business_unit_id from employees where id = ${id}`;
     const self = actor.employeeId === id;
     const manageExit = !self && canFor(actor, "exits.manage", m);
-    const [docs, praise, finances, assets] = await Promise.all([personDocuments(tx, actor, id), praiseFor(tx, actor, id), financesFor(tx, actor, id), personAssets(tx, actor, id)]);
+    const [docs, praise, finances, assets, onboarding] = await Promise.all([personDocuments(tx, actor, id), praiseFor(tx, actor, id), financesFor(tx, actor, id), personAssets(tx, actor, id), onboardingForProfile(tx, actor, id)]);
     const issue = !!docs?.canManage && canFor(actor, "documents.manage", m);
     return {
       p, lookups: p.access === "admin" ? await lookups(tx) : null, managerId: m.manager_id, self, manageExit,
       exit: self || manageExit ? await myExit(tx, id) : null,
       reasons: (self || manageExit) && p.employee.status !== "relieved" ? await listReasons(tx) : [],
-      praise, docs, finances, assets: assets ? toPersonAssetsDTO(assets) : null, templates: issue ? (await listTemplates(tx)).map((t) => ({ id: t.id, name: t.name, kind: t.kind })) : [],
+      praise, docs, finances, onboarding, assets: assets ? toPersonAssetsDTO(assets) : null, templates: issue ? (await listTemplates(tx)).map((t) => ({ id: t.id, name: t.name, kind: t.kind })) : [],
     };
   });
   if (!d) notFound();
@@ -58,7 +60,8 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
       docs={d.docs.docs.map((x) => ({ id: x.id, category: x.category, doc_type: x.doc_type, number: x.number, status: x.status, file_id: x.file_id, file_name: x.file_name, size_bytes: x.size_bytes, created_at: x.created_at.toISOString() }))} />,
   }] : [];
   if (d.assets) tabs.push({ value: "assets", label: "Assets", content: <PersonAssets data={d.assets} name={e.display_name} /> });
+  if (d.onboarding) tabs.push({ value: "onboarding", label: "Onboarding", content: <ProfileOnboarding d={d.onboarding} self={d.self} /> });
   if (d.finances) tabs.push({ value: "finances", label: "Finances", content: <FinancesTab employeeId={e.id} d={d.finances} /> });
   return <ProfileView initialTab={typeof tab === "string" ? tab : undefined} p={d.p} lookups={d.lookups} today={today} currentManagerId={d.managerId} actions={actions} banner={banner} extraTabs={tabs}
-    aboutExtra={<PraiseReceivedCard items={d.praise} self={d.p.access === "self"} />} />;
+    aboutExtra={<PraiseReceivedCard items={d.praise} self={d.p.access === "self"} employeeId={e.id} />} />;
 }

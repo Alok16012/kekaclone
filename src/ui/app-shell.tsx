@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { DoorOpen } from "lucide-react";
 import { Headset, Laptop, Package } from "lucide-react";
+import { ClipboardList, ListChecks, Rocket } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "./avatar";
 import { IconButton } from "./button";
@@ -33,12 +34,15 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/me/performance", label: "Performance", icon: Target },
     { href: "/me/helpdesk", label: "Helpdesk", icon: LifeBuoy },
     { href: "/me/assets", label: "My assets", icon: Laptop },
+    { href: "/me/tasks", label: "My tasks", icon: ListChecks },
+    { href: "/me/surveys", label: "Surveys", icon: ClipboardList },
   ] },
   { label: "Organisation", items: [
     { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/team", label: "My team", icon: Users },
     { href: "/org/employees", label: "People", icon: LayoutGrid },
     { href: "/org/documents", label: "Documents", icon: FileText },
+    { href: "/org/onboarding", label: "Onboarding", icon: Rocket },
     { href: "/org/exits", label: "Exits", icon: DoorOpen },
     { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
     { href: "/org/assets", label: "Assets", icon: Package },
@@ -97,7 +101,7 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
 const AREA: Record<string, string> = { "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk" };
 const showItem = (d: ShellData | null, href: string) => !ADMIN_ONLY.has(href) || !!d?.isAdmin || (!!AREA[href] && !!d?.areas?.includes(AREA[href]));

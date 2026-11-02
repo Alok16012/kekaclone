@@ -83,7 +83,7 @@ export function HolidaysCard({ holidays, today }: { holidays: { id: string; name
 }
 
 /** "Praise received" on a profile's About tab. */
-export function PraiseReceivedCard({ items, self }: { items: PraiseReceived[]; self: boolean }) {
+export function PraiseReceivedCard({ items, self, employeeId }: { items: PraiseReceived[]; self: boolean; employeeId?: string }) {
   return (
     <Card className="lg:col-span-2">
       <CardHeader title="Praise received" description={items.length ? `${items.length} ${items.length === 1 ? "time" : "times"}` : undefined} />
@@ -102,7 +102,8 @@ export function PraiseReceivedCard({ items, self }: { items: PraiseReceived[]; s
                   {p.others > 0 && <span className="text-text-muted"> · shared with {p.others} {p.others === 1 ? "other" : "others"}</span>}
                 </p>
                 <p className="mt-0.5 whitespace-pre-line break-words text-base text-text-muted">{p.message}</p>
-                <p className="mt-1 text-sm text-text-muted">{new Date(p.at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })}</p>
+                <p className="mt-1 text-sm text-text-muted">{new Date(p.at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })}
+                  {employeeId && <> · <a href={`/engage/praise/${p.id}/certificate?to=${employeeId}`} target="_blank" rel="noopener" className="font-medium text-accent-text hover:underline">Certificate (PDF)</a></>}</p>
               </div>
             </li>
           ))}
