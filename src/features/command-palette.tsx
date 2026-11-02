@@ -55,6 +55,8 @@ const PAGES: Item[] = [
   { id: "p-time-assign", kind: "page", label: "Shift and policy assignments", href: "/settings/time/assignments", icon: <Users />, keywords: "assign shift weekly off bulk", admin: true },
   { id: "p-exits", kind: "page", label: "Exits", href: "/org/exits", icon: <DoorOpen />, keywords: "offboarding resignation notice leaving relieving", admin: true },
   { id: "p-notice", kind: "page", label: "Notice periods & exit reasons", hint: "Settings", href: "/settings/exits", icon: <Settings />, keywords: "notice period exit reasons checklist", admin: true },
+  { id: "p-payroll", kind: "page", label: "Payroll", href: "/payroll", icon: <Wallet />, keywords: "payroll run salary month finalise payslips bank file ecr register", admin: true, area: "payroll" },
+  { id: "p-fnf", kind: "page", label: "Final settlements", hint: "Payroll", href: "/payroll/settlements", icon: <Wallet />, keywords: "full and final fnf f&f exit gratuity encashment", admin: true, area: "payroll" },
   { id: "p-pay-comp", kind: "page", label: "Salary components", hint: "Payroll settings", href: "/settings/payroll/components", icon: <Wallet />, keywords: "payroll basic hra allowance deduction earning", admin: true, area: "payroll" },
   { id: "p-pay-groups", kind: "page", label: "Pay groups", hint: "Payroll settings", href: "/settings/payroll/pay-groups", icon: <Wallet />, keywords: "payroll cycle cut-off payable days", admin: true, area: "payroll" },
   { id: "p-pay-struct", kind: "page", label: "Salary structures", hint: "Payroll settings", href: "/settings/payroll/structures", icon: <Wallet />, keywords: "payroll ctc breakup formula template", admin: true, area: "payroll" },

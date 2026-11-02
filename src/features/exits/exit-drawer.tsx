@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { CalendarClock, CheckCircle2, Circle, FileText, Download, MinusCircle, MoreHorizontal, Wallet } from "lucide-react";
+import { CalendarClock, CheckCircle2, Circle, FileText, Download, MinusCircle, MoreHorizontal } from "lucide-react";
 import { Drawer, ConfirmDialog, Menu } from "@/ui/overlay";
 import { Button, IconButton } from "@/ui/button";
 import { Badge } from "@/ui/badge";
@@ -15,6 +15,7 @@ import { cancelExitAction, completeExitAction, decideExitAction, exitDetailActio
 import { generateLetterAction } from "@/app/(app)/org/documents/actions";
 import type { ExitDetail } from "@/server/modules/exits/service";
 import { ExitAssets } from "@/features/assets/exit-assets";
+import { ExitSettlement } from "@/features/payrun/exit-settlement";
 
 export const fmtDate = (d: string | null | undefined) => (d ? new Date(d.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "—");
 export const STATUS_LABEL: Record<string, { label: string; tone: "warning" | "accent" | "success" | "neutral" | "danger" }> = {
@@ -157,10 +158,7 @@ export function ExitDrawer({ exitId, onClose, letterTemplates, today }: { exitId
           </Section>
 
           <Section title="Final settlement">
-            <div className="flex items-start gap-3 rounded-md bg-surface-sunken px-3 py-3 text-base">
-              <Wallet className="mt-0.5 size-4 shrink-0 text-text-muted" aria-hidden />
-              <p className="text-text-muted">{"Full and final settlement will be worked out in payroll once it's available. Use the “Final settlement” task to track it until then."}</p>
-            </div>
+            <ExitSettlement exitId={d.exit.id} status={d.exit.status} />
           </Section>
 
           {(d.can.manage || d.letters.length > 0) && (

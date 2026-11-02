@@ -330,7 +330,17 @@ async function main() {
       await runs.finalizeRun(tx, karan, openRun.id);
     }
     assert.ok((await fnf.fnfDetail(tx, karan, x.id)).prerequisite.ok);
+    const inOpenRun = (await runs.runView(tx, karan, openRun.id)).lines.some((l) => l.employee_id === x.employee_id && l.action === "process");
+    if (lwdMonth === thisMonth && inOpenRun && d.settlement?.items.some((i) => i.key === "salary" && i.action === "pay")) {
+      // the last month is the open seeded run: erp refuses to pay the final salary twice until one side gives way
+      await assert.rejects(fnf.finalizeSettlement(tx, karan, x.id), /also in the .* payroll run/);
+      await fnf.setItemAction(tx, karan, x.id, "salary", "paid_outside");
+    }
     await fnf.finalizeSettlement(tx, karan, x.id);
+    // the exit drawer's summary: the amount is for payroll and the person only, everyone else sees just the status
+    assert.ok((await fnf.fnfSummary(tx, karan, x.id)).net != null);
+    assert.deepEqual(await fnf.fnfSummary(tx, arjun, x.id).then((r) => [r.status, r.net, r.canOpen]), ["finalized", null, false]);
+    assert.ok((await fnf.fnfSummary(tx, { ...arjun, employeeId: x.employee_id }, x.id)).net != null);
     const me = await slips.myPay(tx, { ...arjun, employeeId: x.employee_id });
     assert.ok(me.fnf?.fileId);
     assert.ok(await slips.payrollFileFor(tx, { ...arjun, employeeId: x.employee_id }, me.fnf!.fileId!), "the person opens their own statement");

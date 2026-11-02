@@ -249,6 +249,11 @@ export async function finalizeSettlement(tx: Tx, actor: Actor, exitId: string) {
 
 /** For the exit drawer: where the settlement stands, and whether this person may open it. */
 export async function fnfSummary(tx: Tx, actor: Actor, exitId: string) {
+  const [x] = await tx<{ employee_id: string }[]>`select employee_id from exit_requests where id = ${exitId}`;
+  if (!x) throw new AppError("not_found", "Exit not found.");
   const s = await settlementOf(tx, exitId);
-  return { status: s?.status ?? null, net: s?.net_paise == null ? null : N(s.net_paise), canOpen: canRunPayroll(actor), monthEnd: s?.settlement_month ? monthEnd(s.settlement_month) : null };
+  const payroll = canRunPayroll(actor);
+  // The amount is pay data: only payroll and the person themselves see it; anyone else who can open the exit sees the status.
+  const seesAmount = payroll || x.employee_id === actor.employeeId;
+  return { status: s?.status ?? null, net: seesAmount && s?.net_paise != null ? N(s.net_paise) : null, canOpen: payroll, monthEnd: s?.settlement_month ? monthEnd(s.settlement_month) : null };
 }

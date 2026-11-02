@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { DoorOpen } from "lucide-react";
 import { Headset, Laptop, Package } from "lucide-react";
+import { Landmark } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "./avatar";
 import { IconButton } from "./button";
@@ -40,6 +41,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/org/employees", label: "People", icon: LayoutGrid },
     { href: "/org/documents", label: "Documents", icon: FileText },
     { href: "/org/exits", label: "Exits", icon: DoorOpen },
+    { href: "/payroll", label: "Payroll", icon: Landmark },
     { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
     { href: "/org/assets", label: "Assets", icon: Package },
     { href: "/helpdesk", label: "Helpdesk queue", icon: Headset },
@@ -97,9 +99,9 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
-const AREA: Record<string, string> = { "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk" };
+const AREA: Record<string, string> = { "/payroll": "payroll", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk" };
 const showItem = (d: ShellData | null, href: string) => !ADMIN_ONLY.has(href) || !!d?.isAdmin || (!!AREA[href] && !!d?.areas?.includes(AREA[href]));
 
 function navFor(d: ShellData | null): NavGroup[] {
