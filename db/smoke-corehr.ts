@@ -212,6 +212,7 @@ async function main() {
     const [rev] = await tx<{ n: number }[]>`select count(*)::int as n from audit_logs where action = 'identity.reveal' and entity_id = ${arjun.employeeId}`;
     assert.equal(rev.n, 1, "every reveal is audited");
     // copying a ciphertext onto someone else's row doesn't decrypt (bound to tenant + person + kind)
+    await tx`delete from employee_identities where employee_id = ${vikram.employeeId} and kind = 'pan'`;   // the payroll seed gives everyone a PAN
     await tx`insert into employee_identities (tenant_id, employee_id, kind, number_enc, number_last4) values (${tenant.id}, ${vikram.employeeId}, 'pan', ${row.number_enc}, '234K')`;
     const [stolen] = await tx<{ id: string }[]>`select id from employee_identities where employee_id = ${vikram.employeeId} and kind = 'pan'`;
     await assert.rejects(sp(tx, (s) => sections.revealIdentity(s, priya, stolen.id)));

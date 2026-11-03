@@ -19,7 +19,15 @@ const FROM = process.env.EMAIL_FROM ?? "erp <notify@erp.app>";
  * (Moves to a background job with retries in M2.)
  */
 export async function deliverQueued(tenantId: string) {
-  await withTenant(tenantId, async (tx) => {
+  // batches of 50, oldest first, until the backlog is drained (bounded so a stuck provider can't loop forever)
+  for (let batch = 0; batch < 40; batch++) {
+    const n = await deliverBatch(tenantId);
+    if (n < 50) break;
+  }
+}
+
+async function deliverBatch(tenantId: string): Promise<number> {
+  return withTenant(tenantId, async (tx) => {
     const queued = await tx<{ id: string; to_email: string; subject: string; html: string; text_body: string }[]>`
       select id, to_email, subject, html, text_body from outbound_emails where status = 'queued' and attempts < 5 order by created_at limit 50 for update skip locked`;
     for (const m of queued) {
@@ -42,6 +50,7 @@ export async function deliverQueued(tenantId: string) {
                  status = case when attempts + 1 >= 5 then 'failed' else 'queued' end where id = ${m.id}`;
       }
     }
+    return queued.length;
   });
 }
 

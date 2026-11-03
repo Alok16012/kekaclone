@@ -304,7 +304,8 @@ async function main() {
     const master = await reports.runStandard(tx, priya, "employee_master", { status: "all" });
     assert.equal(master.rows.length, (await tx<{ n: number }[]>`select count(*)::int as n from employees`)[0].n, "unscoped readers see everyone, including people who left");
     const scoped = await reports.runStandard(tx, engReader, "employee_master", { status: "all" });
-    assert.deepEqual(scoped.rows.map((r) => r.name).sort(), ["Arjun Rao", "Meera Iyer", "Rohan Mehta", "Vikram Joshi"], "scoped readers get their departments only");
+    const engNames = (await tx<{ display_name: string }[]>`select display_name from employees where department_id = ${eng.id} order by 1`).map((r) => r.display_name);
+    assert.deepEqual(scoped.rows.map((r) => r.name).sort(), engNames, "scoped readers get their departments only");
     const late = await reports.runStandard(tx, priya, "attendance_late", { from: addDaysISO(today, -30), to: today });
     assert.ok(late.rows.every((r) => Number(r.late_minutes) > 0));
     const ts = await reports.runStandard(tx, priya, "timesheets", { from: addDaysISO(today, -30), to: today });
@@ -335,9 +336,9 @@ async function main() {
     await assert.rejects(reports.deleteReport(tx, priya, saved.id), /isn't yours/);
     await assert.rejects(reports.runSaved(tx, rohan, saved.id), /report access|not found/);
     const ran = await reports.runSaved(tx, priya, saved.id);
-    assert.equal(ran.rows.length, 4);
+    assert.equal(ran.rows.length, engNames.length);
     const ranScoped = await reports.runSaved(tx, { ...engReader, roles: ["hr_admin"] }, saved.id);
-    assert.equal(ranScoped.rows.length, 4, "a shared report still applies the reader's own scope");
+    assert.equal(ranScoped.rows.length, engNames.length, "a shared report still applies the reader's own scope");
     // schedule + delivery job
     await assert.rejects(reports.setSchedule(tx, priya, saved.id, { frequency: "daily", hour: 9, recipients: [asha.employeeId] }), /isn't yours/);
     await assert.rejects(reports.setSchedule(tx, karan, saved.id, { frequency: "daily", hour: 9, recipients: [] }), /at least one person/);
@@ -350,7 +351,7 @@ async function main() {
     assert.ok(sent >= 1);
     await track(tx);
     const [d] = await tx<{ id: string; row_count: number; next_run_at: Date }[]>`select d.id, d.row_count, s.next_run_at from report_deliveries d join saved_reports s on s.id = d.saved_report_id where d.saved_report_id = ${saved.id}`;
-    assert.equal(d.row_count, 4); assert.equal(d.next_run_at.toISOString(), "2026-11-05T03:30:00.000Z");
+    assert.equal(d.row_count, engNames.length); assert.equal(d.next_run_at.toISOString(), "2026-11-05T03:30:00.000Z");
     assert.equal(await reports.deliverDue(tx, tenant, later), 0, "running the job again sends nothing new");
     assert.ok(await reports.deliveryFileFor(tx, rohan, d.id), "a recipient opens the file");
     assert.ok(await reports.deliveryFileFor(tx, karan, d.id), "so does the owner");

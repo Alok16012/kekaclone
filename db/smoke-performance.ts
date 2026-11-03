@@ -174,7 +174,8 @@ async function main() {
     assert.equal(v.visibility, "manager", "answers to a manager's request stay readable by the manager");
     assert.equal(await fb.canRead(tx, rohan, ans.id), true);
     const sum = await fb.feedbackSummary(tx, engPerf, addDaysISO(today, -30), today);
-    assert.ok(sum.people.every((p) => ["Rohan", "Arjun", "Meera", "Vikram"].some((x) => p.name.startsWith(x))), "scoped admin's summary covers only their department");
+    const engNames = (await tx<{ display_name: string }[]>`select display_name from employees where department_id = ${eng.id}`).map((r) => r.display_name);
+    assert.ok(sum.people.every((p) => engNames.includes(p.name)), "scoped admin's summary covers only their department");
     await assert.rejects(fb.feedbackSummary(tx, arjun, today, today), /access/);
     const mine = await fb.myFeedback(tx, arjun);
     assert.ok(mine.received.length >= 1 && mine.given.length >= 1);
@@ -351,7 +352,8 @@ async function main() {
     const agg = await rv.createCycle(tx, priya, { name: "Year aggregate", kind: "aggregate", periodStart: `${year}-01-01`, periodEnd: `${year}-12-31`, timelines: {},
       reviewers: { self: false, manager: false, skip_level: false, peer: { enabled: false, min: 0, max: 1, nominated_by: "employee", needs_approval: false } }, sourceCycleIds: [h1] });
     const r = await rv.launchCycle(tx, priya, agg.id);
-    assert.equal(r.added, 11);
+    const [h1n] = await tx<{ n: number }[]>`select count(distinct employee_id)::int as n from review_outcomes where cycle_id = ${h1}`;
+    assert.equal(r.added, h1n.n, "the aggregate covers everyone rated in its source cycle");
     const [x] = await tx<{ computed_rating: string }[]>`select computed_rating from review_outcomes where cycle_id = ${agg.id} and employee_id = ${imran.employeeId}`;
     assert.equal(Number(x.computed_rating), 2.5, "aggregate takes calibrated (final) ratings");
     await assert.rejects(rv.createCycle(tx, priya, { name: "Bad aggregate", kind: "aggregate", periodStart: `${year}-01-01`, periodEnd: `${year}-12-31`, timelines: {},
@@ -397,7 +399,9 @@ async function main() {
     const [pg] = await tx<{ id: string }[]>`select id from pay_groups limit 1`;
     const month = `${today.slice(0, 7)}-01`;
     const eff = addDaysISO(month, -61).slice(0, 7) + "-01";
-    await tx`insert into payroll_runs (tenant_id, pay_group_id, period_month, status) values (${tenant.id}, ${pg.id}, ${addDaysISO(month, -31).slice(0, 7) + "-01"}, 'finalized')`;
+    const paidMonth = addDaysISO(month, -31).slice(0, 7) + "-01";
+    const bumped = await tx`update payroll_runs set status = 'finalized' where pay_group_id = ${pg.id} and period_month = ${paidMonth}`;   // the payroll seed may already have a run
+    if (bumped.count === 0) await tx`insert into payroll_runs (tenant_id, pay_group_id, period_month, status) values (${tenant.id}, ${pg.id}, ${paidMonth}, 'finalized')`;
     const input = { name: "Smoke increments", reviewCycleId: h1, effectiveFrom: eff, budgetPaise: 10_00_000_00, matrix };
     await assert.rejects(comp.createCompCycle(tx, scopedComp, input), /compensation admins/, "scoped comp admin can't create cycles");
     await assert.rejects(comp.createCompCycle(tx, arjun, input), /compensation admins/);
