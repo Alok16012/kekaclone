@@ -156,7 +156,7 @@ export async function saveDelegation(tx: Tx, actor: Actor, input: { delegatorId:
   if (people.length !== 2) throw new AppError("invalid", "Pick people who work here.", "delegateId");
   const [overlap] = await tx`select 1 from approval_delegations where delegator_employee_id = ${input.delegatorId} and cancelled_at is null
     and daterange(from_date, to_date, '[]') && daterange(${input.from}::date, ${input.to}::date, '[]')`;
-  if (overlap) throw new AppError("conflict", "There's already a handover for some of these dates. Cancel it first.", "from");
+  if (overlap) throw new AppError("conflict", "There's already a hand-over for some of these dates. Cancel it first.", "from");
   const [r] = await tx<{ id: string }[]>`insert into approval_delegations (tenant_id, delegator_employee_id, delegate_employee_id, from_date, to_date, reason, created_by)
     values (${actor.tenant.id}, ${input.delegatorId}, ${input.delegateId}, ${input.from}, ${input.to}, ${input.reason?.trim().slice(0, 300) || null}, ${actor.userId}) returning id`;
   await audit(tx, actor, { entityType: "approval_delegation", entityId: r.id, action: "create", diff: { employeeId: input.delegatorId, delegateId: input.delegateId, from: input.from, to: input.to } });
@@ -168,8 +168,8 @@ export async function saveDelegation(tx: Tx, actor: Actor, input: { delegatorId:
 
 export async function cancelDelegation(tx: Tx, actor: Actor, id: string) {
   const [g] = await tx<{ delegator_employee_id: string }[]>`select delegator_employee_id from approval_delegations where id = ${id} and cancelled_at is null`;
-  if (!g) throw new AppError("not_found", "That handover was already cancelled.");
-  if (g.delegator_employee_id !== actor.employeeId && !canManageApprovals(actor)) throw new AppError("forbidden", "You can only cancel your own handovers.");
+  if (!g) throw new AppError("not_found", "That hand-over was already cancelled.");
+  if (g.delegator_employee_id !== actor.employeeId && !canManageApprovals(actor)) throw new AppError("forbidden", "You can only cancel your own hand-overs.");
   await tx`update approval_delegations set cancelled_at = now() where id = ${id}`;
   await audit(tx, actor, { entityType: "approval_delegation", entityId: id, action: "cancel", diff: { employeeId: g.delegator_employee_id } });
 }
@@ -181,31 +181,44 @@ export async function cancelDelegation(tx: Tx, actor: Actor, id: string) {
  */
 export async function reassignPending(tx: Tx, tenantId: string, opts: { userId?: string | null; date?: string; onlyApproverId?: string } = {}) {
   const date = opts.date ?? todayIn();
-  const steps = await tx<{ id: string; request_id: string; approver: string; requester: string; summary: string; status: string; on_leave: boolean }[]>`
-    select s.id, s.request_id, s.approver_employee_id as approver, r.requester_employee_id as requester, r.summary, e.status,
-      exists(select 1 from leave_requests l where l.employee_id = s.approver_employee_id and l.status = 'approved'
-             and l.from_date <= ${date} and l.to_date >= ${date} and not (l.from_date = l.to_date and l.days < 1)) as on_leave
-    from approval_steps s join approval_requests r on r.id = s.request_id join employees e on e.id = s.approver_employee_id
-    where s.status = 'pending' and r.status = 'pending' and (${opts.onlyApproverId ?? null}::uuid is null or s.approver_employee_id = ${opts.onlyApproverId ?? null})`;
+  const steps = await tx<{ id: string; request_id: string; approver: string; requester: string; summary: string }[]>`
+    select s.id, s.request_id, s.approver_employee_id as approver, r.requester_employee_id as requester, r.summary
+    from approval_steps s join approval_requests r on r.id = s.request_id
+    where s.status = 'pending' and r.status = 'pending' and (${opts.onlyApproverId ?? null}::uuid is null or s.approver_employee_id = ${opts.onlyApproverId ?? null})
+    order by r.created_at`;
+  const onLeave = async (employeeId: string) => (await tx<{ ok: boolean }[]>`select exists(select 1 from leave_requests l where l.employee_id = ${employeeId} and l.status = 'approved'
+    and l.from_date <= ${date} and l.to_date >= ${date} and not (l.from_date = l.to_date and l.days < 1)) as ok`)[0].ok;
+  /** Follow hand-overs, leavers and people on leave to the first person who can act (a chain, so one pass is final). */
+  const resolve = async (approver: string, requester: string): Promise<{ to: string | null; reason: string }> => {
+    let to: string | null = approver, reason = "delegation";
+    for (let hop = 0; hop < 6 && to; hop++) {
+      const [st] = await tx<{ status: string }[]>`select status from employees where id = ${to}`;
+      const next: string | null = await effectiveApprover(tx, to, requester, date);
+      if (next !== to) { reason = st?.status === "relieved" ? "relieved" : "delegation"; to = next; continue; }
+      if (await onLeave(to)) {
+        const mgr: { id: string }[] = await tx<{ id: string }[]>`select m.id from employees e join employees m on m.id = e.manager_id and m.status <> 'relieved' where e.id = ${to} and m.id <> ${requester}`;
+        if (mgr[0] && mgr[0].id !== approver) { reason = "on_leave"; to = mgr[0].id; continue; }
+      }
+      break;
+    }
+    return { to, reason };
+  };
   let moved = 0;
   for (const s of steps) {
-    let to = await effectiveApprover(tx, s.approver, s.requester, date);
-    if (to === s.approver && s.on_leave) {
-      const [m] = await tx<{ id: string }[]>`select m.id from employees e join employees m on m.id = e.manager_id and m.status <> 'relieved' where e.id = ${s.approver} and m.id <> ${s.requester}`;
-      to = m?.id ?? s.approver;
-    }
+    let { to, reason } = await resolve(s.approver, s.requester);
     if (!to) {
       // nobody suitable in the chain: an admin who isn't the requester
       const [g] = await tx<{ id: string }[]>`select ra.employee_id as id from role_assignments ra join roles ro on ro.id = ra.role_id join employees e on e.id = ra.employee_id and e.status <> 'relieved'
         where ro.key in ('hr_admin','global_admin') and ra.employee_id <> ${s.requester} order by ro.key = 'hr_admin' desc, ra.created_at limit 1`;
       to = g?.id ?? null;
+      reason = "relieved";
     }
     if (!to || to === s.approver) continue;
     const [dupe] = await tx`select 1 from approval_steps where request_id = ${s.request_id} and approver_employee_id = ${to} and status in ('pending','waiting')`;
     if (dupe) continue;
     await tx`update approval_steps set approver_employee_id = ${to}, delegated_from = coalesce(delegated_from, ${s.approver}) where id = ${s.id} and status = 'pending'`;
     await notifyEmployee(tx, tenantId, to, "approval.pending", "New request to review", s.summary, "/inbox");
-    await audit(tx, { tenantId, userId: opts.userId ?? null }, { entityType: "approval_step", entityId: s.id, action: "approval.reassigned", diff: { from: s.approver, to, reason: s.status === "relieved" ? "relieved" : s.on_leave ? "on_leave" : "delegation" } });
+    await audit(tx, { tenantId, userId: opts.userId ?? null }, { entityType: "approval_step", entityId: s.id, action: "approval.reassigned", diff: { from: s.approver, to, reason } });
     moved++;
   }
   return { moved };

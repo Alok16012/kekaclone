@@ -39,7 +39,7 @@ export type FieldValue = string | number | boolean | string[] | null;
  * Empty input is null (and an error when the field is required).
  */
 export function coerceFieldValue(d: Pick<CustomFieldDef, "type" | "options" | "required" | "label">, raw: unknown): { ok: true; value: FieldValue } | { ok: false; error: string } {
-  const empty = raw == null || raw === "" || (Array.isArray(raw) && raw.length === 0);
+  const empty = raw == null || (typeof raw === "string" && raw.trim() === "") || (Array.isArray(raw) && raw.length === 0);
   if (empty) return d.required ? { ok: false, error: `${d.label} is required.` } : { ok: true, value: null };
   const text = Array.isArray(raw) ? raw.map(String) : String(raw).trim();
   const opts = d.options ?? [];
@@ -201,17 +201,23 @@ export function layoutTree(roots: TreeNode[], o: { w: number; h: number; gapX: n
 /** Builds a forest from flat rows (manager_id → children). People whose manager isn't in the set become roots. */
 export function buildForest(rows: { id: string; name: string; title: string | null; manager_id: string | null }[], rootId?: string | null): TreeNode[] {
   const byId = new Map(rows.map((r) => [r.id, { id: r.id, name: r.name, title: r.title, children: [] as TreeNode[] }]));
+  const parentOf = new Map<string, TreeNode>();
   const roots: TreeNode[] = [];
-  const seen = new Set<string>();
   for (const r of rows) {
     const n = byId.get(r.id)!;
     const p = r.manager_id && r.manager_id !== r.id ? byId.get(r.manager_id) : undefined;
-    if (p) p.children.push(n); else roots.push(n);
+    if (p) { p.children.push(n); parentOf.set(n.id, p); } else roots.push(n);
   }
-  // guard against loops (data imported from elsewhere): anything unreachable from a root becomes a root
+  // data imported from elsewhere can contain loops (A → B → A): cut each loop at one person, who becomes a root
+  const seen = new Set<string>();
   const walk = (n: TreeNode) => { if (seen.has(n.id)) return; seen.add(n.id); n.children.forEach(walk); };
   roots.forEach(walk);
-  for (const n of byId.values()) if (!seen.has(n.id)) { roots.push(n); walk(n); }
+  for (const n of byId.values()) {
+    if (seen.has(n.id)) continue;
+    const p = parentOf.get(n.id);
+    if (p) p.children = p.children.filter((c) => c.id !== n.id);
+    roots.push(n); walk(n);
+  }
   const sort = (xs: TreeNode[]) => { xs.sort((a, b) => a.name.localeCompare(b.name)); xs.forEach((x) => sort(x.children)); };
   sort(roots);
   if (rootId) { const r = byId.get(rootId); return r ? [r] : []; }
