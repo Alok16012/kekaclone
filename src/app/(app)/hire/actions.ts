@@ -1,6 +1,11 @@
 "use server";
 import { z } from "zod";
-import { runAction } from "@/server/action";
+import { runAction as runGated } from "@/server/action";
+import type { Tx } from "@/server/db";
+import type { Actor } from "@/server/auth/session";
+
+/** Every mutation here needs the hire feature on the plan (Settings → Billing). */
+const runAction = <T,>(fn: (tx: Tx, actor: Actor) => Promise<T>, opts: { refresh?: boolean } = { refresh: true }) => runGated(fn, { ...opts, feature: "hire" });
 import * as setup from "@/server/modules/hire/setup";
 import * as jobs from "@/server/modules/hire/jobs";
 import * as cands from "@/server/modules/hire/candidates";

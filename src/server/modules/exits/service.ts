@@ -6,6 +6,7 @@ import { todayIn, type ISODate } from "@/lib/dates";
 import { cancelApproval, notifyEmployee, startApproval, timeline } from "@/server/modules/approvals/service";
 import { fmtRange } from "@/server/modules/leave/service";
 import { cycleStartFor } from "@/server/modules/leave/effects";
+import { emitWebhook } from "@/server/modules/integrations/service";
 import {
   DEFAULT_EXIT_REASONS, DEFAULT_EXIT_TASKS, DEFAULT_NOTICE_POLICIES, canCompleteNow, dueForRelieving, lastWorkingDay, nextStatus, noticeDays,
   stageOf, validateExitDates, waivedDays, OWNER_LABEL, type ExitAction, type ExitKind, type ExitStatus, type TaskOwner,
@@ -270,6 +271,7 @@ export async function relieve(tx: Tx, exitId: string, actorUserId: string | null
   }
   if (x.process_id) await tx`update lifecycle_processes set status = 'completed' where id = ${x.process_id} and status = 'in_progress'`;
   await withdrawOpenRequests(tx, x.employee_id, x.last_working_date);
+  await emitWebhook(tx, x.tenant_id, "employee.exited", { employee_id: x.employee_id, exit_id: exitId, last_working_date: x.last_working_date });
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${x.tenant_id}, ${x.employee_id}, 'exited', ${x.last_working_date}, ${tx.json({ exit_id: exitId })}, ${actorUserId})`;
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
@@ -283,11 +285,13 @@ export async function relieve(tx: Tx, exitId: string, actorUserId: string | null
  * cancelled with its days returned. Accruals and attendance stop on their own at employees.exit_date.
  */
 async function withdrawOpenRequests(tx: Tx, employeeId: string, lastWorkingDate: ISODate) {
-  const pending = await tx<{ entity_type: "leave" | "comp_off" | "attendance_request"; id: string }[]>`
+  const pending = await tx<{ entity_type: "leave" | "comp_off" | "attendance_request" | "requisition"; id: string }[]>`
     select 'leave' as entity_type, id from leave_requests where employee_id = ${employeeId} and status = 'pending'
     union all select 'comp_off', id from comp_off_requests where employee_id = ${employeeId} and status = 'pending'
-    union all select 'attendance_request', id from attendance_requests where employee_id = ${employeeId} and status = 'pending'`;
+    union all select 'attendance_request', id from attendance_requests where employee_id = ${employeeId} and status = 'pending'
+    union all select 'requisition', id from requisitions where raised_by_employee_id = ${employeeId} and status = 'pending'`;
   for (const p of pending) await cancelApproval(tx, p.entity_type, p.id);
+  await tx`update requisitions set status = 'rejected', updated_at = now() where raised_by_employee_id = ${employeeId} and status = 'pending'`;
   await tx`update leave_requests set status = 'cancelled' where employee_id = ${employeeId} and status = 'pending'`;
   await tx`update comp_off_requests set status = 'cancelled', updated_at = now() where employee_id = ${employeeId} and status = 'pending'`;
   await tx`update attendance_requests set status = 'cancelled' where employee_id = ${employeeId} and status = 'pending'`;

@@ -5,6 +5,7 @@ import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
 import { cancelApproval, notifyEmployee, startApproval, timeline, type Level } from "@/server/modules/approvals/service";
 import { createEmployee } from "@/server/modules/employees/service";
+import { startOnboarding } from "@/server/modules/onboarding/service";
 import { letterDate, mergeTemplate, safeFileName, sanitizeHtml, validateUpload } from "@/server/modules/documents/rules";
 import { renderLetterPdf } from "@/server/modules/documents/pdf";
 import { saveFile } from "@/server/storage";
@@ -358,6 +359,7 @@ export async function convertToEmployee(tx: Tx, actor: Actor, applicationId: str
     }, actor.userId);
     employeeId = r.employeeId; employeeNumber = r.employeeNumber;
     await tx`update candidates set employee_id = ${employeeId} where id = ${c.id}`;
+    await startOnboarding(tx, employeeId, { actorUserId: actor.userId });   // the joiner's checklist starts right away (template matched by department / location / designation)
   }
   const [hired] = await tx<{ id: string; name: string }[]>`select s.id, s.name from jobs j join hiring_stages s on s.flow_id = j.hiring_flow_id where j.id = ${app.job_id} and s.stage_group = 'hired' order by s.position limit 1`;
   await tx`update applications set status = 'hired', hired_at = now(), closed_at = now(), stage_id = coalesce(${hired?.id ?? null}, stage_id), stage_entered_at = now() where id = ${applicationId}`;

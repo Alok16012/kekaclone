@@ -10,7 +10,17 @@ import { escalateBreaches } from "@/server/modules/helpdesk/service";
 import { publishDue } from "@/server/modules/engage/service";
 import { deliverQueued } from "@/server/email";
 import { applyDueJobChanges, autoConfirmProbation } from "./lifecycle";
-import { approverDigest, reassignPending, runApprovalTimers, EVERYWHERE } from "./approvals-admin";
+import { reassignPending, runApprovalTimers, EVERYWHERE } from "./approvals-admin";
+import { digestIn } from "@/server/modules/notifications/digest";
+import { expireOffers } from "@/server/modules/hire/offers";
+import { runAutoCycles } from "@/server/modules/performance/reviews";
+import { checkInReminders } from "@/server/modules/performance/goals";
+import { processDueSurveys } from "@/server/modules/surveys/service";
+import { applyAssignments, sendReminders } from "@/server/modules/learn/service";
+import { deliverDue } from "@/server/modules/reports/service";
+import { syncSeats, syncStatus, trialReminders } from "@/server/modules/billing/service";
+import { deliverWebhooks } from "@/server/modules/integrations/service";
+import { settleOvertime, settleShiftAllowance } from "@/server/modules/attendance/overtime";
 
 export type StepContext = { tenantId: string; today: string; now: Date };
 /**
@@ -41,8 +51,29 @@ export const STEPS: Step[] = [
   { key: "approval_timers", label: "Escalate and auto-approve waiting requests", daily: true, tx: (tx, c) => runApprovalTimers(tx, c.tenantId, c.now) },
   { key: "helpdesk", label: "Escalate helpdesk tickets past their SLA", daily: false, tx: async (tx, c) => ({ escalated: await escalateBreaches(tx, c.tenantId, c.now) }) },
   { key: "engage", label: "Publish scheduled announcements", daily: false, tx: (tx, c) => publishDue(tx, c.tenantId) },
-  { key: "approval_digest", label: "Email approvers what's waiting", daily: true, tx: (tx, c) => approverDigest(tx, c.tenantId) },
+  { key: "approval_digest", label: "Email approvers what's waiting", daily: true, tx: (tx, c) => digestIn(tx, c.tenantId, c.now) },
+  // the other packages' housekeeping (each is also available as its own pnpm jobs:* script)
+  { key: "hire", label: "Expire offers past their deadline", daily: false, tx: async (tx, c) => ({ expired: await expireOffers(tx, c.today) }) },
+  { key: "performance", label: "Automatic review cycles and goal check-in reminders", daily: true, tx: async (tx, c) => ({ added: await runAutoCycles(tx, c.tenantId, c.today), reminded: await checkInReminders(tx, c.tenantId) }) },
+  { key: "surveys", label: "Open, roll over and close scheduled surveys", daily: false, tx: async (tx, c) => ({ processed: await processDueSurveys(tx, c.today) }) },
+  { key: "learn", label: "Enrol people by course rules and send learning reminders", daily: true, tx: async (tx, c) => {
+    const t = await tenantRow(tx, c.tenantId);
+    return { enrolled: await applyAssignments(tx, c.tenantId, c.today), reminded: await sendReminders(tx, t, c.today) };
+  } },
+  { key: "reports", label: "Send scheduled report emails", daily: false, tx: async (tx, c) => ({ sent: await deliverDue(tx, { ...(await tenantRow(tx, c.tenantId)), status: "active" }, c.now) }) },
+  { key: "billing", label: "Trial reminders, seat and subscription sync", daily: true, tx: async (tx, c) => ({ trial: await trialReminders(tx, c.tenantId, c.now), seats: await syncSeats(tx, c.tenantId), status: await syncStatus(tx, c.tenantId) }) },
+  { key: "overtime", label: "Settle last month's overtime and shift allowances into payroll", daily: true, tx: async (tx, c) => {
+    const month = addDaysISO(c.today.slice(0, 8) + "01", -1).slice(0, 7);
+    const count = (xs: { result: string }[]) => Object.fromEntries([...new Set(xs.map((x) => x.result))].map((r) => [r, xs.filter((x) => x.result === r).length]));
+    return { month, overtime: count((await settleOvertime(tx, c.tenantId, month, null)).lines), allowances: count((await settleShiftAllowance(tx, c.tenantId, month, null)).lines) };
+  } },
+  { key: "webhooks", label: "Retry outbound webhooks", daily: false, own: async (c) => { const r = await deliverWebhooks(c.tenantId, undefined, c.now); return { sent: r.sent, failed: r.failed }; } },
 ];
+
+async function tenantRow(tx: Tx, tenantId: string) {
+  const [t] = await tx<{ id: string; name: string; subdomain: string }[]>`select id, name, subdomain::text from tenants where id = ${tenantId}`;
+  return t;
+}
 /** Hook for payroll / loans (and future modules): push steps here from their own module; they run after the built-in ones. */
 export const EXTRA_STEPS: Step[] = [];
 

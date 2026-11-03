@@ -1,6 +1,11 @@
 "use server";
 import { z } from "zod";
-import { runAction } from "@/server/action";
+import { runAction as runGated } from "@/server/action";
+import type { Tx } from "@/server/db";
+import type { Actor } from "@/server/auth/session";
+
+/** Every mutation here needs the performance feature on the plan (Settings → Billing). */
+const runAction = <T,>(fn: (tx: Tx, actor: Actor) => Promise<T>, opts: { refresh?: boolean } = { refresh: true }) => runGated(fn, { ...opts, feature: "performance" });
 import * as rv from "@/server/modules/performance/reviews";
 import * as settings from "@/server/modules/performance/settings";
 import { savePeriod } from "@/server/modules/performance/goals";

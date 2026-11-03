@@ -12,6 +12,7 @@ import * as psa from "@/server/modules/psa/service";
 import { renderInvoicePdf } from "@/server/modules/psa/pdf";
 import * as learn from "@/server/modules/learn/service";
 import * as reports from "@/server/modules/reports/service";
+import { DATASETS } from "@/server/modules/reports/rules";
 import { STANDARD_REPORTS } from "@/server/modules/reports/standard";
 import { weekStartOf, type GridRow } from "@/server/modules/psa/rules";
 import { storage } from "@/server/storage";
@@ -41,13 +42,13 @@ async function main() {
   const ALL = ["psa.admin", "psa.billing", "learn.admin", "reports.read", "reports.build"];
   const asha = await actor("Asha", ["*"], [], ["global_admin"]), priya = await actor("Priya", ALL, [], ["hr_admin"]);
   const karan = await actor("Karan", ["psa.billing", "reports.read", "reports.build"], [], ["finance"]);
-  const [rohan, arjun, meera, vikram, sneha, imran, divya] = await Promise.all(["Rohan", "Arjun", "Meera", "Vikram", "Sneha", "Imran", "Divya"].map((n) => actor(n)));
+  const [rohan, arjun, meera, vikram, sneha, imran] = await Promise.all(["Rohan", "Arjun", "Meera", "Vikram", "Sneha", "Imran"].map((n) => actor(n)));
   const [eng] = await withTenant(tenant.id, (tx) => tx<{ id: string }[]>`select id from departments where name = 'Engineering'`);
   const engScoped = await actor("Priya", ALL, [{ type: "department", ids: [eng.id] }]);          // same permissions, Engineering only
   const engReader = await actor("Karan", ["reports.read", "reports.build"], [{ type: "department", ids: [eng.id] }]);
   const pmOnly = await actor("Rohan", ["psa.admin"]);                                                   // project admin without billing
   const today = todayIn();
-  const thisWeek = weekStartOf(today), lastWeek = addDaysISO(thisWeek, -7);
+  const thisWeek = weekStartOf(today);
   const P = await withTenant(tenant.id, async (tx) => {
     const rows = await tx<{ id: string; code: string }[]>`select id, code from projects`;
     const by = (c: string) => rows.find((r) => r.code === c)!.id;
@@ -275,6 +276,7 @@ async function main() {
     assert.equal(Number(after.percent), 0);
     await assert.rejects(learn.deleteCourse(tx, priya, c.id), /enrolled/);
     // reminders: due in 2 days from 7-day due with 2-day lead → not yet; overdue person → once per day
+    await tx`update enrollments set reminded_on = null where reminded_on = ${today}`;   // pnpm jobs:daily may already have reminded people today
     assert.equal(await learn.sendReminders(tx, tenant, today), 3, "Divya and Sneha are overdue on the conduct course (seed); Sneha's manual fire-safety enrolment is due in 3 days");
     assert.equal(await learn.sendReminders(tx, tenant, today), 0, "same day: no second reminder");
     assert.equal(await learn.sendReminders(tx, tenant, addDaysISO(today, 1)), 3, "next day: again");
@@ -300,6 +302,10 @@ async function main() {
       const out = await reports.runStandard(tx, priya, r.key, { from: addDaysISO(today, -60), to: today });
       assert.ok(out.headers.length > 0 && Array.isArray(out.rows), `${r.key} runs`);
       for (const h of out.headers) assert.ok(out.rows.every((row) => h.key in row), `${r.key}: column ${h.key} present`);
+    }
+    for (const ds of DATASETS) {   // every whitelisted dataset's SQL runs with all its columns (other packages' tables included)
+      const out = await reports.preview(tx, priya, ds.key, { columns: ds.columns.map((c) => c.key) });
+      assert.ok(Array.isArray(out.rows) && out.headers.length === ds.columns.length, `${ds.key} dataset previews`);
     }
     const master = await reports.runStandard(tx, priya, "employee_master", { status: "all" });
     assert.equal(master.rows.length, (await tx<{ n: number }[]>`select count(*)::int as n from employees`)[0].n, "unscoped readers see everyone, including people who left");

@@ -4,6 +4,7 @@ import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { audit } from "@/server/modules/audit/service";
 import { notifyEmployee } from "@/server/modules/approvals/service";
+import { emitWebhook } from "@/server/modules/integrations/service";
 import { verificationStatus } from "@/server/modules/statutory/service";
 import { todayIn } from "@/lib/dates";
 import { assertNotSelf, assertRollback, assertRunPayroll } from "./access";
@@ -345,6 +346,7 @@ export async function finalizeRun(tx: Tx, actor: Actor, runId: string, expected?
   const negative = lines.filter((l) => slipped(l.action) && N(l.net_paise) < 0);
   if (negative.length) throw new AppError("invalid", `${negative.length} ${negative.length === 1 ? "person has" : "people have"} negative net pay. Reduce their deductions or hold their pay.`);
   await tx`update payroll_runs set status = 'finalized', finalized_at = now(), finalized_by = ${actor.userId}, lock_version = lock_version + 1, updated_at = now() where id = ${runId}`;
+  await emitWebhook(tx, actor.tenant.id, "payroll.finalized", { run_id: runId, pay_group_id: run.pay_group_id, period_month: run.period_month, people: lines.length });
   for (const l of lines.filter((x) => slipped(x.action))) {
     await tx`insert into payslips (tenant_id, line_id, employee_id, period_month) values (${actor.tenant.id}, ${l.id}, ${l.employee_id}, ${run.period_month}) on conflict (line_id) do nothing`;
   }

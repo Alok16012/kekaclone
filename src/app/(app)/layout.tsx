@@ -12,6 +12,12 @@ import { hasAnywhere } from "@/server/modules/expenses/access";
 import { hasAssetsAccess } from "@/server/modules/assets/service";
 import { isAgent, canAdminHelpdesk } from "@/server/modules/helpdesk/service";
 import { canAdminExpenses } from "@/server/modules/expenses/access";
+import { canAdminHire, canRecruit } from "@/server/modules/hire/access";
+import { canAdminPsa, canBill } from "@/server/modules/psa/access";
+import { hasLearnReports } from "@/server/modules/learn/service";
+import { canReadReports } from "@/server/modules/reports/service";
+import { isCompAdmin, isPerfAdmin } from "@/server/modules/performance/access";
+import { PLAN_DEFS } from "@/server/modules/saas/plans";
 
 // Entering the signed-in app may wait for the session (it can't be part of a static shell);
 // moving between pages underneath keeps the shell and streams page content behind loading.tsx.
@@ -35,11 +41,21 @@ async function shellData(): Promise<ShellData | null> {
   if (hasAssetsAccess(actor)) areas.push("assets");
   if (agent) areas.push("helpdesk");
   if (canAdminHelpdesk(actor)) areas.push("helpdesk-settings", "settings");
+  if (canRecruit(actor) || canAdminHire(actor)) areas.push("hire");
+  if (canAdminHire(actor)) areas.push("hire-settings", "settings");
+  if (canAdminPsa(actor) || canBill(actor)) areas.push("psa");
+  if (hasLearnReports(actor)) areas.push("learn");
+  if (canReadReports(actor)) areas.push("reports");
+  if (isPerfAdmin(actor)) areas.push("performance", "settings");
+  if (isCompAdmin(actor)) areas.push("compensation");
+  if (hasAnywhere(actor, "onboarding.manage")) areas.push("onboarding");
+  if (hasAnywhere(actor, "surveys.manage")) areas.push("surveys");
   return {
     tenant: actor.tenant.name,
     user: { name: actor.name, title: actor.title ?? "" },
     isAdmin: actor.permissions.has("*") || actor.permissions.has("employees.write"),
     areas: [...new Set(areas)],
+    features: PLAN_DEFS[actor.tenant.plan ?? "core"].features,
     inboxCount: counts.inbox, unread: counts.unread,
   };
 }

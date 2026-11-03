@@ -327,6 +327,7 @@ async function main() {
       const [{ active }] = await tx<{ active: number }[]>`select count(*)::int as active from employees e join users u on u.id = e.user_id and u.status = 'active' where e.status <> 'relieved'`;
       assert.equal(ann, active - 1, "every active account but the author gets the announcement email");
       // digest: one email per approver with pending items, once a day
+      await tx`delete from outbound_emails where kind = 'approvals.digest'`;   // pnpm jobs:daily may already have sent today's
       const d1 = await digestIn(tx, tenant.id);
       assert.ok(d1.approvers >= 1 && d1.sent >= 1, "Rohan has pending items from the seed");
       const d2 = await digestIn(tx, tenant.id);

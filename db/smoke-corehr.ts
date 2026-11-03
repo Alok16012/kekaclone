@@ -313,6 +313,9 @@ async function main() {
     await life.bulkProbation(tx, priya, { employeeIds: [fatima], action: "confirm" });
     assert.equal((await tx<{ s: string }[]>`select probation_status as s from employees where id = ${fatima}`)[0].s, "confirmed");
     // auto-confirm: Aditya's auto-confirm policy ended two days ago → confirmed once, on the end date
+    // (put him back on probation first: pnpm jobs:daily may already have confirmed him on this database)
+    await tx`update employees set probation_status = 'in_probation', probation_end_date = ${addDaysISO(today, -2)} where id = ${id("Aditya")}`;
+    await tx`delete from timeline_events where employee_id = ${id("Aditya")} and kind = 'probation_confirmed'`;
     const r1 = await life.autoConfirmProbation(tx, tenant.id, today);
     assert.ok(r1.confirmed >= 1);
     assert.equal((await life.autoConfirmProbation(tx, tenant.id, today)).confirmed, 0, "idempotent");
