@@ -26,7 +26,7 @@ const LABEL: Record<string, string> = {
 const EVENT: Record<string, string> = {
   joined: "Joined", profile_updated: "Profile updated", transfer: "Transferred", promotion: "Promoted", manager_change: "Manager changed",
   designation_change: "Designation changed", other: "Job details changed", probation_confirmed: "Probation confirmed", probation_extended: "Probation extended", probation_in_probation: "Put on probation",
-  exit_started: "Exit started", exited: "Left the company",
+  exit_started: "Exit started", exited: "Left the company", rehired: "Rehired",
 };
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -56,10 +56,12 @@ function SectionCard({ title, edit, children }: { title: string; edit?: React.Re
   );
 }
 
-export function ProfileView({ p, lookups, today, currentManagerId, actions, banner, extraTabs = [], aboutExtra, initialTab }: {
+export function ProfileView({ p, lookups, today, currentManagerId, actions, banner, extraTabs = [], aboutExtra, profileExtra, jobExtra, initialTab }: {
   p: Profile; lookups: Lookups | null; today: string; currentManagerId: string | null;
   /** extra header buttons, a banner above the tabs, extra tabs and extra About cards, supplied by other modules (exits, documents, engage) */
   actions?: React.ReactNode; banner?: React.ReactNode; extraTabs?: { value: string; label: string; content: React.ReactNode }[]; aboutExtra?: React.ReactNode;
+  /** more cards under the Profile tab (family, education, IDs, custom fields) and the Job tab (assigned policies) */
+  profileExtra?: React.ReactNode; jobExtra?: React.ReactNode;
   /** open on this tab (from ?tab=), when it exists */
   initialTab?: string;
 }) {
@@ -74,7 +76,7 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
     return parts.length ? parts.join(", ") : null;
   };
   const probation = e.probation_status === "in_probation" || e.probation_status === "extended";
-  const jobHistory = p.timeline.filter((t) => ["joined", "transfer", "promotion", "manager_change", "designation_change", "other"].includes(t.kind));
+  const jobHistory = p.timeline.filter((t) => ["joined", "rehired", "transfer", "promotion", "manager_change", "designation_change", "other", "exited"].includes(t.kind));
 
   return (
     <div className="flex flex-col gap-6">
@@ -181,6 +183,7 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
               </SectionCard>
               {p.security && <MyCodeSwitch mode={p.security.mode} mine={p.security.mine} />}
             </div>
+            {profileExtra}
           </TabsContent>
         )}
 
@@ -203,6 +206,7 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
               {p.l2Manager && <Row label="Second-level manager" value={<PersonLink p={p.l2Manager} />} />}
               {p.dottedManager && <Row label="Dotted-line manager" value={<PersonLink p={p.dottedManager} />} />}
             </SectionCard>
+            {jobExtra}
             {p.scheduledChanges.length > 0 && (
               <Card className="lg:col-span-2">
                 <CardHeader title="Scheduled changes" description="Applied automatically on the effective date" />

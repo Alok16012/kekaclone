@@ -10,6 +10,7 @@ import {
 import { DoorOpen, FilePen, UserMinus } from "lucide-react";
 import { Headset, Laptop, Package, PackagePlus } from "lucide-react";
 import { HandCoins, Landmark } from "lucide-react";
+import { BadgeCheck, GitBranch, IdCard, ListPlus, Network } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { cn } from "@/lib/cn";
 import type { ShellData } from "@/ui/app-shell";
@@ -72,6 +73,13 @@ const PAGES: Item[] = [
   { id: "p-assets", kind: "page", label: "Assets", href: "/org/assets", icon: <Package />, keywords: "inventory laptop hand over return recovery", admin: true, area: "assets" },
   { id: "p-helpdesk-set", kind: "page", label: "Helpdesk categories", hint: "Settings", href: "/settings/helpdesk", icon: <Settings />, keywords: "sla escalation agents ticket", admin: true, area: "helpdesk-settings" },
   { id: "p-letters", kind: "page", label: "Letter templates", hint: "Settings", href: "/settings/documents", icon: <FilePen />, keywords: "letters relieving experience placeholders templates", admin: true },
+  { id: "p-orgchart", kind: "page", label: "Org chart", href: "/org/tree", icon: <Network />, keywords: "hierarchy reporting tree structure who reports manager" },
+  { id: "p-probation", kind: "page", label: "Probation", href: "/org/probation", icon: <BadgeCheck />, keywords: "confirm extend confirmation new joiners" },
+  { id: "p-approvals-set", kind: "page", label: "Approval workflows", hint: "Settings", href: "/settings/approvals", icon: <GitBranch />, keywords: "approver chain levels escalation auto approve delegate hand over", admin: true },
+  { id: "p-custom-fields", kind: "page", label: "Custom fields", hint: "Settings", href: "/settings/custom-fields", icon: <ListPlus />, keywords: "profile extra fields sections", admin: true },
+  { id: "p-groups", kind: "page", label: "Groups & probation policies", hint: "Settings", href: "/settings/groups", icon: <Users />, keywords: "group types committees projects probation length auto confirm", admin: true },
+  { id: "p-jobs", kind: "page", label: "Scheduled jobs", hint: "Settings", href: "/settings/jobs", icon: <History />, keywords: "nightly cron scheduler runs", admin: true },
+  { id: "p-idcard", kind: "page", label: "My ID card", href: "/me/id-card", icon: <IdCard />, keywords: "badge qr identity card" },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -82,6 +90,8 @@ const ACTIONS: Item[] = [
   { id: "a-praise", kind: "action", label: "Praise a colleague", href: "/home?compose=praise", icon: <Sparkles />, keywords: "kudos thanks badge appreciate" },
   { id: "a-add", kind: "action", label: "Add an employee", href: "/org/employees/new", icon: <UserPlus />, keywords: "new hire joiner", admin: true },
   { id: "a-import", kind: "action", label: "Import people from Excel", href: "/org/employees/import", icon: <FileSpreadsheet />, keywords: "bulk upload xlsx", admin: true },
+  { id: "a-bulk-update", kind: "action", label: "Update people from Excel", href: "/org/employees/update", icon: <FilePen />, keywords: "bulk edit change designation department manager xlsx", admin: true },
+  { id: "a-handover", kind: "action", label: "Hand over my approvals", hint: "While you're away", href: "/inbox", icon: <Inbox />, keywords: "delegate out of office vacation approver" },
   { id: "a-invite", kind: "action", label: "Invite people", hint: "Select them in People", href: "/org/employees", icon: <Mail />, keywords: "send invite password", admin: true },
   { id: "a-regularize", kind: "action", label: "Regularize attendance", hint: "From a day's menu", href: "/me/attendance", icon: <Clock />, keywords: "forgot clock out fix punch missing swipe" },
   { id: "a-wfh", kind: "action", label: "Ask to work from home", href: "/me/attendance?tab=requests", icon: <Home />, keywords: "wfh remote on duty od" },

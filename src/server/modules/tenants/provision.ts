@@ -11,6 +11,7 @@ import { ensureExpenseDefaults } from "@/server/modules/expenses/admin";
 import { ensureHelpdeskDefaults } from "@/server/modules/helpdesk/service";
 import { ensureAssetDefaults } from "@/server/modules/assets/service";
 import { ensureLoanDefaults } from "@/server/modules/loans/service";
+import { ensureCoreHrDefaults } from "@/server/modules/corehr/lifecycle";
 
 export const RESERVED = new Set(["www", "app", "api", "admin", "mail", "help", "status", "careers", "portal", "erp", "static", "docs"]);
 
@@ -71,6 +72,7 @@ export async function provisionTenant(s: Signup) {
     await ensureHelpdeskDefaults(tx, tenantId); // IT / HR / payroll ticket categories with SLAs
     await ensureAssetDefaults(tx, tenantId);    // asset categories and types
     await ensureLoanDefaults(tx, tenantId);     // salary advance, emergency and personal loan types
+    await ensureCoreHrDefaults(tx, tenantId);   // probation policies (6 months; 3 months with auto-confirm)
 
     const [founder] = await tx<{ id: string }[]>`select id from designations where title = 'Founder'`;
     const [mgmt] = await tx<{ id: string }[]>`select id from departments where name = 'Management'`;

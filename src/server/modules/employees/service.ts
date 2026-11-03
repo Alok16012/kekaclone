@@ -2,13 +2,46 @@ import "server-only";
 import { AppError, type Tx } from "@/server/db";
 import { hashPassword } from "@/server/auth/password";
 import { creditOnJoining } from "@/server/modules/leave/accrual";
+import { addDaysISO } from "@/lib/dates";
 
 export type NewEmployee = {
   firstName: string; lastName?: string | null; workEmail: string; mobile?: string | null;
   employeeNumber?: string | null; joiningDate: string; gender?: string | null;
   departmentId?: string | null; designationId?: string | null; locationId?: string | null; managerId?: string | null;
   password?: string;            // set for the founding admin; others get an invite
+  // the add-employee wizard's job and work-policy steps (all optional; defaults apply when left out)
+  middleName?: string | null; personalEmail?: string | null; dob?: string | null;
+  legalEntityId?: string | null; businessUnitId?: string | null; bandId?: string | null; l2ManagerId?: string | null; dottedManagerId?: string | null;
+  workerType?: "permanent" | "contract" | "intern" | "consultant"; timeType?: "full_time" | "part_time";
+  probationPolicyId?: string | null; noticePolicyId?: string | null;
+  leavePlanId?: string | null; holidayListId?: string | null; shiftId?: string | null; weeklyOffId?: string | null;
+  capturePolicyId?: string | null; penalizationPolicyId?: string | null; payGroupId?: string | null;
+  custom?: Record<string, unknown>;
 };
+
+/** Client-supplied ids are looked up inside the tenant first (FK checks alone would accept another tenant's row). */
+const REFS: [keyof NewEmployee, string, string][] = [
+  ["departmentId", "departments", "department"], ["designationId", "designations", "designation"], ["locationId", "locations", "location"],
+  ["legalEntityId", "legal_entities", "legal entity"], ["businessUnitId", "business_units", "business unit"], ["bandId", "bands", "band"],
+  ["probationPolicyId", "probation_policies", "probation policy"], ["noticePolicyId", "notice_period_policies", "notice period"],
+  ["leavePlanId", "leave_plans", "leave plan"], ["holidayListId", "holiday_lists", "holiday list"], ["shiftId", "shifts", "shift"],
+  ["weeklyOffId", "weekly_off_policies", "weekly-off policy"], ["capturePolicyId", "capture_policies", "attendance capture policy"],
+  ["penalizationPolicyId", "penalization_policies", "penalty policy"], ["payGroupId", "pay_groups", "pay group"],
+];
+async function assertRefs(tx: Tx, input: NewEmployee) {
+  for (const [field, table, label] of REFS) {
+    const id = input[field] as string | null | undefined;
+    if (!id) continue;
+    const [r] = await tx`select 1 from ${tx(table)} where id = ${id}`;
+    if (!r) throw new AppError("invalid", `That ${label} doesn't exist. Pick another.`, field);
+  }
+  for (const field of ["managerId", "l2ManagerId", "dottedManagerId"] as const) {
+    const id = input[field];
+    if (!id) continue;
+    const [r] = await tx`select 1 from employees where id = ${id} and status <> 'relieved'`;
+    if (!r) throw new AppError("invalid", "Pick a manager who works here.", field);
+  }
+}
 
 /** Creates employee + login + default policies + opening leave balances + timeline. Caller owns the transaction. */
 export async function createEmployee(tx: Tx, tenantId: string, input: NewEmployee, actorUserId: string | null) {
@@ -19,6 +52,7 @@ export async function createEmployee(tx: Tx, tenantId: string, input: NewEmploye
   const number = input.employeeNumber?.trim() || `EMP-${String(await tx`select next_counter('employee_number') as n`.then((r) => r[0].n)).padStart(4, "0")}`;
   const [numDupe] = await tx`select 1 from employees where employee_number = ${number}`;
   if (numDupe) throw new AppError("conflict", "This employee number is already taken.", "employeeNumber");
+  await assertRefs(tx, input);
 
   const [defaults] = await tx<{ legal_entity_id: string | null; leave_plan_id: string | null; capture_policy_id: string | null; shift_id: string | null; weekly_off_id: string | null; location_id: string | null }[]>`
     select (select id from legal_entities order by created_at limit 1) as legal_entity_id,
@@ -35,19 +69,34 @@ export async function createEmployee(tx: Tx, tenantId: string, input: NewEmploye
     returning id`;
 
   const display = [input.firstName.trim(), input.lastName?.trim()].filter(Boolean).join(" ");
+  const [probation] = input.probationPolicyId
+    ? await tx<{ days: number }[]>`select duration_days as days from probation_policies where id = ${input.probationPolicyId}`
+    : [null];
+  const probationEnd = probation && probation.days > 0 ? addDaysISO(input.joiningDate, probation.days) : null;
+  const leavePlanId = input.leavePlanId || defaults.leave_plan_id;
+  const shiftId = input.shiftId || defaults.shift_id, weeklyOffId = input.weeklyOffId || defaults.weekly_off_id;
   const [emp] = await tx<{ id: string }[]>`
-    insert into employees (tenant_id, user_id, employee_number, first_name, last_name, display_name, work_email, mobile, gender,
-      joining_date, legal_entity_id, department_id, designation_id, location_id, manager_id, leave_plan_id, capture_policy_id)
-    values (${tenantId}, ${user.id}, ${number}, ${input.firstName.trim()}, ${input.lastName?.trim() || null}, ${display}, ${email},
-      ${input.mobile || null}, ${input.gender || null}, ${input.joiningDate}, ${defaults.legal_entity_id}, ${input.departmentId || null},
-      ${input.designationId || null}, ${input.locationId || defaults.location_id}, ${input.managerId || null}, ${defaults.leave_plan_id}, ${defaults.capture_policy_id})
+    insert into employees ${tx({
+      tenant_id: tenantId, user_id: user.id, employee_number: number, first_name: input.firstName.trim(), middle_name: input.middleName?.trim() || null,
+      last_name: input.lastName?.trim() || null, display_name: display, work_email: email, personal_email: input.personalEmail?.trim().toLowerCase() || null,
+      mobile: input.mobile || null, gender: input.gender || null, dob: input.dob || null, joining_date: input.joiningDate,
+      legal_entity_id: input.legalEntityId || defaults.legal_entity_id, business_unit_id: input.businessUnitId || null, department_id: input.departmentId || null,
+      designation_id: input.designationId || null, location_id: input.locationId || defaults.location_id, band_id: input.bandId || null,
+      manager_id: input.managerId || null, l2_manager_id: input.l2ManagerId || null, dotted_manager_id: input.dottedManagerId || null,
+      worker_type: input.workerType ?? "permanent", time_type: input.timeType ?? "full_time",
+      probation_policy_id: input.probationPolicyId || null, probation_end_date: probationEnd, probation_status: probationEnd ? "in_probation" : "none",
+      notice_period_policy_id: input.noticePolicyId || null,
+      leave_plan_id: leavePlanId, holiday_list_id: input.holidayListId || null,
+      capture_policy_id: input.capturePolicyId || defaults.capture_policy_id, penalization_policy_id: input.penalizationPolicyId || null,
+      pay_group_id: input.payGroupId || null, custom: tx.json((input.custom ?? {}) as never),
+    } as never)}
     returning id`;
 
-  if (defaults.shift_id) await tx`insert into shift_assignments (tenant_id, employee_id, shift_id, period) values (${tenantId}, ${emp.id}, ${defaults.shift_id}, daterange(${input.joiningDate}::date, null))`;
-  if (defaults.weekly_off_id) await tx`insert into weekly_off_assignments (tenant_id, employee_id, policy_id, period) values (${tenantId}, ${emp.id}, ${defaults.weekly_off_id}, daterange(${input.joiningDate}::date, null))`;
+  if (shiftId) await tx`insert into shift_assignments (tenant_id, employee_id, shift_id, period) values (${tenantId}, ${emp.id}, ${shiftId}, daterange(${input.joiningDate}::date, null))`;
+  if (weeklyOffId) await tx`insert into weekly_off_assignments (tenant_id, employee_id, policy_id, period) values (${tenantId}, ${emp.id}, ${weeklyOffId}, daterange(${input.joiningDate}::date, null))`;
 
-  // first leave credits under the default plan (upfront plans: the prorated year; accruing plans: the joining period)
-  if (defaults.leave_plan_id) await creditOnJoining(tx, tenantId, emp.id, input.joiningDate, actorUserId);
+  // first leave credits under the plan (upfront plans: the prorated year; accruing plans: the joining period)
+  if (leavePlanId) await creditOnJoining(tx, tenantId, emp.id, input.joiningDate, actorUserId);
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, actor_user_id) values (${tenantId}, ${emp.id}, 'joined', ${input.joiningDate}, ${actorUserId})`;
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action) values (${tenantId}, ${actorUserId}, 'employee', ${emp.id}, 'create')`;
   return { employeeId: emp.id, userId: user.id, employeeNumber: number };

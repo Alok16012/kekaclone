@@ -17,7 +17,7 @@ export const IMPORT_COLUMNS = [
 ] as const;
 
 export type ImportKey = (typeof IMPORT_COLUMNS)[number]["key"];
-export type RawRow = { rowNumber: number; values: Partial<Record<ImportKey, unknown>> };
+export type RawRow = { rowNumber: number; values: Partial<Record<ImportKey, unknown>>; custom?: Record<string, unknown> };
 export const MAX_ROWS = 1000;
 
 export type Lookups = {

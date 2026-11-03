@@ -11,8 +11,10 @@ const ITEMS = [
     { href: "/settings/org/legal_entities", label: "Legal entities" },
     { href: "/settings/org/business_units", label: "Business units" },
     { href: "/settings/org/bands", label: "Bands" },
+    { href: "/settings/groups", label: "Groups & probation" },
+    { href: "/settings/custom-fields", label: "Custom fields" },
   ] },
-  { group: "Access", links: [{ href: "/settings/roles", label: "Roles & permissions" }, { href: "/settings/security", label: "Sign-in security" }, { href: "/settings/audit", label: "Audit log" }] },
+  { group: "Access", links: [{ href: "/settings/roles", label: "Roles & permissions" }, { href: "/settings/security", label: "Sign-in security" }, { href: "/settings/audit", label: "Audit log" }, { href: "/settings/approvals", label: "Approvals" }, { href: "/settings/jobs", label: "Scheduled jobs" }] },
   { group: "Leave", links: [
     { href: "/settings/leave/plans", label: "Leave plans" },
     { href: "/settings/leave/types", label: "Leave types" },
