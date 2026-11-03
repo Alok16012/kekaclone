@@ -31,6 +31,9 @@ const requestInput = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("regularization"), date: isoDate, inTime: hhmm, outTime: hhmm, reason: z.string().max(1000) }),
   z.object({ kind: z.enum(["wfh", "on_duty"]), from: isoDate, to: isoDate, half: z.enum(["first", "second"]).nullable(), reason: z.string().max(1000) }),
   z.object({ kind: z.literal("partial_day"), date: isoDate, type: z.enum(["late_arrival", "early_leave"]), minutes: z.number().int(), reason: z.string().max(1000) }),
+  z.object({ kind: z.literal("overtime"), date: isoDate, minutes: z.number().int(), reason: z.string().max(1000) }),
+  z.object({ kind: z.literal("shift_change"), from: isoDate, to: isoDate, shiftId: uuid, reason: z.string().max(1000) }),
+  z.object({ kind: z.literal("weekly_off_change"), offDate: isoDate, workDate: isoDate, reason: z.string().max(1000) }),
 ]);
 
 export async function createAttendanceRequestAction(input: z.input<typeof requestInput>) {

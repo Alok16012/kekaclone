@@ -11,9 +11,9 @@ import { toast } from "@/ui/toast";
 import { assignAction } from "@/app/(app)/settings/time/actions";
 import type { AssignmentRow } from "@/server/modules/attendance/policies";
 
-type Kind = "shift" | "weekly_off" | "capture" | "penalty";
+type Kind = "shift" | "weekly_off" | "capture" | "penalty" | "overtime";
 type Opt = { id: string; name: string; hint?: string };
-const TITLE: Record<Kind, string> = { shift: "Change shift", weekly_off: "Change weekly off", capture: "Change clock-in rules", penalty: "Change penalty policy" };
+const TITLE: Record<Kind, string> = { shift: "Change shift", weekly_off: "Change weekly off", capture: "Change clock-in rules", penalty: "Change penalty policy", overtime: "Change overtime policy" };
 const fmt = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
 
 export function AssignmentsSettings({ rows, options, today }: { rows: AssignmentRow[]; options: Record<Kind, Opt[]>; today: string }) {
@@ -27,6 +27,7 @@ export function AssignmentsSettings({ rows, options, today }: { rows: Assignment
     { key: "wo", header: "Weekly off", hideBelow: "md", cell: (r) => <span>{r.weekly_off ?? "Default"}{r.next_weekly_off && <span className="block text-sm text-text-muted">{r.next_weekly_off} from {fmt(r.next_weekly_off_from!)}</span>}</span> },
     { key: "cap", header: "Clock-in rules", hideBelow: "lg", cell: (r) => r.capture ?? "Default" },
     { key: "pen", header: "Penalties", hideBelow: "lg", cell: (r) => r.penalty ?? <span className="text-text-muted">None</span> },
+    { key: "ot", header: "Overtime", hideBelow: "lg", cell: (r) => r.overtime ?? <span className="text-text-muted">None</span> },
   ];
   return (
     <div className="flex flex-col gap-4">
@@ -39,7 +40,7 @@ export function AssignmentsSettings({ rows, options, today }: { rows: Assignment
         empty={<EmptyState compact icon={<Users />} title={term ? "Nobody matches that search" : "Nobody to assign yet"} description={term ? "Try a different name or clear the search." : "People you can manage show up here."} />}
         bulkActions={(ids, clear) => (
           <div className="flex flex-wrap justify-end gap-2">
-            {(["shift", "weekly_off", "capture", "penalty"] as Kind[]).map((k) => (
+            {(["shift", "weekly_off", "capture", "penalty", "overtime"] as Kind[]).map((k) => (
               <Button key={k} size="sm" variant="secondary" onClick={() => setDialog({ kind: k, ids, clear })}>{TITLE[k].replace("Change ", "")}</Button>
             ))}
           </div>
@@ -51,7 +52,7 @@ export function AssignmentsSettings({ rows, options, today }: { rows: Assignment
 
 function AssignDialog({ kind, ids, options, today, onClose }: { kind: Kind; ids: string[]; options: Opt[]; today: string; onClose: (done: boolean) => void }) {
   const dated = kind === "shift" || kind === "weekly_off";
-  const opts = kind === "penalty" ? [{ id: "none", name: "No penalties" }, ...options] : options;
+  const opts = kind === "penalty" ? [{ id: "none", name: "No penalties" }, ...options] : kind === "overtime" ? [{ id: "none", name: "No overtime" }, ...options] : options;
   const [choice, setChoice] = React.useState(opts[0]?.id ?? "");
   const [from, setFrom] = React.useState(today);
   const [error, setError] = React.useState<string | null>(null);

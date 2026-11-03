@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { CalendarClock, ClipboardList, Clock, House, MoreHorizontal, Plus, Timer } from "lucide-react";
+import { ArrowLeftRight, CalendarClock, ClipboardList, Clock, House, MoreHorizontal, Plus, Repeat, Timer, Zap } from "lucide-react";
 import { Card, CardHeader } from "@/ui/card";
 import { Badge, StatusChip } from "@/ui/badge";
 import { Button, IconButton } from "@/ui/button";
@@ -35,6 +35,7 @@ export function MyAttendance({ rows, requests, allowance, today, monthLabel, tab
           {r.late > 0 && <Badge tone="warning">Late {r.late}m</Badge>}
           {r.missingSwipe && <Badge tone="danger">Missing swipe</Badge>}
           {r.regularized && <Badge tone="neutral">Regularized</Badge>}
+          {r.overtime > 0 && <Badge tone="success"><Zap aria-hidden />OT {hm(r.overtime)}</Badge>}
           {r.penalties.filter((p) => p.days > 0).map((p) => (
             <Badge key={p.rule} tone="danger" title={p.detail}>{PENALTY_RULE[p.rule] ?? p.rule}: −{p.days} {p.deductions.every((d) => d.leaveTypeId) ? (p.deductions[0]?.leaveType ?? "leave") : "LOP"}</Badge>
           ))}
@@ -52,6 +53,9 @@ export function MyAttendance({ rows, requests, allowance, today, monthLabel, tab
           { label: "Regularize", icon: <Clock />, disabled: r.date >= today || r.status === "not_joined", onSelect: () => open("regularization", r.date, r) },
           { label: "Partial day", icon: <Timer />, disabled: r.status === "not_joined", onSelect: () => open("partial_day", r.date, r) },
           { label: "Work from home / on duty", icon: <House />, disabled: r.status === "not_joined", onSelect: () => open("remote", r.date, r) },
+          ...(allowance.overtime === "request" ? [{ label: "Claim overtime", icon: <Zap />, disabled: r.date > today || r.status === "not_joined", onSelect: () => open("overtime", r.date, r) }] : []),
+          { label: "Change shift", icon: <Repeat />, disabled: r.date < today || r.status === "not_joined", onSelect: () => open("shift_change", r.date, r) },
+          { label: "Swap weekly off", icon: <ArrowLeftRight />, disabled: r.date < today || r.status === "not_joined", onSelect: () => open("weekly_off_change", r.date, r) },
         ]} />
     ) },
   ];
@@ -66,6 +70,9 @@ export function MyAttendance({ rows, requests, allowance, today, monthLabel, tab
               { label: "Regularize a day", icon: <Clock />, onSelect: () => open("regularization", yesterday) },
               { label: "Partial day", icon: <Timer />, onSelect: () => open("partial_day", today) },
               { label: "Work from home / on duty", icon: <House />, onSelect: () => open("remote", today) },
+              ...(allowance.overtime === "request" ? [{ label: "Claim overtime", icon: <Zap />, onSelect: () => open("overtime", yesterday) }] : []),
+              { label: "Change shift", icon: <Repeat />, onSelect: () => open("shift_change", today) },
+              { label: "Swap weekly off", icon: <ArrowLeftRight />, onSelect: () => open("weekly_off_change", today) },
             ]} />
         </div>
         <TabsContent value="logs">
@@ -74,7 +81,7 @@ export function MyAttendance({ rows, requests, allowance, today, monthLabel, tab
         </TabsContent>
         <TabsContent value="requests">
           <Card>
-            <CardHeader title="Your attendance requests" description="Regularizations, partial days, work from home and on duty" />
+            <CardHeader title="Your attendance requests" description="Regularizations, partial days, work from home, on duty, overtime and shift changes" />
             {requests.length === 0 ? (
               <EmptyState compact icon={<ClipboardList />} title="No requests yet" description="Forgot to clock out, working from home or stepping out early? Ask from a day's menu in your logs." />
             ) : (
@@ -98,7 +105,7 @@ export function MyAttendance({ rows, requests, allowance, today, monthLabel, tab
           </Card>
         </TabsContent>
       </Tabs>
-      {dialog && <RequestDialog kind={dialog.kind} date={dialog.date} today={today} allowance={allowance} current={dialog.row ? { firstIn: dialog.row.firstIn, lastOut: dialog.row.lastOut } : undefined} onClose={() => setDialog(null)} />}
+      {dialog && <RequestDialog kind={dialog.kind} date={dialog.date} today={today} allowance={allowance} current={dialog.row ? { firstIn: dialog.row.firstIn, lastOut: dialog.row.lastOut, overtime: dialog.row.overtime } : undefined} onClose={() => setDialog(null)} />}
     </>
   );
 }

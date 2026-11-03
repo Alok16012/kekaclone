@@ -5,9 +5,11 @@ import { dayType as calendarDayType, type WeeklyOffPattern } from "@/server/modu
 import { balances, holidayListNameFor } from "@/server/modules/leave/service";
 import { cycleStartFor } from "@/server/modules/leave/effects";
 import {
-  allocateDeductions, dayWindow, evaluateDay, leavePortion, ledgerDelta, penaltiesFor,
+  allocateDeductions, dayWindow, evaluateDay, isOvernight, leavePortion, ledgerDelta, localMinutes, penaltiesFor, requiredMinutes, timingFor, toMin, zonedToUtc,
   type CapturePolicy, type DayType, type PenaltyPolicy, type ShiftDef,
 } from "./rules";
+import { creditableMinutes, normalizeRules, overtimeMinutes, type OvertimeRules } from "./overtime-rules";
+import { autoAssignedShift } from "./roster-rules";
 
 /**
  * Attendance processing: rebuilds attendance_days from punches, shift, calendar, approved leave and
@@ -15,27 +17,36 @@ import {
  * the day row is upserted and leave deductions are posted as idempotent ledger deltas.
  */
 
-export type Person = { id: string; joining_date: ISODate; exit_date: ISODate | null; tz: string; penalization_policy_id: string | null; capture_policy_id: string | null };
+export type Person = { id: string; joining_date: ISODate; exit_date: ISODate | null; tz: string; penalization_policy_id: string | null; capture_policy_id: string | null; overtime_policy_id: string | null };
 
 export async function personFor(tx: Tx, employeeId: string): Promise<Person | null> {
   const [p] = await tx<Person[]>`
     select e.id, e.joining_date::text, e.exit_date::text, coalesce(l.timezone, t.timezone, 'Asia/Kolkata') as tz,
-           e.penalization_policy_id, e.capture_policy_id
+           e.penalization_policy_id, e.capture_policy_id, e.overtime_policy_id
     from employees e join tenants t on t.id = e.tenant_id left join locations l on l.id = e.location_id where e.id = ${employeeId}`;
   return p ?? null;
 }
 
-type ShiftRow = ShiftDef & { id: string; name: string; code: string };
-const SHIFT_COLS = (tx: Tx) => tx`s.id, s.name, s.code, s.kind, s.timings, s.break_minutes, s.grace_minutes, s.half_day_minutes`;
+export type ShiftRow = ShiftDef & { id: string; name: string; code: string; auto_assign: { from: string; to: string } | null };
+const SHIFT_COLS = (tx: Tx) => tx`s.id, s.name, s.code, s.kind, s.timings, s.break_minutes, s.grace_minutes, s.half_day_minutes, s.auto_assign`;
 
-/** The person's shift on each date of a range: their assignment, else the company's default (oldest) shift. */
+/** Roster overrides for a range: a shift for that date, or null = an off day. Dates without an entry aren't in the map. */
+export async function rosterFor(tx: Tx, employeeId: string, from: ISODate, to: ISODate): Promise<Map<ISODate, ShiftRow | null>> {
+  const rows = await tx<(Partial<ShiftRow> & { date: string; shift_id: string | null })[]>`
+    select r.date::text, r.shift_id, ${SHIFT_COLS(tx)} from roster_entries r left join shifts s on s.id = r.shift_id
+    where r.employee_id = ${employeeId} and r.date between ${from} and ${to}`;
+  return new Map(rows.map((r) => [r.date, r.shift_id ? ({ id: r.id, name: r.name, code: r.code, kind: r.kind, timings: r.timings, break_minutes: r.break_minutes, grace_minutes: r.grace_minutes, half_day_minutes: r.half_day_minutes ?? null, auto_assign: r.auto_assign ?? null } as ShiftRow) : null]));
+}
+
+/** The person's shift on each date of a range: the roster entry for that day, else their assignment, else the company's default (oldest) shift. */
 export async function shiftsFor(tx: Tx, employeeId: string, from: ISODate, to: ISODate): Promise<(d: ISODate) => ShiftRow | null> {
   const rows = await tx<(ShiftRow & { lo: string | null; hi: string | null })[]>`
     select ${SHIFT_COLS(tx)}, lower(a.period)::text as lo, upper(a.period)::text as hi
     from shift_assignments a join shifts s on s.id = a.shift_id
     where a.employee_id = ${employeeId} and a.period && daterange(${from}::date, ${addDaysISO(to, 1)}::date)`;
   const [fallback] = await tx<ShiftRow[]>`select ${SHIFT_COLS(tx)} from shifts s order by s.created_at, s.id limit 1`;
-  return (d) => rows.find((r) => (!r.lo || r.lo <= d) && (!r.hi || d < r.hi)) ?? fallback ?? null;
+  const roster = await rosterFor(tx, employeeId, from, to);
+  return (d) => roster.get(d) ?? rows.find((r) => (!r.lo || r.lo <= d) && (!r.hi || d < r.hi)) ?? fallback ?? null;
 }
 
 const DEFAULT_WEEKLY_OFF: WeeklyOffPattern = { sat: "off", sun: "off" };
@@ -54,9 +65,13 @@ export async function calendarFor(tx: Tx, employeeId: string, from: ISODate, to:
     where a.employee_id = ${employeeId} and a.period && daterange(${from}::date, ${addDaysISO(to, 1)}::date)`;
   const [dflt] = await tx<{ pattern: WeeklyOffPattern }[]>`select pattern from weekly_off_policies order by created_at, id limit 1`;
   const hol = new Set(holidays.map((h) => h.date));
+  const roster = await rosterFor(tx, employeeId, from, to);
   return (d) => {
     const pattern = wo.find((r) => (!r.lo || r.lo <= d) && (!r.hi || d < r.hi))?.pattern ?? dflt?.pattern ?? DEFAULT_WEEKLY_OFF;
-    return calendarDayType(d, { holidays: hol, weeklyOff: pattern });
+    const t = calendarDayType(d, { holidays: hol, weeklyOff: pattern });
+    // the roster wins over the weekly-off pattern: a rostered shift makes a working day, "off" makes a weekly off; holidays stay holidays
+    if (t !== "holiday" && roster.has(d)) return roster.get(d) ? "working" : "weekly_off";
+    return t;
   };
 }
 
@@ -98,15 +113,30 @@ export async function processAttendance(tx: Tx, tenantId: string, employeeId: st
     select is_locked, late_minutes, penalties from attendance_days where employee_id = ${employeeId} and date = ${date}`;
   if (existing?.is_locked) return null;
 
-  const shiftOn = await shiftsFor(tx, employeeId, date, addDaysISO(date, 1));
-  const typeOn = await calendarFor(tx, employeeId, date, date);
-  const shift = shiftOn(date);
-  const w = dayWindow(date, shift, shiftOn(addDaysISO(date, 1)), person.tz);
+  let shiftOn = await shiftsFor(tx, employeeId, date, addDaysISO(date, 1));
+  let shift = shiftOn(date);
+  let w = dayWindow(date, shift, shiftOn(addDaysISO(date, 1)), person.tz);
+  const loadPunches = async () => {
+    const all = await tx<{ at: Date; source: string }[]>`
+      select at, source from punches where employee_id = ${employeeId} and status = 'valid' and at >= ${w.start} and at < ${w.end} order by at`;
+    const regularized = all.some((p) => p.source === "regularization");
+    return (regularized ? all.filter((p) => p.source === "regularization") : all).map((p) => p.at);
+  };
+  let punches = await loadPunches();
 
-  const all = await tx<{ at: Date; source: string }[]>`
-    select at, source from punches where employee_id = ${employeeId} and status = 'valid' and at >= ${w.start} and at < ${w.end} order by at`;
-  const regularized = all.some((p) => p.source === "regularization");
-  const punches = (regularized ? all.filter((p) => p.source === "regularization") : all).map((p) => p.at);
+  // auto shift assignment: a first clock-in inside another shift's auto-assign window puts that shift on the roster for the day (never over a manual roster entry)
+  if (punches[0] && !(await rosterFor(tx, employeeId, date, date)).has(date)) {
+    const candidates = await tx<ShiftRow[]>`select ${SHIFT_COLS(tx)} from shifts s where s.auto_assign is not null order by s.created_at, s.id`;
+    const auto = candidates.length ? autoAssignedShift(localMinutes(punches[0], person.tz), candidates) : null;
+    if (auto && auto.id !== shift?.id) {
+      await tx`insert into roster_entries (tenant_id, employee_id, date, shift_id) values (${tenantId}, ${employeeId}, ${date}, ${auto.id}) on conflict (employee_id, date) do nothing`;
+      shiftOn = await shiftsFor(tx, employeeId, date, addDaysISO(date, 1));
+      shift = shiftOn(date);
+      w = dayWindow(date, shift, shiftOn(addDaysISO(date, 1)), person.tz);
+      punches = await loadPunches();
+    }
+  }
+  const typeOn = await calendarFor(tx, employeeId, date, date);
 
   const leaves = await tx<{ id: string; from_date: string; to_date: string; from_half: string; to_half: string }[]>`
     select id, from_date::text, to_date::text, from_half, to_half from leave_requests
@@ -124,6 +154,29 @@ export async function processAttendance(tx: Tx, tenantId: string, employeeId: st
   const joined = date >= person.joining_date && (!person.exit_date || date <= person.exit_date);
   const inputs = { date, tz: person.tz, dayType: typeOn(date), joined, shift, punches, final: now >= w.end, leavePortion: leaveP, remote, partial };
   const day = evaluateDay(inputs);
+
+  // overtime: computed from the policy, then only what an approved request allows (when the policy asks for approval)
+  let overtime = 0, overtimeComputed = 0;
+  if (person.overtime_policy_id) {
+    const [pol] = await tx<{ rules: Partial<OvertimeRules> }[]>`select rules from overtime_policies where id = ${person.overtime_policy_id}`;
+    if (pol) {
+      const rules = normalizeRules(pol.rules);
+      const t = shift ? timingFor(shift, date) : null;
+      const working = inputs.dayType === "working" || inputs.dayType === "half_weekly_off";
+      overtimeComputed = overtimeMinutes(rules, {
+        dayType: inputs.dayType, shiftKind: shift?.kind ?? null,
+        shiftStart: t ? zonedToUtc(date, toMin(t.start), person.tz) : null,
+        shiftEnd: t ? zonedToUtc(date, toMin(t.end) + (isOvernight(t) ? 1440 : 0), person.tz) : null,
+        firstIn: day.firstIn, lastOut: day.lastOut, gross: day.gross, effective: day.effective,
+        required: working && shift && t ? Math.round(requiredMinutes(shift, t) * (inputs.dayType === "half_weekly_off" ? 0.5 : 1)) : 0,
+        final: inputs.final,
+      });
+      const [ot] = await tx<{ minutes: number }[]>`
+        select coalesce(sum((payload->>'minutes')::int), 0)::int as minutes from attendance_requests
+        where employee_id = ${employeeId} and kind = 'overtime' and status = 'approved' and from_date = ${date}`;
+      overtime = creditableMinutes(rules, overtimeComputed, rules.approval === "required" && ot.minutes === 0 ? null : ot.minutes);
+    }
+  }
 
   // penalization
   const [policy] = person.penalization_policy_id
@@ -154,13 +207,13 @@ export async function processAttendance(tx: Tx, tenantId: string, employeeId: st
   const status = day.status;
 
   const [row] = await tx<{ id: string }[]>`
-    insert into attendance_days (tenant_id, employee_id, date, shift_id, day_type, first_in, last_out, gross_minutes, effective_minutes, late_minutes, early_minutes, status, leave_request_id, penalties, computed_at)
+    insert into attendance_days (tenant_id, employee_id, date, shift_id, day_type, first_in, last_out, gross_minutes, effective_minutes, late_minutes, early_minutes, status, leave_request_id, penalties, overtime_minutes, computed_at)
     values (${tenantId}, ${employeeId}, ${date}, ${shift?.id ?? null}, ${inputs.dayType}, ${day.firstIn}, ${day.lastOut}, ${day.gross}, ${day.effective},
-            ${day.late}, ${day.early}, ${status}, ${leaves[0]?.id ?? null}, ${tx.json(stored)}, now())
+            ${day.late}, ${day.early}, ${status}, ${leaves[0]?.id ?? null}, ${tx.json(stored)}, ${overtime}, now())
     on conflict (employee_id, date) do update set shift_id = excluded.shift_id, day_type = excluded.day_type, first_in = excluded.first_in,
       last_out = excluded.last_out, gross_minutes = excluded.gross_minutes, effective_minutes = excluded.effective_minutes,
       late_minutes = excluded.late_minutes, early_minutes = excluded.early_minutes, status = excluded.status,
-      leave_request_id = excluded.leave_request_id, penalties = excluded.penalties, computed_at = now()
+      leave_request_id = excluded.leave_request_id, penalties = excluded.penalties, overtime_minutes = excluded.overtime_minutes, computed_at = now()
     where not attendance_days.is_locked
     returning id`;
 
@@ -182,7 +235,7 @@ export async function processAttendance(tx: Tx, tenantId: string, employeeId: st
   }
   const lop = deductions.filter((d) => !d.leaveTypeId).reduce((s, d) => s + d.days, 0);
   const lateChanged = (existing?.penalties ?? []).some((p) => p.rule === "late_arrival") !== pens.some((p) => p.rule === "late_arrival");
-  return { status, day, penalties: stored, lop, final: inputs.final, lateChanged };
+  return { status, day, penalties: stored, lop, final: inputs.final, lateChanged, overtime, overtimeComputed };
 }
 
 /** Old name kept for callers that only need the day rebuilt. */
