@@ -2,7 +2,7 @@ import "server-only";
 import { AppError, withTenant, type Tx } from "@/server/db";
 import type { Tenant } from "@/server/auth/session";
 import { domainAllowed } from "@/server/auth/network-rules";
-import { issuerCheck, pkce, randomState, verifyIdToken, type IdClaims, type Jwk, type SsoProvider } from "./oidc-rules";
+import { issuerCheck, microsoftClaimsProblem, pkce, randomState, verifyIdToken, type IdClaims, type Jwk, type SsoProvider } from "./oidc-rules";
 
 /**
  * Google / Microsoft (Entra) sign-in with OpenID Connect: authorization code + PKCE, state and nonce in an httpOnly
@@ -93,7 +93,11 @@ export async function finishSso(provider: SsoProvider, tenant: Tenant, a: { code
   const res = await fetch(doc.token_endpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body, cache: "no-store" });
   const json = (await res.json().catch(() => ({}))) as { id_token?: string; error?: string; error_description?: string };
   if (!res.ok || !json.id_token) throw new AppError("invalid", `The provider refused the sign-in${json.error_description ? `: ${json.error_description}` : ""}.`);
-  const check = (keys: Jwk[]) => verifyIdToken(json.id_token!, { keys, issuer: issuerCheck(provider, tenant.authSettings?.microsoft_tenant), audience: e.clientId, nonce: a.nonce });
+  // Microsoft with a named directory: the token must come from exactly the issuer that directory's discovery document declares
+  const bound = provider === "microsoft" && !!tenant.authSettings?.microsoft_tenant?.trim();
+  const byProvider = issuerCheck(provider, tenant.authSettings?.microsoft_tenant);
+  const issuer = (iss: string) => byProvider(iss) && (!bound || iss === doc.issuer);
+  const check = (keys: Jwk[]) => verifyIdToken(json.id_token!, { keys, issuer, audience: e.clientId, nonce: a.nonce });
   let r = check(await jwks(doc.jwks_uri));
   if (!r.ok && r.reason === "bad signature") r = check(await jwks(doc.jwks_uri, true));   // keys rotated
   if (!r.ok) throw new AppError("invalid", `We couldn't verify the sign-in (${r.reason}).`);
@@ -110,6 +114,7 @@ export async function linkSsoIdentity(tx: Tx, tenant: Tenant, provider: SsoProvi
   const refuse = async (msg: string, userId: string | null = null) => { await log(userId, false); throw new AppError("forbidden", msg); };
   if (!email || !email.includes("@")) return refuse("The provider didn't share an email address, so we can't match you to an account.");
   if (provider === "google" && claims.email_verified === false) return refuse("This Google account's email isn't verified.");
+  if (provider === "microsoft") { const p = microsoftClaimsProblem(tenant.authSettings?.microsoft_tenant, claims); if (p) return refuse(p); }
   if (!domainAllowed(email, tenant.authSettings?.sso_domains ?? [])) return refuse(`Accounts on ${email.split("@")[1]} can't sign in to this workspace with SSO.`);
   const [u] = await tx<{ id: string; status: string }[]>`select id, status from users where email = ${email}`;
   if (!u) return refuse(`There's no ${tenant.name} account for ${email}. Ask HR to add you first.`);

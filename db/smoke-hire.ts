@@ -258,8 +258,15 @@ async function main() {
     await pub.applyPublic(tx, tenant, input);
     await track(tx);
     await assert.rejects(pub.applyPublic(tx, tenant, { ...input, email: "IRA.SEN@example.com" }), /already applied/);
-    await pub.applyPublic(tx, tenant, { ...input, jobId: J.ae, email: "ira.sen@example.com" });
+    const [iraBefore] = await tx<{ resume_file_id: string; current_company: string | null }[]>`select resume_file_id, current_company from candidates where email = 'ira.sen@example.com'`;
+    await pub.applyPublic(tx, tenant, { ...input, jobId: J.ae, email: "ira.sen@example.com", currentCompany: "Impostor Ltd", resume: { name: "cv2.pdf", bytes: pdf } });
     assert.equal((await tx`select 1 from candidates where email = 'ira.sen@example.com'`).length, 1, "one candidate for both applications");
+    const [iraAfter] = await tx<{ resume_file_id: string; current_company: string | null }[]>`select resume_file_id, current_company from candidates where email = 'ira.sen@example.com'`;
+    assert.deepEqual(iraAfter, iraBefore, "an unverified public form never rewrites a candidate who is mid-process");
+    const [aeEvent] = await tx<{ data: { resume_file_id?: string } }[]>`select ev.data from application_events ev join applications a on a.id = ev.application_id join candidates c on c.id = a.candidate_id
+      where a.job_id = ${J.ae} and c.email = 'ira.sen@example.com' and ev.kind = 'applied' order by ev.created_at desc limit 1`;
+    assert.ok(aeEvent.data.resume_file_id && aeEvent.data.resume_file_id !== iraBefore.resume_file_id, "the new resume stays on the application's timeline");
+    await assert.rejects(pub.applyPublic(tx, tenant, { ...input, email: "fatima@acme.test" }), /internal jobs page/, "an employee's record can't be applied with from the public form");
     const ira = await appOf(tx, "ira.sen@example.com", J.backend);
     assert.ok((await tx`select 1 from outbound_emails where to_email = 'ira.sen@example.com'`).length >= 2, "applicants get a confirmation email");
     // cooldown: rejected 10 days ago, job waits 90 days → refused; 100 days ago → reopened

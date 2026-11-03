@@ -72,7 +72,7 @@ function SsoCard({ canEdit, sso, allowed }: { canEdit: boolean; sso: Sso; allowe
           </div>
         </div>
         {form.microsoft && (
-          <Field label="Microsoft directory (optional)" help="Your Entra tenant id or domain, e.g. acme.onmicrosoft.com. Leave empty to accept any work account." error={error?.field === "microsoftTenant" ? error.message : undefined} className="max-w-md">
+          <Field label="Microsoft directory" help="Your Entra tenant id or domain, e.g. acme.onmicrosoft.com. Required for Microsoft sign-in: only accounts from this directory can sign in." error={error?.field === "microsoftTenant" ? error.message : undefined} className="max-w-md">
             <Input value={form.microsoftTenant} disabled={disabled} onChange={(e) => setForm({ ...form, microsoftTenant: e.target.value })} />
           </Field>
         )}

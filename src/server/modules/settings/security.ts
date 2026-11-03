@@ -59,6 +59,7 @@ export async function setSso(tx: Tx, actor: Actor, input: { google: boolean; mic
   if (domains.length && !domainAllowed(actor.email, domains)) throw new AppError("invalid", `Your own email (${actor.email}) isn't on one of these domains, so you couldn't sign in with SSO. Add it first.`, "domains");
   if (input.ssoOnly && !input.google && !input.microsoft) throw new AppError("invalid", "Turn on at least one provider before requiring SSO.");
   const microsoftTenant = input.microsoftTenant.trim();
+  if (input.microsoft && !microsoftTenant) throw new AppError("invalid", "Enter your Entra directory id or domain (e.g. acme.onmicrosoft.com); Microsoft sign-in only trusts accounts from your own directory.", "microsoftTenant");
   if (microsoftTenant && !/^[a-z0-9.-]{1,80}$/i.test(microsoftTenant)) throw new AppError("invalid", "The Microsoft tenant should be an id or a domain like acme.onmicrosoft.com.", "microsoftTenant");
   await patchAuth(tx, actor, { google: input.google, microsoft: input.microsoft, sso_domains: domains, sso_only: input.ssoOnly, password: !input.ssoOnly, microsoft_tenant: microsoftTenant || undefined }, "security.sso");
 }

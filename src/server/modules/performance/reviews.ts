@@ -490,7 +490,8 @@ export async function cycleProgress(tx: Tx, actor: Actor, cycleId: string, today
     left join review_assignments a on a.cycle_id = o.cycle_id and a.reviewee_employee_id = o.employee_id and (a.nomination is null or a.nomination <> 'rejected')
     left join employees r on r.id = a.reviewer_employee_id
     where o.cycle_id = ${cycleId} order by e.display_name`;
-  const visible = rows.filter((r) => perfAdminFor(actor, r));
+  // never your own row: an admin inside the cycle must not see their own pre-release rating, potential or calibration note
+  const visible = rows.filter((r) => r.id !== actor.employeeId && perfAdminFor(actor, r));
   const due = (t: ReviewerType) => (t === "self" ? c.timelines.self_due : t === "peer" ? c.timelines.peer_due : c.timelines.manager_due) ?? null;
   const stages = STAGES.map((t) => {
     const xs = visible.filter((r) => r.type === t && r.nomination !== "proposed");
@@ -549,7 +550,8 @@ export async function calibration(tx: Tx, actor: Actor, cycleId: string) {
       o.id as outcome_id, o.computed_rating as computed, o.final_rating as final, o.potential, o.calibration_note as note, o.released
     from review_outcomes o join employees e on e.id = o.employee_id left join departments d on d.id = e.department_id left join designations g on g.id = e.designation_id
     where o.cycle_id = ${cycleId} order by e.display_name`;
-  const visible = rows.filter((r) => perfAdminFor(actor, r));
+  // never your own row: an admin inside the cycle must not see their own pre-release rating, potential or calibration note
+  const visible = rows.filter((r) => r.id !== actor.employeeId && perfAdminFor(actor, r));
   const people = visible.map((r) => {
     const computed = N(r.computed), final = N(r.final), effective = final ?? computed;
     return {

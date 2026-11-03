@@ -10,6 +10,7 @@ import ExcelJS from "exceljs";
 import { NextRequest } from "next/server";
 import { withTenant, sql, AppError, type Tx } from "@/server/db";
 import * as approvals from "@/server/modules/approvals/service";
+import * as appr from "@/server/modules/corehr/approvals-admin";
 import * as settings from "@/server/modules/performance/settings";
 import * as goals from "@/server/modules/performance/goals";
 import * as fb from "@/server/modules/performance/feedback";
@@ -298,6 +299,11 @@ async function main() {
     const rohanAsAdmin = await actor("Rohan", ["performance.admin"]);
     const rohanO = pri.people.find((p) => p.name.startsWith("Rohan"))!;
     await assert.rejects(rv.setFinalRating(tx, rohanAsAdmin, rohanO.outcomeId, { finalRating: 5, potential: 3, note: "me" }), /your own rating/);
+    await tx`update review_outcomes set calibration_note = 'confidential: flight risk' where id = ${rohanO.outcomeId}`;
+    const rohanView = await rv.calibration(tx, rohanAsAdmin, q3);
+    assert.equal(rohanView.people.find((p) => p.id === rohan.employeeId), undefined, "an admin inside the cycle never sees their own row (rating, potential, calibration note)");
+    assert.ok(rohanView.people.some((p) => p.name.startsWith("Arjun")), "…but still calibrates everyone else");
+    await tx`update review_outcomes set calibration_note = null where id = ${rohanO.outcomeId}`;
     await rv.setFinalRating(tx, priya, arjunO.outcomeId, { finalRating: 4.5, potential: 3, note: "Shipped the hardest part of the app." });
     const after = await rv.calibration(tx, priya, q3);
     const a = after.people.find((p) => p.name.startsWith("Arjun"))!;
@@ -433,6 +439,17 @@ async function main() {
     const [req] = await tx<{ id: string }[]>`select id from approval_requests where entity_type = 'comp_proposal' and entity_id = ${arj.id}`;
     const steps = await tx<{ approver_employee_id: string; status: string; id: string }[]>`select id, approver_employee_id, status from approval_steps where request_id = ${req.id} order by level`;
     assert.deepEqual(steps.map((s) => s.approver_employee_id), [asha.employeeId, priya.employeeId]);
+    // Asha hands her approvals to Arjun while away: Arjun's own increment must not land with Arjun (nor with Rohan, who raised it)
+    await tx`insert into approval_delegations (tenant_id, delegator_employee_id, delegate_employee_id, from_date, to_date, created_by) values (${tenant.id}, ${asha.employeeId}, ${arjun.employeeId}, current_date, null, ${asha.userId})`;
+    await appr.reassignPending(tx, tenant.id, {});
+    const [arjStep] = await tx<{ approver_employee_id: string }[]>`select approver_employee_id from approval_steps where id = ${steps[0].id}`;
+    assert.notEqual(arjStep.approver_employee_id, arjun.employeeId, "a delegation never routes a proposal to the person it is about");
+    assert.notEqual(arjStep.approver_employee_id, rohan.employeeId);
+    const [meeraReq] = await tx<{ id: string }[]>`select r.id from approval_requests r join comp_proposals p on p.id = r.entity_id where r.entity_type = 'comp_proposal' and p.employee_id = ${meera.employeeId} and p.cycle_id = ${c.id}`;
+    const [meeraStep] = await tx<{ approver_employee_id: string }[]>`select approver_employee_id from approval_steps where request_id = ${meeraReq.id} and level = 1`;
+    assert.equal(meeraStep.approver_employee_id, arjun.employeeId, "the same delegation does carry other people's proposals to the delegate");
+    await tx`update approval_steps set approver_employee_id = ${asha.employeeId}, delegated_from = null where request_id in (select id from approval_requests where entity_type = 'comp_proposal') and level = 1`;
+    await tx`delete from approval_delegations where delegator_employee_id = ${asha.employeeId}`;
     assert.ok(await comp.proposalDetail(tx, asha, arj.id));
     assert.equal(await comp.proposalDetail(tx, arjun, arj.id), null, "the person can't open their own proposal");
     await approvals.decide(tx, asha, steps[0].id, "approved");

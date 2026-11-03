@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { decodeSsoCookie, encodeSsoCookie, issuerCheck, pkce, verifyIdToken, type Jwk } from "./oidc-rules";
+import { decodeSsoCookie, encodeSsoCookie, issuerCheck, microsoftClaimsProblem, pkce, verifyIdToken, type Jwk } from "./oidc-rules";
 
 const b64url = (b: Buffer | string) => Buffer.from(b).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -51,5 +51,19 @@ describe("pkce and state cookie", () => {
     expect(back?.next).toBe("/home");
     expect(back?.state).toBe("s");
     expect(decodeSsoCookie("garbage")).toBeNull();
+  });
+});
+
+describe("microsoft directory binding", () => {
+  it("refuses Microsoft tokens until the company names its directory (email claims are unverified under 'common')", () => {
+    expect(microsoftClaimsProblem("", { tid: "a1b2c3d4-0000-0000-0000-000000000001" })).toMatch(/Entra directory/);
+    expect(microsoftClaimsProblem(undefined, {})).toMatch(/Entra directory/);
+  });
+  it("a directory id must match the token's tid; a domain is bound through the issuer instead", () => {
+    const guid = "A1B2C3D4-0000-0000-0000-000000000001";
+    expect(microsoftClaimsProblem(guid, { tid: guid.toLowerCase() })).toBeNull();
+    expect(microsoftClaimsProblem(guid, { tid: "ffffffff-0000-0000-0000-000000000002" })).toMatch(/different directory/);
+    expect(microsoftClaimsProblem(guid, {})).toMatch(/different directory/);
+    expect(microsoftClaimsProblem("acme.onmicrosoft.com", { tid: "anything" })).toBeNull();
   });
 });

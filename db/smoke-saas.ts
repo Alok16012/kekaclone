@@ -269,6 +269,13 @@ async function main() {
       const events = await tx<{ method: string; success: boolean }[]>`select method, success from login_events where method = 'google' order by created_at`;
       assert.equal(events.length, 6); assert.equal(events.filter((e) => e.success).length, 2);
       assert.equal((await tx<{ n: number }[]>`select count(*)::int as n from users`)[0].n, 1, "SSO never creates accounts");
+      // Microsoft: a token from any Entra directory can carry our user's email, so the company must name its directory
+      const guid = "0f0f0f0f-1111-2222-3333-444444444444";
+      const ms = (tid: string) => ({ iss: `https://login.microsoftonline.com/${tid}/v2.0`, aud: "c", sub: "ms-1", exp: 0, email: `nisha@${sub}.test`, tid });
+      await assert.rejects(linkSsoIdentity(tx, { ...ft, authSettings: { microsoft: true } }, "microsoft", ms(guid), ctx), /Entra directory/);
+      await assert.rejects(linkSsoIdentity(tx, { ...ft, authSettings: { microsoft: true, microsoft_tenant: guid } }, "microsoft", ms("99999999-1111-2222-3333-444444444444"), ctx), /different directory/);
+      assert.equal(await linkSsoIdentity(tx, { ...ft, authSettings: { microsoft: true, microsoft_tenant: guid } }, "microsoft", ms(guid), ctx), fresh.userId);
+      assert.equal((await tx<{ n: number }[]>`select count(*)::int as n from login_events where method = 'microsoft' and not success`)[0].n, 2);
     });
     ok("SSO: links only verified emails of existing active users, honours the domain list, one identity per account, every attempt logged");
 

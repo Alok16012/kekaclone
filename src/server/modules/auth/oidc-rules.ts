@@ -70,6 +70,18 @@ export function verifyIdToken(token: string, a: { keys: Jwk[]; issuer: (iss: str
   return { ok: true, claims: c };
 }
 
+/**
+ * Microsoft tokens are only trusted when the workspace has named its own directory: with "common" sign-in any Entra
+ * directory could mint a token whose email claim names one of our users (email is not verified by Microsoft), so a
+ * directory id (or domain) must be configured, and a GUID must match the token's `tid`.
+ */
+export function microsoftClaimsProblem(microsoftTenant: string | null | undefined, claims: Pick<IdClaims, "tid">): string | null {
+  const t = microsoftTenant?.trim();
+  if (!t) return "Microsoft sign-in needs the company's Entra directory set under Settings → Security before it can be used.";
+  if (/^[0-9a-f-]{36}$/i.test(t) && (claims.tid ?? "").toLowerCase() !== t.toLowerCase()) return "This Microsoft account belongs to a different directory than the one set for your company.";
+  return null;
+}
+
 /** Issuer rules per provider. Microsoft's issuer carries the directory (tenant) id; "common" sign-in accepts any. */
 export function issuerCheck(provider: SsoProvider, microsoftTenant?: string | null) {
   if (provider === "google") return (iss: string) => iss === "https://accounts.google.com" || iss === "accounts.google.com";

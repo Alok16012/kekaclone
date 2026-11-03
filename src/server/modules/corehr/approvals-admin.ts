@@ -3,7 +3,7 @@ import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
 import { audit } from "@/server/modules/audit/service";
-import { DEFAULT_LEVELS, decide, effectiveApprover, notifyEmployee, type EntityType, type Level } from "@/server/modules/approvals/service";
+import { DEFAULT_LEVELS, decide, effectiveApprover, neverApprovers, notifyEmployee, subjectOf, type EntityType, type Level } from "@/server/modules/approvals/service";
 import { queueEmail, appUrl } from "@/server/email";
 import { todayIn } from "@/lib/dates";
 import { CONDITION_FIELDS, daysWaiting, validateLevels, type Condition } from "./rules";
@@ -181,22 +181,23 @@ export async function cancelDelegation(tx: Tx, actor: Actor, id: string) {
  */
 export async function reassignPending(tx: Tx, tenantId: string, opts: { userId?: string | null; date?: string; onlyApproverId?: string } = {}) {
   const date = opts.date ?? todayIn();
-  const steps = await tx<{ id: string; request_id: string; approver: string; requester: string; summary: string }[]>`
-    select s.id, s.request_id, s.approver_employee_id as approver, r.requester_employee_id as requester, r.summary
+  const steps = await tx<{ id: string; request_id: string; approver: string; requester: string; summary: string; entity_type: EntityType; entity_id: string }[]>`
+    select s.id, s.request_id, s.approver_employee_id as approver, r.requester_employee_id as requester, r.summary, r.entity_type, r.entity_id
     from approval_steps s join approval_requests r on r.id = s.request_id
     where s.status = 'pending' and r.status = 'pending' and (${opts.onlyApproverId ?? null}::uuid is null or s.approver_employee_id = ${opts.onlyApproverId ?? null})
     order by r.created_at`;
   const onLeave = async (employeeId: string) => (await tx<{ ok: boolean }[]>`select exists(select 1 from leave_requests l where l.employee_id = ${employeeId} and l.status = 'approved'
     and l.from_date <= ${date} and l.to_date >= ${date} and not (l.from_date = l.to_date and l.days < 1)) as ok`)[0].ok;
   /** Follow hand-overs, leavers and people on leave to the first person who can act (a chain, so one pass is final). */
-  const resolve = async (approver: string, requester: string): Promise<{ to: string | null; reason: string }> => {
+  const resolve = async (approver: string, requester: string, subject: string | null): Promise<{ to: string | null; reason: string }> => {
+    const never = neverApprovers(requester, subject);
     let to: string | null = approver, reason = "delegation";
     for (let hop = 0; hop < 6 && to; hop++) {
       const [st] = await tx<{ status: string }[]>`select status from employees where id = ${to}`;
-      const next: string | null = await effectiveApprover(tx, to, requester, date);
+      const next: string | null = await effectiveApprover(tx, to, requester, date, subject);
       if (next !== to) { reason = st?.status === "relieved" ? "relieved" : "delegation"; to = next; continue; }
       if (await onLeave(to)) {
-        const mgr: { id: string }[] = await tx<{ id: string }[]>`select m.id from employees e join employees m on m.id = e.manager_id and m.status <> 'relieved' where e.id = ${to} and m.id <> ${requester}`;
+        const mgr: { id: string }[] = await tx<{ id: string }[]>`select m.id from employees e join employees m on m.id = e.manager_id and m.status <> 'relieved' where e.id = ${to} and m.id <> all(${never}::uuid[])`;
         if (mgr[0] && mgr[0].id !== approver) { reason = "on_leave"; to = mgr[0].id; continue; }
       }
       break;
@@ -205,11 +206,12 @@ export async function reassignPending(tx: Tx, tenantId: string, opts: { userId?:
   };
   let moved = 0;
   for (const s of steps) {
-    let { to, reason } = await resolve(s.approver, s.requester);
+    const subject = await subjectOf(tx, s.entity_type, s.entity_id);
+    let { to, reason } = await resolve(s.approver, s.requester, subject);
     if (!to) {
-      // nobody suitable in the chain: an admin who isn't the requester
+      // nobody suitable in the chain: an admin who isn't the requester or the person the request is about
       const [g] = await tx<{ id: string }[]>`select ra.employee_id as id from role_assignments ra join roles ro on ro.id = ra.role_id join employees e on e.id = ra.employee_id and e.status <> 'relieved'
-        where ro.key in ('hr_admin','global_admin') and ra.employee_id <> ${s.requester} order by ro.key = 'hr_admin' desc, ra.created_at limit 1`;
+        where ro.key in ('hr_admin','global_admin') and ra.employee_id <> all(${neverApprovers(s.requester, subject)}::uuid[]) order by ro.key = 'hr_admin' desc, ra.created_at limit 1`;
       to = g?.id ?? null;
       reason = "relieved";
     }
@@ -239,8 +241,8 @@ async function approverActor(tx: Tx, tenantId: string, employeeId: string): Prom
  * The waiting clock starts when the step became pending (previous level's decision, or the request).
  */
 export async function runApprovalTimers(tx: Tx, tenantId: string, now = new Date()) {
-  const steps = await tx<{ id: string; request_id: string; approver: string; requester: string; summary: string; since: Date; auto: number | null; escalation: { afterDays: number; to: Level } | null; escalated_at: Date | null; level: number }[]>`
-    select s.id, s.request_id, s.approver_employee_id as approver, r.requester_employee_id as requester, r.summary, s.level, s.escalated_at,
+  const steps = await tx<{ id: string; request_id: string; approver: string; requester: string; summary: string; since: Date; auto: number | null; escalation: { afterDays: number; to: Level } | null; escalated_at: Date | null; level: number; entity_type: EntityType; entity_id: string }[]>`
+    select s.id, s.request_id, s.approver_employee_id as approver, r.requester_employee_id as requester, r.summary, s.level, s.escalated_at, r.entity_type, r.entity_id,
       coalesce((select max(p.acted_at) from approval_steps p where p.request_id = s.request_id and p.level < s.level), r.created_at) as since,
       w.auto_approve_after_days as auto, w.escalation
     from approval_steps s join approval_requests r on r.id = s.request_id join approval_workflows w on w.id = r.workflow_id
@@ -258,7 +260,7 @@ export async function runApprovalTimers(tx: Tx, tenantId: string, now = new Date
       continue;
     }
     if (s.escalation && !s.escalated_at && waited >= s.escalation.afterDays) {
-      const to = await escalationTarget(tx, s.escalation.to, s.approver, s.requester);
+      const to = await escalationTarget(tx, s.escalation.to, s.approver, s.requester, await subjectOf(tx, s.entity_type, s.entity_id));
       await tx`update approval_steps set escalated_at = now() where id = ${s.id}`;   // once, even when nobody suitable is found
       if (to && to !== s.approver) {
         const [dupe] = await tx`select 1 from approval_steps where request_id = ${s.request_id} and approver_employee_id = ${to} and status in ('pending','waiting')`;
@@ -275,19 +277,20 @@ export async function runApprovalTimers(tx: Tx, tenantId: string, now = new Date
   return { escalated, approved };
 }
 
-async function escalationTarget(tx: Tx, level: Level, approverId: string, requesterId: string): Promise<string | null> {
+async function escalationTarget(tx: Tx, level: Level, approverId: string, requesterId: string, subjectId: string | null): Promise<string | null> {
+  const never = neverApprovers(requesterId, subjectId);
   if (level.approver === "manager" || level.approver === "l2_manager") {
     // relative to the approver who sat on it: their manager (or second-level manager)
     const col = level.approver === "manager" ? "manager_id" : "l2_manager_id";
     const [r] = await tx<{ id: string | null }[]>`select m.id from employees e join employees m on m.id = e.${tx(col)} and m.status <> 'relieved' where e.id = ${approverId}`;
-    return r?.id && r.id !== requesterId ? r.id : null;
+    return r?.id && !never.includes(r.id) ? r.id : null;
   }
   if (level.approver === "employee") {
     const [r] = await tx<{ id: string }[]>`select id from employees where id = ${level.id ?? null} and status <> 'relieved'`;
-    return r && r.id !== requesterId ? r.id : null;
+    return r && !never.includes(r.id) ? r.id : null;
   }
   const [r] = await tx<{ id: string }[]>`select ra.employee_id as id from role_assignments ra join roles ro on ro.id = ra.role_id join employees e on e.id = ra.employee_id and e.status <> 'relieved'
-    where ro.key = ${level.role ?? "hr_admin"} and ra.employee_id <> ${requesterId} and ra.employee_id <> ${approverId} order by ra.created_at limit 1`;
+    where ro.key = ${level.role ?? "hr_admin"} and ra.employee_id <> all(${never}::uuid[]) and ra.employee_id <> ${approverId} order by ra.created_at limit 1`;
   return r?.id ?? null;
 }
 

@@ -60,8 +60,14 @@ export async function applyPublic(tx: Tx, tenant: { id: string; name: string }, 
   const [stage] = await tx<{ id: string; name: string; stage_group: string }[]>`select id, name, stage_group from hiring_stages where flow_id = ${job.hiring_flow_id} and stage_group not in ('hired','rejected') order by position limit 1`;
 
   const dupe = await findDuplicate(tx, email, null);
-  let candidateId: string;
+  let candidateId: string, resumeEvent: Record<string, string> = {};
   if (dupe) {
+    // The form proves nothing about who is typing, so an existing record is never rewritten from it. Someone who
+    // works here (or whose record is tied to an employee) applies from the internal jobs page instead.
+    const [existing] = await tx<{ employee_id: string | null; in_process: boolean }[]>`
+      select c.employee_id, exists (select 1 from applications a where a.candidate_id = c.id and a.status in ('active','hired')) as in_process
+      from candidates c where c.id = ${dupe.id} for update`;
+    if (existing?.employee_id) throw new AppError("conflict", "This email address belongs to someone at the company. Please sign in and apply from the internal jobs page.");
     candidateId = dupe.id;
     const [prev] = await tx<{ id: string; status: string; closed_at: Date | null }[]>`select id, status, closed_at from applications where job_id = ${job.id} and candidate_id = ${candidateId} for update`;
     const r = reapplyCheck(prev ? { status: prev.status, closedAt: prev.closed_at } : null, job.allow_reapply_after_days, now);
@@ -70,12 +76,17 @@ export async function applyPublic(tx: Tx, tenant: { id: string; name: string }, 
       throw new AppError("conflict", "You've already applied for this job. We'll be in touch.");
     }
     const { fileId, parsed } = await saveResume(tx, tenant.id, null, input.resume);
-    await tx`update candidates set resume_file_id = ${fileId}, parsed = ${tx.json(parsed as never)}, consent_at = now(), mobile = coalesce(mobile, ${mobile}),
-             current_company = coalesce(${input.currentCompany.trim().slice(0, 120) || null}, current_company), current_title = coalesce(${input.currentTitle.trim().slice(0, 120) || null}, current_title)
-             where id = ${candidateId}`;
+    // a candidate with nothing in progress gets the fresh resume and details; one mid-process keeps theirs (the new
+    // file is kept on the application's timeline for the team)
+    if (!existing?.in_process) {
+      await tx`update candidates set resume_file_id = ${fileId}, parsed = ${tx.json(parsed as never)}, consent_at = now(), mobile = coalesce(mobile, ${mobile}),
+               current_company = coalesce(${input.currentCompany.trim().slice(0, 120) || null}, current_company), current_title = coalesce(${input.currentTitle.trim().slice(0, 120) || null}, current_title)
+               where id = ${candidateId}`;
+    }
+    if (existing?.in_process) resumeEvent = { resume_file_id: fileId, resume_name: input.resume.name.slice(0, 120) };
     if (prev) {
       await tx`update applications set status = 'active', stage_id = ${stage.id}, stage_entered_at = now(), reject_reason = null, closed_at = null, source = 'career_site' where id = ${prev.id}`;
-      await appEvent(tx, tenant.id, prev.id, "reapplied", { to: stage.name, to_group: stage.stage_group, source: "career_site" }, null);
+      await appEvent(tx, tenant.id, prev.id, "reapplied", { to: stage.name, to_group: stage.stage_group, source: "career_site", ...resumeEvent }, null);
       await afterApply(tx, tenant, prev.id, job.id, `${first} applied again`);
       return { ok: true as const };
     }
@@ -89,7 +100,7 @@ export async function applyPublic(tx: Tx, tenant: { id: string; name: string }, 
   }
   const [a] = await tx<{ id: string }[]>`
     insert into applications (tenant_id, job_id, candidate_id, stage_id, source) values (${tenant.id}, ${job.id}, ${candidateId}, ${stage.id}, 'career_site') returning id`;
-  await appEvent(tx, tenant.id, a.id, "applied", { to: stage.name, to_group: stage.stage_group, source: "career_site" }, null);
+  await appEvent(tx, tenant.id, a.id, "applied", { to: stage.name, to_group: stage.stage_group, source: "career_site", ...resumeEvent }, null);
   await afterApply(tx, tenant, a.id, job.id, `${first} applied`);
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff) values (${tenant.id}, null, 'application', ${a.id}, 'careers.apply', ${tx.json({ job_id: job.id })})`;
   return { ok: true as const };

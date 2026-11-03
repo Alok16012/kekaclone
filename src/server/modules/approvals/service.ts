@@ -36,41 +36,65 @@ export const DEFAULT_LEVELS: Record<EntityType, Level[]> = {
   timesheet: [{ approver: "manager" }],
 };
 
-async function resolveApprover(tx: Tx, level: Level, requesterId: string): Promise<string | null> {
+/**
+ * The person a request is about when that isn't the requester: an increment proposal is raised by a manager about a
+ * report, an offer by a recruiter about a candidate who may already work here. They can never approve it, whatever
+ * delegation, escalation or fallback would otherwise route to them.
+ */
+export async function subjectOf(tx: Tx, entityType: EntityType, entityId: string): Promise<string | null> {
+  if (entityType === "comp_proposal") {
+    const [r] = await tx<{ employee_id: string }[]>`select employee_id from comp_proposals where id = ${entityId}`;
+    return r?.employee_id ?? null;
+  }
+  if (entityType === "offer") {
+    const [r] = await tx<{ employee_id: string | null }[]>`select c.employee_id from offers o join applications a on a.id = o.application_id join candidates c on c.id = a.candidate_id where o.id = ${entityId}`;
+    return r?.employee_id ?? null;
+  }
+  return null;
+}
+
+/** Everyone a step may never land on: the requester and the request's subject. */
+export const neverApprovers = (requesterId: string, subjectId: string | null) => (subjectId && subjectId !== requesterId ? [requesterId, subjectId] : [requesterId]);
+
+async function resolveApprover(tx: Tx, level: Level, requesterId: string, subjectId: string | null = null): Promise<string | null> {
+  const never = neverApprovers(requesterId, subjectId);
   if (level.approver === "manager" || level.approver === "l2_manager") {
     const col = level.approver === "manager" ? "manager_id" : "l2_manager_id";
     const [r] = await tx<{ id: string | null }[]>`select ${tx(col)} as id from employees where id = ${requesterId}`;
-    const who = r?.id ? await effectiveApprover(tx, r.id, requesterId) : null;
+    const who = r?.id ? await effectiveApprover(tx, r.id, requesterId, undefined, subjectId) : null;
     if (who) return who;
   }
   if (level.approver === "employee" && level.id) {
     const [r] = await tx<{ id: string }[]>`select id from employees where id = ${level.id}`;   // resolved inside this tenant (RLS)
-    const who = r ? await effectiveApprover(tx, r.id, requesterId) : null;
+    const who = r ? await effectiveApprover(tx, r.id, requesterId, undefined, subjectId) : null;
     if (who) return who;
   }
-  // fallback: someone holding the named role (or any global admin) who isn't the requester
+  // fallback: someone holding the named role (or any global admin) who isn't the requester or the subject
   const [r] = await tx<{ id: string }[]>`
     select ra.employee_id as id from role_assignments ra join roles ro on ro.id = ra.role_id
     join employees e on e.id = ra.employee_id and e.status <> 'relieved'
-    where ro.key = ${level.role ?? "global_admin"} and ra.employee_id <> ${requesterId}
+    where ro.key = ${level.role ?? "global_admin"} and ra.employee_id <> all(${never}::uuid[])
     order by ra.created_at limit 1`;
-  return r?.id ? effectiveApprover(tx, r.id, requesterId) : null;
+  return r?.id ? effectiveApprover(tx, r.id, requesterId, undefined, subjectId) : null;
 }
 
 /**
  * Who actually gets a step meant for `approverId` today: their delegate while a delegation is active (never the
- * requester, never someone who has left), otherwise the approver. A relieved approver hands over to their own manager.
+ * requester or the request's subject, never someone who has left), otherwise the approver. A relieved approver hands
+ * over to their own manager. Returns null when the approver themself is the subject.
  */
-export async function effectiveApprover(tx: Tx, approverId: string, requesterId: string, date = todayIn()): Promise<string | null> {
+export async function effectiveApprover(tx: Tx, approverId: string, requesterId: string, date = todayIn(), subjectId: string | null = null): Promise<string | null> {
+  const never = neverApprovers(requesterId, subjectId);
+  if (never.includes(approverId)) return null;
   const [d] = await tx<{ id: string }[]>`
     select g.delegate_employee_id as id from approval_delegations g join employees e on e.id = g.delegate_employee_id and e.status <> 'relieved'
     where g.delegator_employee_id = ${approverId} and g.cancelled_at is null and g.from_date <= ${date} and (g.to_date is null or g.to_date >= ${date})
-      and g.delegate_employee_id <> ${requesterId}
+      and g.delegate_employee_id <> all(${never}::uuid[])
     order by g.created_at desc limit 1`;
   if (d) return d.id;
   const [a] = await tx<{ status: string; manager_id: string | null }[]>`select status, manager_id from employees where id = ${approverId}`;
   if (a?.status === "relieved") {
-    if (a.manager_id && a.manager_id !== requesterId) {
+    if (a.manager_id && !never.includes(a.manager_id)) {
       const [m] = await tx<{ id: string }[]>`select id from employees where id = ${a.manager_id} and status <> 'relieved'`;
       if (m) return m.id;
     }
@@ -95,10 +119,12 @@ export async function startApproval(tx: Tx, a: { tenantId: string; entityType: E
     select id, levels, priority, conditions from approval_workflows where entity_type = ${a.entityType} and is_active order by priority desc, created_at`;
   const wf = pickWorkflow(wfs, await requesterFacts(tx, a.requesterId));
   const levels = a.levels ?? wf?.levels ?? DEFAULT_LEVELS[a.entityType];
+  const subject = await subjectOf(tx, a.entityType, a.entityId);
+  const never = neverApprovers(a.requesterId, subject);
   const approvers: string[] = [];
   for (const l of levels) {
-    const id = await resolveApprover(tx, l, a.requesterId);
-    if (id && id !== a.requesterId && !approvers.includes(id)) approvers.push(id);
+    const id = await resolveApprover(tx, l, a.requesterId, subject);
+    if (id && !never.includes(id) && !approvers.includes(id)) approvers.push(id);
   }
   const status = approvers.length ? "pending" : "approved";
   const [req] = await tx<{ id: string }[]>`
