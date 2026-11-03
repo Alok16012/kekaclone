@@ -123,3 +123,25 @@ export async function holidayListPeopleAction(listId: string) {
   if (!id(listId).success) return bad("Unknown holiday list.");
   return runAction(async (tx, actor) => { assertLeaveAdmin(actor); return holidays.holidayListPeople(tx, listId); }, { refresh: false });
 }
+
+// ---------------------------------------------------------------- time3: event-based grants, holiday import
+import * as grants from "@/server/modules/leave/grants";
+import { commitHolidayImport, previewHolidayImport } from "@/server/modules/leave/holidays-import";
+
+export async function grantLeaveAction(input: unknown) {
+  return runAction((tx, actor) => grants.grantLeave(tx, actor, input));
+}
+export async function cancelGrantAction(grantId: string) {
+  if (!id(grantId).success) return bad("Unknown grant.");
+  return runAction((tx, actor) => grants.cancelGrant(tx, actor, grantId));
+}
+export async function previewHolidayImportAction(form: FormData) {
+  const bytes = await fileFrom(form);
+  if (!bytes) return bad("Choose an .xlsx file first.");
+  return runAction((tx, actor) => previewHolidayImport(tx, actor, bytes), { refresh: false });
+}
+export async function commitHolidayImportAction(form: FormData) {
+  const bytes = await fileFrom(form);
+  if (!bytes) return bad("Choose an .xlsx file first.");
+  return runAction((tx, actor) => commitHolidayImport(tx, actor, bytes));
+}

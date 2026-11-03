@@ -19,6 +19,7 @@ const ITEMS = [
     { href: "/settings/leave/plans", label: "Leave plans" },
     { href: "/settings/leave/types", label: "Leave types" },
     { href: "/settings/leave/balances", label: "Leave balances" },
+    { href: "/settings/leave/grants", label: "Event-based leave" },
     { href: "/settings/leave/year-end", label: "Leave year end" },
     { href: "/settings/holidays", label: "Holidays" },
   ] },
