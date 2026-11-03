@@ -39,8 +39,16 @@ export const PERMISSIONS = [
     { key: "settings.security", label: "Change sign-in security (codes, login methods)" },
     { key: "settings.audit", label: "View the audit log and sign-in history" },
   ] },
+  { group: "Projects & timesheets", items: [
+    { key: "psa.admin", label: "Set up clients, projects, project teams and timesheet policies" },
+    { key: "psa.billing", label: "Raise and manage project invoices" },
+  ] },
+  { group: "Learn", items: [
+    { key: "learn.admin", label: "Author courses, assign them and see completion reports" },
+  ] },
   { group: "Reports", items: [
     { key: "reports.read", label: "View and export reports" },
+    { key: "reports.build", label: "Build, save, share and schedule custom reports" },
   ] },
 ] as const;
 
