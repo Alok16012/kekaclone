@@ -1,4 +1,5 @@
 import "server-only";
+import { emitEvent } from "@/server/modules/automations/service";
 import { randomUUID } from "node:crypto";
 import ExcelJS from "exceljs";
 import { z } from "zod";
@@ -653,6 +654,7 @@ export async function publishResults(tx: Tx, actor: Actor, cycleId: string, empl
   for (const r of rows) {
     await tx`update review_outcomes set band = ${bandFor(N(r.r), settings.bands)} where id = ${r.id}`;
     await notifyEmployee(tx, actor.tenant.id, r.employee_id, "review.published", "Your review results are ready", `${c.name}: see your rating and feedback.`, "/me/performance/reviews?tab=results");
+    await emitEvent(tx, actor.tenant.id, "review.published", { employeeId: r.employee_id, occurrence: r.id, link: "/me/performance/reviews?tab=results", vars: { "review.cycle": c.name } });
   }
   const [{ left }] = await tx<{ left: number }[]>`select count(*)::int as left from review_outcomes where cycle_id = ${cycleId} and not released`;
   if (!left && c.status !== "published") await tx`update review_cycles set status = 'published', published_at = now() where id = ${cycleId}`;

@@ -21,6 +21,9 @@ import { deliverDue } from "@/server/modules/reports/service";
 import { syncSeats, syncStatus, trialReminders } from "@/server/modules/billing/service";
 import { deliverWebhooks } from "@/server/modules/integrations/service";
 import { settleOvertime, settleShiftAllowance } from "@/server/modules/attendance/overtime";
+import { runDaily as runAutomations } from "@/server/modules/automations/service";
+import { deliverPush } from "@/server/modules/push/service";
+import { syncCalendars } from "@/server/modules/calendar/service";
 
 export type StepContext = { tenantId: string; today: string; now: Date };
 /**
@@ -68,6 +71,9 @@ export const STEPS: Step[] = [
     return { month, overtime: count((await settleOvertime(tx, c.tenantId, month, null)).lines), allowances: count((await settleShiftAllowance(tx, c.tenantId, month, null)).lines) };
   } },
   { key: "webhooks", label: "Retry outbound webhooks", daily: false, own: async (c) => { const r = await deliverWebhooks(c.tenantId, undefined, c.now); return { sent: r.sent, failed: r.failed }; } },
+  { key: "automations", label: "Run birthday, anniversary and date-based automations", daily: true, tx: (tx, c) => runAutomations(tx, c.tenantId, c.today) },
+  { key: "push", label: "Send queued push notifications", daily: false, own: async (c) => deliverPush(c.tenantId) },
+  { key: "calendar", label: "Sync calendar events (Google / Microsoft)", daily: false, own: async (c) => syncCalendars(c.tenantId, c.now) },
 ];
 
 async function tenantRow(tx: Tx, tenantId: string) {

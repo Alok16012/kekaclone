@@ -1,4 +1,7 @@
 import "server-only";
+import { pushCalendarEvent } from "@/server/modules/calendar/service";
+import { emitEvent } from "@/server/modules/automations/service";
+import { emitWebhook } from "@/server/modules/integrations/service";
 import type { Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { addDaysISO, todayIn } from "@/lib/dates";
@@ -17,6 +20,11 @@ export async function onLeaveDecided(tx: Tx, actor: Actor | null, requestId: str
     update leave_requests set status = ${final} where id = ${requestId} and status = 'pending'
     returning tenant_id, employee_id, leave_type_id, from_date::text, to_date::text, days`;
   if (!r || final !== "approved") return;
+  const [lt] = await tx<{ name: string; code: string }[]>`select name, code from leave_types where id = ${r.leave_type_id}`;
+  await emitEvent(tx, r.tenant_id, "leave.approved", { employeeId: r.employee_id, occurrence: requestId, link: "/me/leave",
+    facts: { "leave.type_code": lt?.code ?? null, "leave.days": Number(r.days) }, vars: { "leave.type": lt?.name ?? null, "leave.from": r.from_date, "leave.to": r.to_date, "leave.days": Number(r.days) } });
+  await emitWebhook(tx, r.tenant_id, "leave.approved", { leave_request_id: requestId, employee_id: r.employee_id, leave_type_code: lt?.code ?? null, from: r.from_date, to: r.to_date, days: Number(r.days) });
+  await pushCalendarEvent(tx, r.tenant_id, "leave", requestId, [r.employee_id], { title: `${lt?.name ?? "Leave"} (approved)`, start: r.from_date, end: addDaysISO(r.to_date, 1), allDay: true, description: "Approved leave, from erp" });
   const cycle = await cycleStartFor(tx, r.employee_id, r.from_date);
   await tx`
     insert into leave_ledger (tenant_id, employee_id, leave_type_id, cycle_start, entry_date, kind, amount, ref_type, ref_id, idempotency_key, created_by)

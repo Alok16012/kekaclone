@@ -1,4 +1,5 @@
 import "server-only";
+import { cancelCalendarEvent, pushCalendarEvent } from "@/server/modules/calendar/service";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { notifyEmployee } from "@/server/modules/approvals/service";
@@ -65,6 +66,7 @@ export async function scheduleInterview(tx: Tx, actor: Actor, applicationId: str
       ${title}, ${input.notes?.trim().slice(0, 2000) || null}, ${actor.userId}) returning id`;
   for (const p of panel) await tx`insert into interview_panelists (interview_id, employee_id, tenant_id) values (${i.id}, ${p}, ${actor.tenant.id})`;
   const v = await valuesFor(tx, actor.tenant.name, applicationId);
+  if (start && end) await pushCalendarEvent(tx, actor.tenant.id, "interview", i.id, panel, { title: `Interview: ${v.values["candidate.name"]} (${v.values["job.title"]})`, start: start.toISOString(), end: end.toISOString(), description: `${title}${meetingUrl ? `\n${meetingUrl}` : ""}`, location: location ?? meetingUrl ?? null });
   const when = start && end ? slotLabel({ start, end }) : "a time you choose";
   for (const p of found) {
     const token = await issueToken(tx, { tenantId: actor.tenant.id, kind: "scorecard", interviewId: i.id, employeeId: p.id, days: 45 });
@@ -98,6 +100,7 @@ async function interviewFor(tx: Tx, actor: Actor, interviewId: string, opts: { a
 
 export async function setInterviewStatus(tx: Tx, actor: Actor, interviewId: string, status: "completed" | "no_show" | "cancelled", reason?: string | null) {
   const i = await interviewFor(tx, actor, interviewId, { act: true });
+  if (status === "cancelled") await cancelCalendarEvent(tx, "interview", interviewId);
   const allowed = status === "cancelled" ? ["scheduled", "awaiting_candidate"] : ["scheduled"];
   if (!allowed.includes(i.status)) throw new AppError("conflict", "The interview can't change to that now.");
   await tx`update interviews set status = ${status} where id = ${interviewId}`;
