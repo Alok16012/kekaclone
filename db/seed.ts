@@ -116,6 +116,7 @@ async function main() {
   await (await import("./seed-time2")).seedTime2(tenantId);
   await (await import("./seed-onboarding")).seedOnboarding(tenantId);
   await (await import("./seed-hire")).seedHire(tenantId);
+  await (await import("./seed-performance")).seedPerformance(tenantId);
   console.log(`Seeded http://${DEMO_SUBDOMAIN}.${process.env.ROOT_DOMAIN} — ${Object.keys(ids).length} people. Password for every account is in db/demo.ts (DEMO_PASSWORD).`);
   await admin.end(); await sql.end();
 }

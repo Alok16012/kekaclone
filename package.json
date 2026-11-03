@@ -39,9 +39,11 @@
     "jobs:overtime": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-overtime.ts",
     "smoke:onboarding": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-onboarding.ts",
     "jobs:surveys": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-surveys.ts",
-    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links && pnpm smoke:corehr && pnpm smoke:saas && pnpm smoke:time2 && pnpm smoke:onboarding && pnpm smoke:hire",
     "smoke:hire": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-hire.ts",
-    "jobs:hire": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-hire.ts"
+    "jobs:hire": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-hire.ts",
+    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links && pnpm smoke:corehr && pnpm smoke:saas && pnpm smoke:time2 && pnpm smoke:onboarding && pnpm smoke:hire && pnpm smoke:performance",
+    "smoke:performance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-performance.ts",
+    "jobs:performance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-performance.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

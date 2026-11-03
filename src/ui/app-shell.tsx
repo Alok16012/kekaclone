@@ -11,6 +11,7 @@ import { DoorOpen } from "lucide-react";
 import { HandCoins, Headset, Landmark, Laptop, Package } from "lucide-react";
 import { Network } from "lucide-react";
 import { ClipboardList, ListChecks, Rocket } from "lucide-react";
+import { Gauge, IndianRupee } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "./avatar";
 import { IconButton } from "./button";
@@ -59,6 +60,8 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/payroll/loans", label: "Loans desk", icon: HandCoins },
     { href: "/org/assets", label: "Assets", icon: Package },
     { href: "/helpdesk", label: "Helpdesk queue", icon: Headset },
+    { href: "/performance", label: "Review cycles", icon: Gauge },
+    { href: "/compensation", label: "Compensation", icon: IndianRupee },
     { href: "/hire/jobs", label: "Hiring", icon: BriefcaseBusiness },
     { href: "/engage/announcements", label: "Announcements", icon: Megaphone },
     { href: "/settings", label: "Settings", icon: Settings },
@@ -113,7 +116,7 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans", "/performance", "/compensation"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
 const AREA: Record<string, string> = { "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll", "/hire/jobs": "hire" };
 /** Entries that only make sense on a plan that has the feature (hidden when ShellData.features says the plan lacks it). */

@@ -17,7 +17,7 @@ function assertManage(actor: Actor) {
 
 export const ENTITY_LABELS: Record<string, string> = {
   leave: "Leave", attendance_request: "Attendance requests", profile_change: "Profile changes", comp_off: "Comp-off",
-  exit: "Resignations", expense_claim: "Expense claims", expense_advance: "Expense advances", asset_request: "Asset requests", loan: "Loans", requisition: "Requisitions", offer: "Offers",
+  exit: "Resignations", expense_claim: "Expense claims", expense_advance: "Expense advances", asset_request: "Asset requests", loan: "Loans", requisition: "Requisitions", offer: "Offers", comp_proposal: "Increment proposals",
 };
 export const entityTypes = () => Object.keys(DEFAULT_LEVELS) as EntityType[];
 const isEntity = (s: string): s is EntityType => (entityTypes() as string[]).includes(s);

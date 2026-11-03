@@ -28,6 +28,8 @@ import { ProfileExtras } from "@/features/corehr/profile-extras";
 import { AssignedPolicies, IdCardLink, RehireDialog, TimeTab } from "@/features/corehr/person-tabs";
 import { onboardingForProfile } from "@/server/modules/onboarding/service";
 import { ProfileOnboarding } from "@/features/onboarding/profile-tab";
+import { profilePerformance } from "@/server/modules/performance/profile";
+import { PerformanceTab } from "@/features/performance/profile-tab";
 
 export const metadata: Metadata = { title: "Profile" };
 
@@ -42,6 +44,7 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
     const self = actor.employeeId === id;
     const manageExit = !self && canFor(actor, "exits.manage", m);
     const [docs, praise, finances, assets, onboarding] = await Promise.all([personDocuments(tx, actor, id), praiseFor(tx, actor, id), financesFor(tx, actor, id), personAssets(tx, actor, id), onboardingForProfile(tx, actor, id)]);
+    const performance = await profilePerformance(tx, actor, id);
     const issue = !!docs?.canManage && canFor(actor, "documents.manage", m);
     const [sections, fields, policies, time] = await Promise.all([profileSections(tx, actor, id), personFields(tx, actor, id), assignedPolicies(tx, actor, id), timeTab(tx, actor, id)]);
     const canRehire = p.employee.status === "relieved" && canFor(actor, "employees.write", m);
@@ -50,7 +53,7 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
       p, lookups: p.access === "admin" ? await lookups(tx) : null, managerId: m.manager_id, self, manageExit,
       exit: self || manageExit ? await myExit(tx, id) : null,
       reasons: (self || manageExit) && p.employee.status !== "relieved" ? await listReasons(tx) : [],
-      praise, docs, finances, assets: assets ? toPersonAssetsDTO(assets) : null, sections, fields, policies, time, onboarding,
+      praise, docs, finances, assets: assets ? toPersonAssetsDTO(assets) : null, sections, fields, policies, time, onboarding, performance,
       rehire: canRehire ? { notRehirable: x?.ok === false, lookups: await lookups(tx) } : null, templates: issue ? (await listTemplates(tx)).map((t) => ({ id: t.id, name: t.name, kind: t.kind })) : [],
     };
   });
@@ -74,6 +77,7 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
   if (d.assets) tabs.push({ value: "assets", label: "Assets", content: <PersonAssets data={d.assets} name={e.display_name} /> });
   if (d.onboarding) tabs.push({ value: "onboarding", label: "Onboarding", content: <ProfileOnboarding d={d.onboarding} self={d.self} /> });
   if (d.finances) tabs.push({ value: "finances", label: "Finances", content: <FinancesTab employeeId={e.id} d={d.finances} /> });
+  tabs.push({ value: "performance", label: "Performance", content: <PerformanceTab d={d.performance} name={e.display_name} /> });
   return <ProfileView initialTab={typeof tab === "string" ? tab : undefined} p={d.p} lookups={d.lookups} today={today} currentManagerId={d.managerId} actions={actions} banner={banner} extraTabs={tabs}
     aboutExtra={<PraiseReceivedCard items={d.praise} self={d.p.access === "self"} employeeId={e.id} />}
     profileExtra={d.sections ? <ProfileExtras employeeId={e.id} s={d.sections} fields={d.fields} self={d.self} /> : undefined}
