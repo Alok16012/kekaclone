@@ -26,8 +26,9 @@ Everything time-based runs from ONE script, `pnpm jobs:daily`. For every live te
 7. `approval_timers` – escalation and auto-approval set in Settings → Approvals
 8. `helpdesk` – SLA breaches and escalations
 9. `engage` – publish scheduled announcements
-10. `digest` – pending-approvals email to every approver (once a day)
-11. `email` – deliver queued email
+10. `approval_digest` – pending-approvals email to every approver (once a day)
+
+Queued email is delivered at the end of every tenant's run.
 
 Payroll / loan modules append their own steps through `EXTRA_STEPS` in `src/server/modules/corehr/scheduler.ts`.
 
