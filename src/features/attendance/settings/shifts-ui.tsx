@@ -47,6 +47,7 @@ export function ShiftsSettings({ rows, canEdit }: { rows: ShiftRow[]; canEdit: b
                 <p className="flex flex-wrap items-center gap-2 text-base font-medium">
                   {r.name} <span className="text-sm font-normal text-text-muted">{r.code}</span>
                   {r.kind === "flexible" && <Badge>Flexible</Badge>}
+                  {r.auto_assign && <Badge>Auto {r.auto_assign.from}–{r.auto_assign.to}</Badge>}
                   {Object.values(r.timings).some((t) => t && overnight(t)) && <Badge tone="accent"><Moon />Overnight</Badge>}
                   {r.is_default && <Badge tone="success">Default</Badge>}
                 </p>
@@ -80,6 +81,7 @@ function ShiftDialog({ row, onClose }: { row: ShiftRow | null; onClose: () => vo
   const [brk, setBrk] = React.useState(String(row?.break_minutes ?? 60));
   const [grace, setGrace] = React.useState(String(row?.grace_minutes ?? 15));
   const [half, setHalf] = React.useState(row?.half_day_minutes == null ? "" : String(row.half_day_minutes));
+  const [auto, setAuto] = React.useState<{ from: string; to: string } | null>(row?.auto_assign ?? null);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, start] = React.useTransition();
   const setDay = (d: Day, v: { start: string; end: string } | null) => setTimings((t) => ({ ...t, [d]: v }));
@@ -89,7 +91,7 @@ function ShiftDialog({ row, onClose }: { row: ShiftRow | null; onClose: () => vo
     setError(null);
     const r = await saveShiftAction(row?.id ?? null, {
       name, code, kind, timings: Object.fromEntries(DAYS.map(([d]) => [d, timings[d] ?? null])),
-      break_minutes: Number(brk), grace_minutes: Number(grace), half_day_minutes: half === "" ? null : Number(half),
+      break_minutes: Number(brk), grace_minutes: Number(grace), half_day_minutes: half === "" ? null : Number(half), auto_assign: auto,
     });
     if (!r.ok) { setError(r.error); return; }
     toast.success(row ? `${name} updated` : `${name} added`);
@@ -136,6 +138,16 @@ function ShiftDialog({ row, onClose }: { row: ShiftRow | null; onClose: () => vo
           <Field label="Break (minutes)"><Input type="number" inputMode="numeric" min={0} max={240} value={brk} onChange={(e) => setBrk(e.target.value)} /></Field>
           <Field label="Grace (minutes)" help="Late only after this"><Input type="number" inputMode="numeric" min={0} max={180} value={grace} onChange={(e) => setGrace(e.target.value)} /></Field>
           <Field label="Half day (minutes)" help="Minimum for a half day"><Input type="number" inputMode="numeric" min={30} max={720} value={half} onChange={(e) => setHalf(e.target.value)} placeholder="240" /></Field>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Checkbox label="Auto-assign from the first clock-in" checked={!!auto} onCheckedChange={(c) => setAuto(c ? { from: "05:00", to: "11:00" } : null)} />
+          {auto ? (
+            <div className="grid grid-cols-2 gap-4 sm:max-w-sm">
+              <Field label="Clock-in from"><Input type="time" value={auto.from} onChange={(e) => setAuto({ ...auto, from: e.target.value })} /></Field>
+              <Field label="to"><Input type="time" value={auto.to} onChange={(e) => setAuto({ ...auto, to: e.target.value })} /></Field>
+            </div>
+          ) : null}
+          <p className="text-sm text-text-muted">Someone whose first clock-in of the day falls in this window is put on this shift for that day (unless the roster already says otherwise).</p>
         </div>
         <button type="submit" hidden />
       </form>
