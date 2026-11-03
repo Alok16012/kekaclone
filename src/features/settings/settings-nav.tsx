@@ -26,7 +26,12 @@ const ITEMS = [
     { href: "/settings/time/capture", label: "Clock-in rules" },
     { href: "/settings/time/penalties", label: "Penalties" },
     { href: "/settings/time/assignments", label: "Assignments" },
+    { href: "/settings/time/roster", label: "Roster" },
+    { href: "/settings/time/shift-rules", label: "Shift change rules" },
+    { href: "/settings/time/overtime", label: "Overtime & allowances" },
+    { href: "/settings/time/devices", label: "Devices" },
   ] },
+  { group: "Notifications", links: [{ href: "/settings/notifications", label: "Events & emails" }] },
   { group: "Payroll", links: [
     { href: "/settings/payroll/components", label: "Salary components" },
     { href: "/settings/payroll/pay-groups", label: "Pay groups" },
