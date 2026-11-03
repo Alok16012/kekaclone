@@ -16,7 +16,11 @@ const clockInput = z.object({
   lat: z.number().min(-90).max(90).nullable().optional(),
   lng: z.number().min(-180).max(180).nullable().optional(),
   accuracy: z.number().min(0).nullable().optional(),
+  fixAgeMs: z.number().min(0).max(1e9).nullable().optional(),
   comment: z.string().max(500).optional(),
+  selfie: z.string().max(2_200_000).nullable().optional(),
+  deviceKey: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).nullable().optional(),
+  deviceLabel: z.string().max(80).nullable().optional(),
 });
 
 /** Clock in / out. Location is optional and only sent when the policy needs it; the server decides. */

@@ -314,6 +314,13 @@ export async function timeTab(tx: Tx, actor: Actor, employeeId: string, month?: 
     tx<{ id: string; kind: string; from_date: string; to_date: string; status: string; reason: string | null }[]>`
       select id, kind, from_date::text, to_date::text, status, reason from attendance_requests where employee_id = ${employeeId} order by created_at desc limit 10`,
   ]);
+  // clock-ins of the month that carry a selfie or came in from a location / device: what HR looks at when a day is questioned
+  const punches = await tx<{ id: string; at: Date; direction: string; source: string; status: string; selfie_file_id: string | null; lat: number | null; lng: number | null; accuracy_m: number | null; device: string | null }[]>`
+    select p.id, p.at, p.direction, p.source, p.status, p.selfie_file_id, p.lat, p.lng, p.accuracy_m, d.name as device
+    from punches p left join devices d on d.id = p.device_id
+    where p.employee_id = ${employeeId} and p.at >= (${first}::date)::timestamp at time zone 'Asia/Kolkata' and p.at < (${next}::date)::timestamp at time zone 'Asia/Kolkata'
+      and (p.selfie_file_id is not null or p.source in ('mobile','biometric') or p.status <> 'valid')
+    order by p.at desc limit 200`;
   const count = (s: string) => days.find((d) => d.status === s)?.n ?? 0;
   const worked = days.reduce((a, d) => a + d.worked, 0), effective = days.reduce((a, d) => a + d.effective, 0);
   return {
@@ -326,6 +333,7 @@ export async function timeTab(tx: Tx, actor: Actor, employeeId: string, month?: 
     },
     leaveRequests: leaves.slice(0, 10).map((l) => ({ id: l.id, type: l.type, color: l.color, from: l.from_date, to: l.to_date, days: Number(l.days), status: l.status })),
     attendanceRequests: att,
+    clockIns: punches.map((p) => ({ id: p.id, at: p.at.toISOString(), direction: p.direction, source: p.source, status: p.status, selfieFileId: p.selfie_file_id, lat: p.lat, lng: p.lng, accuracy: p.accuracy_m, device: p.device })),
   };
 }
 

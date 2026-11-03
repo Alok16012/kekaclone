@@ -130,7 +130,7 @@ export async function listCapture(tx: Tx): Promise<CaptureRow[]> {
       c.id = (select id from capture_policies order by created_at, id limit 1) as is_default
     from capture_policies c order by c.created_at, c.id`;
   const fences = await tx<(FenceInput & { id: string })[]>`select id, name, lat, lng, radius_m from geofences order by name`;
-  const D = { web: { enabled: true, comment_required: false, ip_ranges: [] as string[] }, mobile: { enabled: true, geofence_ids: [] as string[] },
+  const D = { web: { enabled: true, comment_required: false, ip_ranges: [] as string[] }, mobile: { enabled: true, geofence_ids: [] as string[], selfie: false, first_clock_in_approval: false, accuracy_m: null as number | null },
     remote: { wfh: true, od: true }, limits: { regularization_per_month: 3, regularization_past_days: 7, partial_day_minutes_per_month: 240 } };
   return rows.map((r) => ({
     ...r,
@@ -143,7 +143,7 @@ export async function listCapture(tx: Tx): Promise<CaptureRow[]> {
 export type CaptureInput = {
   name: string;
   web: { enabled: boolean; comment_required: boolean; ip_ranges: string[] };
-  mobile: { enabled: boolean; fences: FenceInput[] };
+  mobile: { enabled: boolean; fences: FenceInput[]; selfie?: boolean; first_clock_in_approval?: boolean; accuracy_m?: number | null };
   remote: { wfh: boolean; od: boolean };
   limits: CapturePolicy["limits"];
 };
@@ -165,6 +165,8 @@ export async function saveCapture(tx: Tx, actor: Actor, id: string | null, input
     if (!intIn(f.radius_m, 20, 5000)) throw new AppError("invalid", `The radius of ${f.name.trim()} must be between 20 and 5000 metres.`);
   }
   if (input.mobile.enabled && !input.mobile.fences.length && !input.web.enabled) throw new AppError("invalid", "Turn on browser clock-in, or add at least one location for location-based clock-in.");
+  const accuracy = input.mobile.accuracy_m == null ? null : input.mobile.accuracy_m;
+  if (accuracy != null && !intIn(accuracy, 10, 5000)) throw new AppError("invalid", "The location accuracy limit must be between 10 and 5000 metres, or empty for no limit.", "accuracy_m");
   const l = input.limits;
   if (!intIn(l.regularization_per_month, 0, 31) || !intIn(l.regularization_past_days, 0, 90) || !intIn(l.partial_day_minutes_per_month, 0, 2400)) {
     throw new AppError("invalid", "Check the limits: up to 31 regularizations a month, up to 90 days back, up to 40 hours of partial days.");
@@ -187,7 +189,7 @@ export async function saveCapture(tx: Tx, actor: Actor, id: string | null, input
   if (removed.length) await tx`delete from geofences where id = any(${removed}::uuid[])`;
 
   const web = { enabled: input.web.enabled, comment_required: input.web.comment_required, ip_ranges: ranges };
-  const mobile = { enabled: input.mobile.enabled, geofence_ids: keep, selfie: false, first_clock_in_approval: false };
+  const mobile = { enabled: input.mobile.enabled, geofence_ids: keep, selfie: !!input.mobile.selfie, first_clock_in_approval: !!input.mobile.first_clock_in_approval, accuracy_m: accuracy };
   const row = await guarded(tx, (sp) => id
     ? sp<{ id: string }[]>`update capture_policies set name = ${name}, web = ${sp.json(web)}, mobile = ${sp.json(mobile)}, remote = ${sp.json(input.remote)}, limits = ${sp.json(l)} where id = ${id} returning id`
     : sp<{ id: string }[]>`insert into capture_policies (tenant_id, name, web, mobile, remote, limits) values (${actor.tenant.id}, ${name}, ${sp.json(web)}, ${sp.json(mobile)}, ${sp.json(input.remote)}, ${sp.json(l)}) returning id`,
