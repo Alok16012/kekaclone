@@ -41,9 +41,12 @@
     "jobs:surveys": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-surveys.ts",
     "smoke:hire": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-hire.ts",
     "jobs:hire": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-hire.ts",
-    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links && pnpm smoke:corehr && pnpm smoke:saas && pnpm smoke:time2 && pnpm smoke:onboarding && pnpm smoke:hire && pnpm smoke:performance",
     "smoke:performance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-performance.ts",
-    "jobs:performance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-performance.ts"
+    "jobs:performance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-performance.ts",
+    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links && pnpm smoke:corehr && pnpm smoke:saas && pnpm smoke:time2 && pnpm smoke:onboarding && pnpm smoke:hire && pnpm smoke:performance && pnpm smoke:workspace",
+    "smoke:workspace": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-workspace.ts",
+    "jobs:learn": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-learn.ts",
+    "jobs:reports": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-reports.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

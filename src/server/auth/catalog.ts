@@ -53,8 +53,16 @@ export const PERMISSIONS = [
     { key: "settings.integrations", label: "Manage API keys, webhooks and Slack / Teams / calendar integrations" },
     { key: "settings.notifications", label: "Choose which events send in-app notifications and emails" },
   ] },
+  { group: "Projects & timesheets", items: [
+    { key: "psa.admin", label: "Set up clients, projects, project teams and timesheet policies" },
+    { key: "psa.billing", label: "Raise and manage project invoices" },
+  ] },
+  { group: "Learn", items: [
+    { key: "learn.admin", label: "Author courses, assign them and see completion reports" },
+  ] },
   { group: "Reports", items: [
     { key: "reports.read", label: "View and export reports" },
+    { key: "reports.build", label: "Build, save, share and schedule custom reports" },
   ] },
 ] as const;
 

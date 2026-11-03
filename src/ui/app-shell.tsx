@@ -12,6 +12,7 @@ import { HandCoins, Headset, Landmark, Laptop, Package } from "lucide-react";
 import { Network } from "lucide-react";
 import { ClipboardList, ListChecks, Rocket } from "lucide-react";
 import { Gauge, IndianRupee } from "lucide-react";
+import { ChartColumn, FolderKanban, GraduationCap, Timer } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "./avatar";
 import { IconButton } from "./button";
@@ -45,6 +46,8 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/me/tasks", label: "My tasks", icon: ListChecks },
     { href: "/me/surveys", label: "Surveys", icon: ClipboardList },
     { href: "/me/jobs", label: "Jobs & referrals", icon: BriefcaseBusiness },
+    { href: "/me/timesheet", label: "Timesheet", icon: Timer },
+    { href: "/me/learn", label: "Learning", icon: GraduationCap },
   ] },
   { label: "Organisation", items: [
     { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -62,6 +65,9 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/helpdesk", label: "Helpdesk queue", icon: Headset },
     { href: "/performance", label: "Review cycles", icon: Gauge },
     { href: "/compensation", label: "Compensation", icon: IndianRupee },
+    { href: "/psa/projects", label: "Projects", icon: FolderKanban },
+    { href: "/learn/admin", label: "Learn admin", icon: GraduationCap },
+    { href: "/reports", label: "Reports", icon: ChartColumn },
     { href: "/hire/jobs", label: "Hiring", icon: BriefcaseBusiness },
     { href: "/engage/announcements", label: "Announcements", icon: Megaphone },
     { href: "/settings", label: "Settings", icon: Settings },
@@ -116,9 +122,9 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans", "/performance", "/compensation"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans", "/performance", "/compensation", "/psa/projects", "/learn/admin", "/reports"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
-const AREA: Record<string, string> = { "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll", "/hire/jobs": "hire" };
+const AREA: Record<string, string> = { "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll", "/hire/jobs": "hire", "/psa/projects": "psa", "/learn/admin": "learn", "/reports": "reports" };
 /** Entries that only make sense on a plan that has the feature (hidden when ShellData.features says the plan lacks it). */
 export const FEATURE_OF: Record<string, string> = { "/hire/jobs": "hire", "/me/performance": "performance" };
 export const planShows = (d: ShellData | null, href: string) => !FEATURE_OF[href] || !d?.features || d.features.includes(FEATURE_OF[href]);

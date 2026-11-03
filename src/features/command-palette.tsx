@@ -111,6 +111,16 @@ const PAGES: Item[] = [
   { id: "p-perf-set", kind: "page", label: "Performance settings", hint: "Settings", href: "/performance/settings", icon: <Settings />, keywords: "okr kra rating scale bands forms periods", admin: true },
   { id: "p-perf-skills", kind: "page", label: "Skills and competencies", hint: "Settings", href: "/performance/settings/skills", icon: <Settings />, keywords: "core values competency library", admin: true },
   { id: "p-comp", kind: "page", label: "Compensation", href: "/compensation", icon: <IndianRupee />, keywords: "increment hike appraisal budget raise matrix", admin: true },
+  { id: "p-timesheet", kind: "page", label: "My timesheet", href: "/me/timesheet", icon: <Clock />, keywords: "hours projects week log time billable submit" },
+  { id: "p-learn-me", kind: "page", label: "My learning", href: "/me/learn", icon: <Target />, keywords: "courses training lms quiz certificate" },
+  { id: "p-projects", kind: "page", label: "Projects", hint: "Projects desk", href: "/psa/projects", icon: <LayoutGrid />, keywords: "psa clients tasks milestones team bill rate", admin: true, area: "psa" },
+  { id: "p-clients", kind: "page", label: "Clients", hint: "Projects desk", href: "/psa/clients", icon: <LayoutGrid />, keywords: "psa customers gstin", admin: true, area: "psa" },
+  { id: "p-ts-approvals", kind: "page", label: "Timesheet approvals", hint: "Projects desk", href: "/psa/approvals", icon: <Clock />, keywords: "approve hours week team" },
+  { id: "p-psa-billing", kind: "page", label: "Billing", hint: "Projects desk", href: "/psa/billing", icon: <Wallet />, keywords: "invoice gst retainer milestone pdf", admin: true, area: "psa" },
+  { id: "p-ts-policy", kind: "page", label: "Timesheet policy", hint: "Settings", href: "/settings/timesheets", icon: <Settings />, keywords: "minimum hours lock approver weekly daily", admin: true, area: "psa" },
+  { id: "p-learn-admin", kind: "page", label: "Learn admin", href: "/learn/admin", icon: <Target />, keywords: "courses author assign completion overdue lms", admin: true, area: "learn" },
+  { id: "p-reports", kind: "page", label: "Reports", href: "/reports", icon: <ChartBar />, keywords: "headcount attrition leave attendance expenses export csv xlsx", admin: true, area: "reports" },
+  { id: "p-report-builder", kind: "page", label: "Report builder", hint: "Reports", href: "/reports/builder", icon: <ChartBar />, keywords: "custom dataset columns filters schedule email", admin: true, area: "reports" },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -138,6 +148,7 @@ const ACTIONS: Item[] = [
   { id: "a-refer", kind: "action", label: "Refer someone for a job", href: "/me/jobs?tab=referrals", icon: <UserPlus />, keywords: "referral friend recommend bonus" },
   { id: "a-post-job", kind: "action", label: "Post a job", href: "/hire/jobs/new", icon: <BriefcaseBusiness />, keywords: "open role vacancy hiring create", admin: true, area: "hire" },
   { id: "a-resign", kind: "action", label: "Resign", hint: "From your profile", href: "/me", icon: <UserMinus />, keywords: "resignation quit leave job notice" },
+  { id: "a-timesheet", kind: "action", label: "Fill in my timesheet", href: "/me/timesheet", icon: <Clock />, keywords: "log hours week project submit" },
 ];
 
 const RECENT_KEY = "erp-recent";

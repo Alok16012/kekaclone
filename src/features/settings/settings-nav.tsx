@@ -54,6 +54,7 @@ const ITEMS = [
   ] },
   { group: "Hiring", links: [{ href: "/settings/hire", label: "Hiring" }] },
   { group: "Performance", links: [{ href: "/performance/settings", label: "Performance" }, { href: "/performance/settings/skills", label: "Skills library" }] },
+  { group: "Projects", links: [{ href: "/settings/timesheets", label: "Timesheet policy" }] },
 ];
 
 /** Vertical on desktop, horizontally scrolling chips on mobile. */
