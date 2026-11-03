@@ -1,0 +1,89 @@
+/**
+ * Public API and webhooks: the parts with no I/O. Token format, scopes, event catalogue, request signing and the
+ * retry schedule. Pure, so they are unit-tested and shared with the settings screen.
+ */
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export const API_SCOPES = [
+  { key: "employees:read", label: "Read employees (directory fields only, no pay or identity numbers)" },
+  { key: "departments:read", label: "Read departments" },
+  { key: "locations:read", label: "Read locations" },
+  { key: "leave:read", label: "Read leave requests" },
+  { key: "attendance:read", label: "Read attendance days" },
+] as const;
+export type ApiScope = (typeof API_SCOPES)[number]["key"];
+export const ALL_SCOPES: string[] = API_SCOPES.map((s) => s.key);
+export const isScope = (v: unknown): v is ApiScope => typeof v === "string" && ALL_SCOPES.includes(v);
+
+export const WEBHOOK_EVENTS = [
+  { key: "approval.decided", label: "A request was approved or declined (leave, attendance, expenses, …)" },
+  { key: "employee.created", label: "A person was added" },
+  { key: "employee.exited", label: "A person's exit was completed" },
+  { key: "payroll.finalized", label: "A payroll run was finalised" },
+  { key: "test.ping", label: "Test event sent from Settings" },
+] as const;
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number]["key"];
+export const ALL_EVENTS: string[] = WEBHOOK_EVENTS.map((e) => e.key);
+export const isEvent = (v: unknown): v is WebhookEvent => typeof v === "string" && ALL_EVENTS.includes(v);
+
+export const TOKEN_PREFIX = "erp_live_";
+/** erp_live_<8 char prefix>_<secret>. The prefix is stored in clear to show which key was used; the hash covers the whole token. */
+export function parseToken(raw: string | null | undefined): { token: string; prefix: string } | null {
+  const token = (raw ?? "").trim();
+  const m = /^erp_live_([a-z0-9]{8})_([a-z0-9]{32,64})$/.exec(token);
+  return m ? { token, prefix: m[1] } : null;
+}
+export const bearerToken = (header: string | null) => (header?.startsWith("Bearer ") ? header.slice(7) : null);
+
+/** Signature header for an outbound webhook: t=<unix seconds>,v1=<hmac-sha256(secret, "<t>.<body>")>. */
+export function signWebhook(secret: string, body: string, timestampSec: number) {
+  const v1 = createHmac("sha256", secret).update(`${timestampSec}.${body}`).digest("hex");
+  return `t=${timestampSec},v1=${v1}`;
+}
+
+/** For consumers (and our tests): verify a signature header against the raw body, within a tolerance window. */
+export function verifyWebhookSignature(secret: string, body: string, header: string, nowSec: number, toleranceSec = 300) {
+  const parts = Object.fromEntries(header.split(",").map((p) => p.split("=") as [string, string]));
+  const t = Number(parts.t);
+  if (!Number.isFinite(t) || Math.abs(nowSec - t) > toleranceSec || !parts.v1) return false;
+  const expected = createHmac("sha256", secret).update(`${t}.${body}`).digest("hex");
+  return expected.length === parts.v1.length && timingSafeEqual(Buffer.from(expected), Buffer.from(parts.v1));
+}
+
+/** Minutes to wait before the next attempt, by how many attempts have already been made. null = give up. */
+export const RETRY_MINUTES = [1, 5, 30, 120, 720];
+export const MAX_ATTEMPTS = RETRY_MINUTES.length + 1;
+export function nextRetryMinutes(attemptsSoFar: number): number | null {
+  return attemptsSoFar >= MAX_ATTEMPTS ? null : RETRY_MINUTES[attemptsSoFar - 1] ?? null;
+}
+
+/** Webhook endpoints must be https and not point at private networks or this app. */
+export function endpointUrlProblem(url: string, ownRoot?: string | null) {
+  let u: URL;
+  try { u = new URL(url.trim()); } catch { return "Enter a full URL starting with https://."; }
+  if (u.protocol !== "https:") return "Webhook URLs must use https.";
+  const h = u.hostname.toLowerCase();
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || /^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) || h === "::1" || h === "[::1]") return "That address points at a private network.";
+  if (ownRoot && (h === ownRoot || h.endsWith("." + ownRoot))) return "Webhooks can't point back at erp.";
+  return null;
+}
+
+/** Simple fixed-window rate limit used per API key: 120 requests per minute. Pure state machine; the caller keeps the map. */
+export const RATE_LIMIT = { perMinute: 120 };
+export function rateLimitTick(state: { windowStart: number; count: number } | undefined, nowMs: number) {
+  const windowStart = Math.floor(nowMs / 60_000) * 60_000;
+  const s = state && state.windowStart === windowStart ? { ...state, count: state.count + 1 } : { windowStart, count: 1 };
+  return { state: s, allowed: s.count <= RATE_LIMIT.perMinute, remaining: Math.max(0, RATE_LIMIT.perMinute - s.count), resetSec: Math.ceil((windowStart + 60_000 - nowMs) / 1000) };
+}
+
+/** Offset cursor for paged JSON: opaque to callers, bounded here. */
+export function decodePageCursor(raw: string | null | undefined) {
+  if (!raw) return 0;
+  const n = Number(Buffer.from(raw, "base64url").toString("utf8"));
+  return Number.isInteger(n) && n >= 0 && n <= 1_000_000 ? n : 0;
+}
+export const encodePageCursor = (offset: number) => Buffer.from(String(offset), "utf8").toString("base64url");
+export function pageLimit(raw: string | null | undefined, fallback = 50, max = 100) {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? Math.min(n, max) : fallback;
+}

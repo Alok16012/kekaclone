@@ -12,7 +12,7 @@ import { Headset, Laptop, Package, PackagePlus } from "lucide-react";
 import { HandCoins, Landmark } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { cn } from "@/lib/cn";
-import type { ShellData } from "@/ui/app-shell";
+import { planShows, type ShellData } from "@/ui/app-shell";
 import type { PersonHit } from "@/server/modules/employees/service";
 import { searchPeopleAction } from "@/app/(app)/actions";
 
@@ -72,6 +72,10 @@ const PAGES: Item[] = [
   { id: "p-assets", kind: "page", label: "Assets", href: "/org/assets", icon: <Package />, keywords: "inventory laptop hand over return recovery", admin: true, area: "assets" },
   { id: "p-helpdesk-set", kind: "page", label: "Helpdesk categories", hint: "Settings", href: "/settings/helpdesk", icon: <Settings />, keywords: "sla escalation agents ticket", admin: true, area: "helpdesk-settings" },
   { id: "p-letters", kind: "page", label: "Letter templates", hint: "Settings", href: "/settings/documents", icon: <FilePen />, keywords: "letters relieving experience placeholders templates", admin: true },
+  { id: "p-billing", kind: "page", label: "Billing & plan", hint: "Settings", href: "/settings/billing", icon: <Wallet />, keywords: "subscription invoices upgrade seats trial razorpay gst", admin: true },
+  { id: "p-branding", kind: "page", label: "Branding", hint: "Settings", href: "/settings/branding", icon: <Settings />, keywords: "logo accent colour theme login page", admin: true },
+  { id: "p-integrations", kind: "page", label: "Integrations", hint: "Settings", href: "/settings/integrations", icon: <Settings />, keywords: "slack teams calendar google outlook tally zoho accounting export", admin: true },
+  { id: "p-api", kind: "page", label: "API & webhooks", hint: "Settings", href: "/settings/api", icon: <Settings />, keywords: "api keys tokens webhooks developers rest", admin: true },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -151,7 +155,7 @@ export function CommandPalette({ data }: { data?: Promise<ShellData | null> }) {
   }, [q]);
 
   const term = q.trim().toLowerCase();
-  const allowed = (i: Item) => isAdmin || !i.admin || (!!i.area && areas.includes(i.area));
+  const allowed = (i: Item) => planShows(shell, i.href) && (isAdmin || !i.admin || (!!i.area && areas.includes(i.area)));
   const sections: { label: string; items: Item[] }[] = term
     ? [
         { label: "People", items: term.length >= 2 ? people.map((p) => ({ id: "e-" + p.id, kind: "person" as const, label: p.name, hint: [p.title, p.department].filter(Boolean).join(" · "), href: `/people/${p.id}`, person: p })) : [] },

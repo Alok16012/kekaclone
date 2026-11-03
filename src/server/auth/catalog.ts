@@ -38,6 +38,8 @@ export const PERMISSIONS = [
     { key: "settings.roles", label: "Manage roles and who has them" },
     { key: "settings.security", label: "Change sign-in security (codes, login methods)" },
     { key: "settings.audit", label: "View the audit log and sign-in history" },
+    { key: "settings.billing", label: "See the plan and invoices, change or cancel the subscription" },
+    { key: "settings.integrations", label: "Manage API keys, webhooks and Slack / Teams / calendar integrations" },
   ] },
   { group: "Reports", items: [
     { key: "reports.read", label: "View and export reports" },

@@ -52,3 +52,25 @@ export function passwordChangedEmail(p: { company: string; name: string }) {
       undefined, "If this wasn't you, contact your HR team right away."),
   };
 }
+
+export function trialEmail(p: { company: string; name: string; kind: "7d" | "1d" | "ended"; url: string }) {
+  const heading = p.kind === "ended" ? "Your erp trial has ended" : p.kind === "1d" ? "Your erp trial ends tomorrow" : "Your erp trial ends in 7 days";
+  return {
+    subject: heading,
+    ...layout(p.company, heading, [
+      `Hi ${esc(p.name.split(" ")[0])},`,
+      p.kind === "ended"
+        ? `The free trial for ${esc(p.company)} is over. Plan features are paused until a plan is chosen; everyone's data and sign-ins are safe.`
+        : `Thanks for trying erp with ${esc(p.company)}. Pick a plan before the trial ends so nothing is interrupted. Pricing is per employee per month, billed quarterly or yearly.`,
+    ], { label: "Choose a plan", url: p.url }, "You're getting this because you're an admin of this workspace."),
+  };
+}
+
+export function invoiceEmail(p: { company: string; name: string; number: string; total: string; url: string }) {
+  return {
+    subject: `Invoice ${p.number} from erp — ${p.total}`,
+    ...layout(p.company, "Payment received", [
+      `Hi ${esc(p.name.split(" ")[0])}, we've received ${esc(p.total)} for ${esc(p.company)}'s erp subscription. Invoice ${esc(p.number)} is ready in Settings → Billing.`,
+    ], { label: "See invoices", url: p.url }, "GST is charged at 18%. Keep this invoice for your records."),
+  };
+}

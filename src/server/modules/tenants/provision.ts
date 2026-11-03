@@ -29,7 +29,7 @@ export async function provisionTenant(s: Signup) {
   const tenantId = randomUUID();
   return sql.begin(async (tx) => {
     await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
-    await tx`insert into tenants (id, subdomain, name, seats, trial_ends_at, setup_state) values (${tenantId}, ${sub}, ${s.company.trim()}, ${Math.max(25, s.employees ?? 25)}, now() + interval '30 days', ${tx.json({ status: "pending" })})`;
+    await tx`insert into tenants (id, subdomain, name, seats, plan, trial_ends_at, setup_state) values (${tenantId}, ${sub}, ${s.company.trim()}, ${Math.max(25, s.employees ?? 25)}, 'pro', now() + interval '30 days', ${tx.json({ status: "pending" })})`;
     await tx`insert into legal_entities (tenant_id, name) values (${tenantId}, ${s.company.trim()})`;
     await tx`insert into locations (tenant_id, name) values (${tenantId}, 'Head office')`;
     for (const d of ["Management", "People", "Engineering", "Sales", "Finance", "Operations"]) await tx`insert into departments (tenant_id, name) values (${tenantId}, ${d})`;
@@ -58,6 +58,7 @@ export async function provisionTenant(s: Signup) {
     const [ga] = await tx<{ id: string }[]>`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'global_admin', 'Global admin', true, ${["*"]}) returning id`;
     await tx`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'hr_admin', 'HR admin', true,
       ${["employees.read", "employees.write", "leave.admin", "attendance.admin", "approvals.override", "reports.read", "settings.org", "exits.manage", "documents.manage", "engage.announce", "helpdesk.admin", "assets.admin"]})`;
+    // the 30-day trial runs on Pro so every feature can be tried; the plan chosen at checkout replaces it
     await tx`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'payroll_admin', 'Payroll admin', true, ${["payroll.admin", "employees.read"]})`;
     for (const b of DEFAULT_BADGES) await tx`insert into badges (tenant_id, name, icon) values (${tenantId}, ${b.name}, ${b.icon})`;
     await tx`insert into approval_workflows (tenant_id, entity_type, name, levels) values (${tenantId}, 'leave', 'Leave: reporting manager', ${tx.json([{ approver: "manager" }])})`;

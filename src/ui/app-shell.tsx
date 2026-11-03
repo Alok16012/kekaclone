@@ -15,7 +15,11 @@ import { IconButton } from "./button";
 import { Menu } from "./overlay";
 import { ThemeToggle } from "./theme";
 
-export type ShellData = { tenant: string; user: { name: string; title: string }; isAdmin: boolean; areas?: string[]; inboxCount: number; unread: number };
+export type ShellData = {
+  tenant: string; user: { name: string; title: string }; isAdmin: boolean; areas?: string[]; inboxCount: number; unread: number;
+  /** plan features the workspace has (see saas/plans.ts); when absent nothing is hidden */
+  features?: string[];
+};
 
 export type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number };
 export type NavGroup = { label?: string; items: NavItem[] };
@@ -105,7 +109,10 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
 const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
 const AREA: Record<string, string> = { "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll" };
-const showItem = (d: ShellData | null, href: string) => !ADMIN_ONLY.has(href) || !!d?.isAdmin || (!!AREA[href] && !!d?.areas?.includes(AREA[href]));
+/** Entries that only make sense on a plan that has the feature (hidden when ShellData.features says the plan lacks it). */
+export const FEATURE_OF: Record<string, string> = { "/hire/jobs": "hire", "/me/performance": "performance" };
+export const planShows = (d: ShellData | null, href: string) => !FEATURE_OF[href] || !d?.features || d.features.includes(FEATURE_OF[href]);
+const showItem = (d: ShellData | null, href: string) => planShows(d, href) && (!ADMIN_ONLY.has(href) || !!d?.isAdmin || (!!AREA[href] && !!d?.areas?.includes(AREA[href])));
 
 function navFor(d: ShellData | null): NavGroup[] {
   return DEFAULT_NAV.map((g) => ({

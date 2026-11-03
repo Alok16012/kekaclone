@@ -3,12 +3,15 @@ import { headers } from "next/headers";
 import { withTenant, AppError } from "@/server/db";
 import { newToken, sha256, verifyPassword } from "@/server/auth/password";
 import type { Tenant } from "@/server/auth/session";
+import { ipAllowed } from "@/server/auth/network-rules";
 
 const MAX_FAILS = 5, LOCK_MINUTES = 15;
 
 /** Password login. Same message for unknown email and wrong password; locks for 15 minutes after 5 failures. */
 export async function passwordLogin(tenant: Tenant, email: string, password: string) {
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+  if (!ipAllowed(ip, tenant.authSettings?.ip_allowlist ?? [])) throw new AppError("forbidden", "Sign-in isn't allowed from this network. Ask your admin about the IP allowlist.");
+  if (tenant.authSettings?.sso_only) throw new AppError("forbidden", "Your company signs in with single sign-on. Use the Google or Microsoft button.");
   return withTenant(tenant.id, async (tx) => {
     const [u] = await tx<{ id: string; password_hash: string | null; status: string; failed_logins: number; locked_until: Date | null }[]>`
       select id, password_hash, status, failed_logins, locked_until from users where email = ${email.trim().toLowerCase()} for update`;

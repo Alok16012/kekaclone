@@ -1,4 +1,5 @@
 import "server-only";
+import { assertFeature } from "@/server/modules/saas/gate";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { assertCan } from "@/server/auth/permissions";
@@ -23,6 +24,7 @@ export async function saveRole(tx: Tx, actor: Actor, id: string | null, input: {
   const name = input.name.trim();
   if (!name) throw new AppError("invalid", "Give the role a name.", "name");
   const perms = [...new Set(input.permissions.filter((p) => ALL_PERMISSION_KEYS.includes(p)))];
+  if (!id) assertFeature(actor, "custom_roles");   // plan gate: new (non-system) roles
   if (id) {
     const [r] = await tx<{ is_system: boolean; key: string }[]>`select is_system, key from roles where id = ${id}`;
     if (!r) throw new AppError("not_found", "Role not found.");
