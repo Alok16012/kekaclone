@@ -8,6 +8,7 @@ import { onExitDecided } from "@/server/modules/exits/effects";
 import { onExpenseAdvanceDecided, onExpenseClaimDecided } from "@/server/modules/expenses/effects";
 import { onAssetRequestDecided } from "@/server/modules/assets/effects";
 import { onLoanDecided } from "@/server/modules/loans/effects";
+import { notify } from "@/server/modules/notifications/service";
 
 export type Level = { approver: "manager" | "l2_manager" | "role" | "employee"; role?: string; id?: string };
 export type EntityType = "leave" | "attendance_request" | "profile_change" | "comp_off" | "exit" | "expense_claim" | "expense_advance" | "asset_request" | "loan";
@@ -137,7 +138,7 @@ export async function timeline(tx: Tx, entityType: EntityType, entityId: string)
     where r.entity_type = ${entityType} and r.entity_id = ${entityId} order by s.level`;
 }
 
+/** In-app and/or email, per the tenant's notification settings (Settings → Notifications). */
 export async function notifyEmployee(tx: Tx, tenantId: string, employeeId: string, kind: string, title: string, body: string, link: string) {
-  await tx`insert into notifications (tenant_id, user_id, kind, title, body, link)
-           select ${tenantId}, user_id, ${kind}, ${title}, ${body}, ${link} from employees where id = ${employeeId} and user_id is not null`;
+  await notify(tx, tenantId, [employeeId], kind, title, body, link);
 }

@@ -52,3 +52,24 @@ export function passwordChangedEmail(p: { company: string; name: string }) {
       undefined, "If this wasn't you, contact your HR team right away."),
   };
 }
+
+/** Any in-app notification, as an email: what happened and a button to the page it concerns. */
+export function notificationEmail(p: { company: string; name: string; title: string; body: string; url: string; eventLabel?: string }) {
+  return {
+    subject: `${p.title} · ${p.company}`,
+    ...layout(p.company, p.title, [`Hi ${esc(p.name.split(" ")[0])},`, esc(p.body)], { label: "Open in erp", url: p.url },
+      `You're getting this because of your account at ${p.company}. An admin can change which events are emailed under Settings → Notifications.`),
+  };
+}
+
+/** One email per approver per day: everything still waiting for them, oldest first. */
+export function digestEmail(p: { company: string; name: string; url: string; items: { kind: string; summary: string; ago: string }[] }) {
+  const n = p.items.length;
+  const rows = p.items.slice(0, 25).map((i) => `<div style="padding:8px 0;border-bottom:1px solid #e2e5ea"><span style="display:inline-block;min-width:96px;font-size:12px;color:#535c68;text-transform:uppercase">${esc(i.kind)}</span> ${esc(i.summary)} <span style="color:#535c68;font-size:12px">· ${esc(i.ago)}</span></div>`);
+  if (n > 25) rows.push(`<div style="padding:8px 0;color:#535c68">… and ${n - 25} more</div>`);
+  return {
+    subject: `${n} ${n === 1 ? "request is" : "requests are"} waiting for you · ${p.company}`,
+    ...layout(p.company, `${n} ${n === 1 ? "request" : "requests"} waiting for your decision`, [`Hi ${esc(p.name.split(" ")[0])}, here's what's in your inbox this morning:`, rows.join("")],
+      { label: "Open my inbox", url: p.url }, "You get this digest once a day while something is waiting. An admin can turn it off under Settings → Notifications."),
+  };
+}
