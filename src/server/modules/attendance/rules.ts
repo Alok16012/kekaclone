@@ -24,8 +24,12 @@ export const timingMinutes = (t: DayTiming) => (isOvernight(t) ? toMin(t.end) + 
 /** Minutes someone must work on a timing: its length minus the break. */
 export const requiredMinutes = (s: ShiftDef, t: DayTiming) => Math.max(0, timingMinutes(t) - s.break_minutes);
 
-export function validateShift(s: { name: string; code: string; kind: string; timings: Record<string, DayTiming | null | undefined>; break_minutes: number; grace_minutes: number; half_day_minutes: number | null }): string | null {
+export function validateShift(s: { name: string; code: string; kind: string; timings: Record<string, DayTiming | null | undefined>; break_minutes: number; grace_minutes: number; half_day_minutes: number | null; auto_assign?: DayTiming | null }): string | null {
   if (!s.name.trim()) return "Give the shift a name.";
+  if (s.auto_assign) {
+    if (!isHHMM(s.auto_assign.start) || !isHHMM(s.auto_assign.end)) return "Auto-assign times must look like 05:00.";
+    if (s.auto_assign.start === s.auto_assign.end) return "The auto-assign window can't start and end at the same time.";
+  }
   if (!/^[A-Za-z0-9_-]{1,12}$/.test(s.code)) return "Use a short code of letters and numbers (up to 12), e.g. GEN or NIGHT.";
   if (s.kind !== "fixed" && s.kind !== "flexible") return "Choose fixed or flexible.";
   const days = Object.entries(s.timings).filter(([, t]) => t);
@@ -405,8 +409,11 @@ export function checkPunch(p: CapturePolicy, fences: Fence[], m: { ip: string | 
 
 // ---------------------------------------------------------------- employee requests
 
-export type RequestKind = "regularization" | "partial_day" | "wfh" | "on_duty";
-export const REQUEST_LABELS: Record<RequestKind, string> = { regularization: "Regularize", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty" };
+export type RequestKind = "regularization" | "partial_day" | "wfh" | "on_duty" | "overtime" | "shift_change" | "weekly_off_change";
+export const REQUEST_LABELS: Record<RequestKind, string> = {
+  regularization: "Regularize", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty",
+  overtime: "Overtime", shift_change: "Shift change", weekly_off_change: "Weekly off swap",
+};
 
 export function validateRegularization(r: {
   date: ISODate; today: ISODate; joining: ISODate; inTime: string; outTime: string; reason: string;

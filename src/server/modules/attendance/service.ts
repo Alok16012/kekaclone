@@ -82,10 +82,11 @@ export async function punch(tx: Tx, actor: Actor, meta: PunchMeta) {
 export type LogRow = {
   date: ISODate; dayType: string; status: string; firstIn: string | null; lastOut: string | null; gross: number; effective: number; late: number; early: number;
   leave: string | null; shift: string | null; penalties: StoredPenalty[]; missingSwipe: boolean; regularized: boolean;
+  overtime: number;
   requests: { kind: string; status: string }[];
 };
 
-type DayRow = { employee_id: string; date: string; status: string; day_type: string; first_in: Date | null; last_out: Date | null; gross_minutes: number; effective_minutes: number; late_minutes: number; early_minutes: number; penalties: StoredPenalty[]; shift: string | null };
+type DayRow = { employee_id: string; date: string; status: string; day_type: string; first_in: Date | null; last_out: Date | null; gross_minutes: number; effective_minutes: number; late_minutes: number; early_minutes: number; penalties: StoredPenalty[]; shift: string | null; overtime_minutes: number };
 
 /**
  * Day-by-day statuses for people over a date range, falling back to the calendar and approved leave for days
@@ -95,7 +96,7 @@ export async function statuses(tx: Tx, employeeIds: string[], from: ISODate, to:
   if (!employeeIds.length) return new Map<string, Map<ISODate, LogRow>>();
   const [days, leaves, people, reqs, regs] = await Promise.all([
     tx<DayRow[]>`
-      select a.employee_id, a.date::text, a.status, a.day_type, a.first_in, a.last_out, a.gross_minutes, a.effective_minutes, a.late_minutes, a.early_minutes, a.penalties, s.name as shift
+      select a.employee_id, a.date::text, a.status, a.day_type, a.first_in, a.last_out, a.gross_minutes, a.effective_minutes, a.late_minutes, a.early_minutes, a.penalties, s.name as shift, a.overtime_minutes
       from attendance_days a left join shifts s on s.id = a.shift_id
       where a.employee_id = any(${employeeIds}::uuid[]) and a.date between ${from} and ${to}`,
     tx<{ employee_id: string; from_date: string; to_date: string; from_half: string; to_half: string; name: string }[]>`
@@ -131,6 +132,7 @@ export async function statuses(tx: Tx, employeeIds: string[], from: ISODate, to:
         leave: lv?.name ?? null, shift: d?.shift ?? null, penalties: d?.penalties ?? [],
         missingSwipe: !!d && d.status !== "absent" && !!d.first_in && !d.last_out && date < today,
         regularized: regSet.has(`${p.id}:${date}`),
+        overtime: d?.overtime_minutes ?? 0,
         requests: reqs.filter((r) => r.employee_id === p.id && date >= r.from_date && date <= r.to_date).map((r) => ({ kind: r.kind, status: r.status })),
       });
     }

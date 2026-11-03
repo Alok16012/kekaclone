@@ -36,6 +36,21 @@ export function AttendanceRequestDetail({ id, comment, onComment }: { id: string
         {detail.kind === "partial_day" && (
           <div className="col-span-2"><dt className="text-sm text-text-muted">Time away</dt><dd className="font-medium">{p.type === "late_arrival" ? "Coming in late" : "Leaving early"} by {hrs(p.minutes ?? 0)}</dd></div>
         )}
+        {detail.kind === "overtime" && (
+          <>
+            <div><dt className="text-sm text-text-muted">Asked for</dt><dd className="font-medium">{hrs(p.minutes ?? 0)} of overtime</dd></div>
+            <div><dt className="text-sm text-text-muted">Recorded</dt><dd className="font-medium">{detail.day ? `${hrs(detail.day.effective)} worked · ${detail.day.overtime ? `${hrs(detail.day.overtime)} counted` : "no overtime counted yet"}` : "Nothing recorded"}</dd></div>
+          </>
+        )}
+        {detail.kind === "shift_change" && (
+          <div><dt className="text-sm text-text-muted">New shift</dt><dd className="font-medium">{p.shiftName ?? "—"}</dd></div>
+        )}
+        {detail.kind === "weekly_off_change" && (
+          <>
+            <div><dt className="text-sm text-text-muted">Takes off</dt><dd className="font-medium">{p.offDate ? dayLabel(p.offDate) : "—"}</dd></div>
+            <div><dt className="text-sm text-text-muted">Works instead</dt><dd className="font-medium">{p.workDate ? dayLabel(p.workDate) : "—"}</dd></div>
+          </>
+        )}
         {(detail.kind === "wfh" || detail.kind === "on_duty") && (
           <div><dt className="text-sm text-text-muted">How long</dt><dd className="font-medium">{p.half ? `${p.half === "first" ? "First" : "Second"} half` : "Full day"}</dd></div>
         )}

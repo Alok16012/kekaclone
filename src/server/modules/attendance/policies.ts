@@ -39,29 +39,30 @@ async function guarded<T>(tx: Tx, fn: (sp: Tx) => Promise<T>, message: string, f
 
 // ---------------------------------------------------------------- shifts
 
-export type ShiftRow = { id: string; name: string; code: string; kind: "fixed" | "flexible"; timings: Partial<Record<Weekday, DayTiming>>; break_minutes: number; grace_minutes: number; half_day_minutes: number | null; people: number; is_default: boolean };
+export type ShiftRow = { id: string; name: string; code: string; kind: "fixed" | "flexible"; timings: Partial<Record<Weekday, DayTiming>>; break_minutes: number; grace_minutes: number; half_day_minutes: number | null; auto_assign: { from: string; to: string } | null; people: number; is_default: boolean };
 
 export async function listShifts(tx: Tx, today: ISODate): Promise<ShiftRow[]> {
   return tx<ShiftRow[]>`
-    select s.id, s.name, s.code, s.kind, s.timings, s.break_minutes, s.grace_minutes, s.half_day_minutes,
+    select s.id, s.name, s.code, s.kind, s.timings, s.break_minutes, s.grace_minutes, s.half_day_minutes, s.auto_assign,
       (select count(*)::int from shift_assignments a join employees e on e.id = a.employee_id and e.status <> 'relieved' where a.shift_id = s.id and a.period @> ${today}::date) as people,
       s.id = (select id from shifts order by created_at, id limit 1) as is_default
     from shifts s order by s.created_at, s.id`;
 }
 
-export type ShiftInput = { name: string; code: string; kind: "fixed" | "flexible"; timings: Partial<Record<Weekday, DayTiming | null>>; break_minutes: number; grace_minutes: number; half_day_minutes: number | null };
+export type ShiftInput = { name: string; code: string; kind: "fixed" | "flexible"; timings: Partial<Record<Weekday, DayTiming | null>>; break_minutes: number; grace_minutes: number; half_day_minutes: number | null; auto_assign?: { from: string; to: string } | null };
 
 export async function saveShift(tx: Tx, actor: Actor, id: string | null, input: ShiftInput) {
   assertPolicies(actor);
   const s = { ...input, name: input.name.trim(), code: input.code.trim().toUpperCase() };
-  const err = validateShift(s);
+  const err = validateShift({ ...s, auto_assign: s.auto_assign ? { start: s.auto_assign.from, end: s.auto_assign.to } : null });
   if (err) throw new AppError("invalid", err);
   const timings = Object.fromEntries(WEEK.filter((d) => s.timings[d]).map((d) => [d, { start: s.timings[d]!.start, end: s.timings[d]!.end }]));
+  const auto = s.auto_assign ? { from: s.auto_assign.from, to: s.auto_assign.to } : null;
   const row = await guarded(tx, (sp) => id
     ? sp<{ id: string }[]>`update shifts set name = ${s.name}, code = ${s.code}, kind = ${s.kind}, timings = ${sp.json(timings)}, break_minutes = ${s.break_minutes},
-        grace_minutes = ${s.grace_minutes}, half_day_minutes = ${s.half_day_minutes} where id = ${id} returning id`
-    : sp<{ id: string }[]>`insert into shifts (tenant_id, name, code, kind, timings, break_minutes, grace_minutes, half_day_minutes)
-        values (${actor.tenant.id}, ${s.name}, ${s.code}, ${s.kind}, ${sp.json(timings)}, ${s.break_minutes}, ${s.grace_minutes}, ${s.half_day_minutes}) returning id`,
+        grace_minutes = ${s.grace_minutes}, half_day_minutes = ${s.half_day_minutes}, auto_assign = ${auto ? sp.json(auto) : null} where id = ${id} returning id`
+    : sp<{ id: string }[]>`insert into shifts (tenant_id, name, code, kind, timings, break_minutes, grace_minutes, half_day_minutes, auto_assign)
+        values (${actor.tenant.id}, ${s.name}, ${s.code}, ${s.kind}, ${sp.json(timings)}, ${s.break_minutes}, ${s.grace_minutes}, ${s.half_day_minutes}, ${auto ? sp.json(auto) : null}) returning id`,
     "Another shift already uses this code.", "code");
   if (!row[0]) throw new AppError("not_found", "This shift no longer exists.");
   await audit(tx, actor, "shift", row[0].id, id ? "update" : "create", s);
@@ -256,7 +257,7 @@ export type AssignmentRow = {
   id: string; name: string; number: string; department: string | null; title: string | null;
   shift: string | null; shift_from: string | null; next_shift: string | null; next_shift_from: string | null;
   weekly_off: string | null; next_weekly_off: string | null; next_weekly_off_from: string | null;
-  capture: string | null; penalty: string | null;
+  capture: string | null; penalty: string | null; overtime: string | null;
 };
 
 export async function listAssignments(tx: Tx, actor: Actor, today: ISODate): Promise<AssignmentRow[]> {
@@ -265,7 +266,7 @@ export async function listAssignments(tx: Tx, actor: Actor, today: ISODate): Pro
       e.department_id, e.location_id, e.legal_entity_id, e.business_unit_id,
       cs.name as shift, lower(ca.period)::text as shift_from, ns.name as next_shift, lower(na.period)::text as next_shift_from,
       cw.name as weekly_off, nw.name as next_weekly_off, lower(nwa.period)::text as next_weekly_off_from,
-      coalesce(cp.name, (select name from capture_policies order by created_at, id limit 1) || ' (default)') as capture, pp.name as penalty
+      coalesce(cp.name, (select name from capture_policies order by created_at, id limit 1) || ' (default)') as capture, pp.name as penalty, op.name as overtime
     from employees e
     left join departments dp on dp.id = e.department_id left join designations dg on dg.id = e.designation_id
     left join shift_assignments ca on ca.employee_id = e.id and ca.period @> ${today}::date left join shifts cs on cs.id = ca.shift_id
@@ -276,16 +277,17 @@ export async function listAssignments(tx: Tx, actor: Actor, today: ISODate): Pro
     left join weekly_off_policies nw on nw.id = nwa.policy_id
     left join capture_policies cp on cp.id = e.capture_policy_id
     left join penalization_policies pp on pp.id = e.penalization_policy_id
+    left join overtime_policies op on op.id = e.overtime_policy_id
     where e.status <> 'relieved' order by e.display_name`;
   return rows.filter((r) => canFor(actor, PERM, r)).map((r) => ({
     id: r.id, name: r.name, number: r.number, department: r.department, title: r.title,
     shift: r.shift, shift_from: r.shift_from, next_shift: r.next_shift, next_shift_from: r.next_shift_from,
     weekly_off: r.weekly_off, next_weekly_off: r.next_weekly_off, next_weekly_off_from: r.next_weekly_off_from,
-    capture: r.capture, penalty: r.penalty,
+    capture: r.capture, penalty: r.penalty, overtime: r.overtime,
   }));
 }
 
-export type AssignInput = { employeeIds: string[]; kind: "shift" | "weekly_off" | "capture" | "penalty"; policyId: string | null; from: ISODate };
+export type AssignInput = { employeeIds: string[]; kind: "shift" | "weekly_off" | "capture" | "penalty" | "overtime"; policyId: string | null; from: ISODate };
 
 /**
  * Bulk assignment. Shifts and weekly offs are dated: the current period ends the day before `from`, anything
@@ -317,15 +319,16 @@ export async function assign(tx: Tx, actor: Actor, input: AssignInput) {
     if (input.policyId) {
       const [exists] = input.kind === "capture"
         ? await tx`select 1 from capture_policies where id = ${input.policyId}`
+        : input.kind === "overtime" ? await tx`select 1 from overtime_policies where id = ${input.policyId}`
         : await tx`select 1 from penalization_policies where id = ${input.policyId}`;
       if (!exists) throw new AppError("not_found", "That option no longer exists.");
     }
-    const col = input.kind === "capture" ? "capture_policy_id" : "penalization_policy_id";
+    const col = input.kind === "capture" ? "capture_policy_id" : input.kind === "overtime" ? "overtime_policy_id" : "penalization_policy_id";
     await tx`update employees set ${tx(col)} = ${input.policyId} where id = any(${ids}::uuid[])`;
   }
   await audit(tx, actor, "attendance_assignment", ids[0], `assign.${input.kind}`, { employeeIds: ids, policyId: input.policyId, from: input.from });
   // re-process days the change reaches (capture rules only affect new punches; big batches are left to the nightly run)
-  const from = input.kind === "penalty" ? today.slice(0, 8) + "01" : input.from;
+  const from = input.kind === "penalty" || input.kind === "overtime" ? today.slice(0, 8) + "01" : input.from;
   if (input.kind !== "capture" && from <= today && ids.length <= 100) {
     for (const id of ids) await reprocessFrom(tx, actor.tenant.id, id, from, today);
   }

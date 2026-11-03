@@ -1,6 +1,10 @@
 import "server-only";
-import type { Tx } from "@/server/db";
+import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
+import { assertCan } from "@/server/auth/permissions";
+import { queueEmail, appUrl } from "@/server/email";
+import { notificationEmail } from "@/server/email/templates";
+import { channelsFor, eventFor, NOTIFICATION_EVENTS, validateChannels, type Channel } from "./events";
 
 export type NotificationRow = { id: string; kind: string; title: string; body: string | null; link: string | null; read: boolean; created_at: string };
 
@@ -26,4 +30,88 @@ export async function markRead(tx: Tx, actor: Actor, ids: string[] | null) {
   if (ids) await tx`update notifications set read_at = now() where user_id = ${actor.userId} and id = any(${ids}::uuid[]) and read_at is null`;
   else await tx`update notifications set read_at = now() where user_id = ${actor.userId} and read_at is null`;
   return unreadCount(tx, actor);
+}
+
+// ---------------------------------------------------------------- sending (in-app + email per tenant settings)
+
+
+type Recipient = { employee_id: string; user_id: string; email: string; name: string };
+
+async function tenantInfo(tx: Tx, tenantId: string) {
+  const [t] = await tx<{ name: string; subdomain: string }[]>`select name, subdomain::text from tenants where id = ${tenantId}`;
+  return t ?? { name: "erp", subdomain: "app" };
+}
+
+async function storedChannels(tx: Tx, kind: string): Promise<Channel[] | null> {
+  const [r] = await tx<{ channels: Channel[] }[]>`select channels from notification_settings where event = ${kind}`;
+  return r?.channels ?? null;
+}
+
+/**
+ * Tell people something: an in-app notification and/or an email, by the tenant's per-event settings
+ * (Settings → Notifications). Emails are queued in the same transaction and go out after commit.
+ * One row per recipient; people without an account are skipped.
+ */
+export async function notify(tx: Tx, tenantId: string, employeeIds: string[], kind: string, title: string, body: string, link: string) {
+  const ids = [...new Set(employeeIds)];
+  if (!ids.length) return { inApp: 0, emails: 0 };
+  const channels = channelsFor(kind, await storedChannels(tx, kind));
+  if (!channels.length) return { inApp: 0, emails: 0 };
+  const people = await tx<Recipient[]>`
+    select e.id as employee_id, u.id as user_id, u.email::text as email, e.display_name as name
+    from employees e join users u on u.id = e.user_id where e.id = any(${ids}::uuid[]) and u.status = 'active'`;
+  let inApp = 0, emails = 0;
+  if (channels.includes("in_app")) {
+    const r = await tx`insert into notifications (tenant_id, user_id, kind, title, body, link)
+                       select ${tenantId}, u, ${kind}, ${title}, ${body}, ${link} from unnest(${people.map((p) => p.user_id)}::uuid[]) as u`;
+    inApp = r.count;
+  }
+  if (channels.includes("email")) {
+    const t = await tenantInfo(tx, tenantId);
+    for (const p of people) {
+      await queueEmail(tx, tenantId, { kind, to: p.email, ...notificationEmail({ company: t.name, name: p.name, title, body, url: appUrl(t.subdomain, link), eventLabel: eventFor(kind).label }) });
+      emails++;
+    }
+  }
+  return { inApp, emails };
+}
+
+/** Email the people who already got an in-app row by a direct insert (announcements): respects the event's email toggle. */
+export async function emailOnly(tx: Tx, tenantId: string, employeeIds: string[], kind: string, title: string, body: string, link: string) {
+  const channels = channelsFor(kind, await storedChannels(tx, kind));
+  if (!channels.includes("email") || !employeeIds.length) return 0;
+  const people = await tx<Recipient[]>`
+    select e.id as employee_id, u.id as user_id, u.email::text as email, e.display_name as name
+    from employees e join users u on u.id = e.user_id where e.id = any(${employeeIds}::uuid[]) and u.status = 'active'`;
+  const t = await tenantInfo(tx, tenantId);
+  for (const p of people) await queueEmail(tx, tenantId, { kind, to: p.email, ...notificationEmail({ company: t.name, name: p.name, title, body, url: appUrl(t.subdomain, link), eventLabel: eventFor(kind).label }) });
+  return people.length;
+}
+
+// ---------------------------------------------------------------- settings (Settings → Notifications)
+
+export type EventSetting = { key: string; label: string; in_app: boolean; email: boolean; emailOnly: boolean; isDefault: boolean };
+
+export async function notificationSettings(tx: Tx): Promise<{ group: string; events: EventSetting[] }[]> {
+  const rows = await tx<{ event: string; channels: Channel[] }[]>`select event, channels from notification_settings`;
+  const stored = new Map(rows.map((r) => [r.event, r.channels]));
+  return NOTIFICATION_EVENTS.map((g) => ({
+    group: g.group,
+    events: g.events.map((e) => {
+      const ch = channelsFor(e.key, stored.get(e.key));
+      return { key: e.key, label: e.label, in_app: ch.includes("in_app"), email: ch.includes("email"), emailOnly: !!e.emailOnly, isDefault: !stored.has(e.key) };
+    }),
+  }));
+}
+
+export async function setNotificationChannels(tx: Tx, actor: Actor, event: string, channels: unknown) {
+  assertCan(actor, "settings.notifications");
+  const ch = validateChannels(event, channels);
+  if (!ch) throw new AppError("invalid", "Unknown notification event or channel.");
+  const final = channelsFor(event, ch);
+  await tx`insert into notification_settings (tenant_id, event, channels) values (${actor.tenant.id}, ${event}, ${final}::text[])
+           on conflict (tenant_id, event) do update set channels = excluded.channels`;
+  await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
+           values (${actor.tenant.id}, ${actor.userId}, 'notification_setting', ${actor.tenant.id}, 'update', ${tx.json({ event, channels: final })})`;
+  return final;
 }

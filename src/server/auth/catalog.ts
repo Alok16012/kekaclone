@@ -41,6 +41,7 @@ export const PERMISSIONS = [
     { key: "settings.audit", label: "View the audit log and sign-in history" },
     { key: "settings.billing", label: "See the plan and invoices, change or cancel the subscription" },
     { key: "settings.integrations", label: "Manage API keys, webhooks and Slack / Teams / calendar integrations" },
+    { key: "settings.notifications", label: "Choose which events send in-app notifications and emails" },
   ] },
   { group: "Reports", items: [
     { key: "reports.read", label: "View and export reports" },

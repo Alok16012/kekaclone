@@ -27,7 +27,7 @@ export const TONE_CELL: Record<Tone, string> = {
   neutral: "bg-neutral-soft text-neutral-text",
 };
 
-export const REQUEST_KIND: Record<string, string> = { regularization: "Regularize", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty" };
+export const REQUEST_KIND: Record<string, string> = { regularization: "Regularize", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty", overtime: "Overtime", shift_change: "Shift change", weekly_off_change: "Weekly off swap" };
 export const PENALTY_RULE: Record<string, string> = { late_arrival: "Late arrival", hours_shortage: "Short hours", no_attendance: "No attendance", missing_swipe: "Missing swipe" };
 
 export const hm = (m: number) => (m ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : "—");

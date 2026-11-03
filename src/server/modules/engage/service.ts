@@ -1,4 +1,5 @@
 import "server-only";
+import { emailOnly } from "@/server/modules/notifications/service";
 import { randomUUID } from "node:crypto";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
@@ -293,6 +294,14 @@ export async function publishDue(tx: Tx, tenantId: string) {
           or (${a.type} = 'departments' and e.department_id = any(${ids}::uuid[]))
           or (${a.type} = 'locations' and e.location_id = any(${ids}::uuid[])))`;
     sent += r.count;
+    // email too, when the tenant has that switched on (Settings → Notifications)
+    const audience = await tx<{ id: string }[]>`
+      select e.id from employees e
+      where e.user_id is not null and e.status <> 'relieved' and e.id <> ${p.author_employee_id}
+        and (${a.type} = 'org'
+          or (${a.type} = 'departments' and e.department_id = any(${ids}::uuid[]))
+          or (${a.type} = 'locations' and e.location_id = any(${ids}::uuid[])))`;
+    await emailOnly(tx, tenantId, audience.map((e) => e.id), "engage.announcement", p.title ?? "Announcement", "A new announcement was posted on Home.", "/home");
   }
   return { posts: due.length, notified: sent };
 }
