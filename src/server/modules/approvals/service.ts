@@ -1,4 +1,5 @@
 import "server-only";
+import { emitWebhook, notifyChat } from "@/server/modules/integrations/service";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { onCompOffDecided, onLeaveDecided } from "@/server/modules/leave/effects";
@@ -143,6 +144,11 @@ export async function decide(tx: Tx, actor: Actor, stepId: string, decision: "ap
   }
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
            values (${actor.tenant.id}, ${actor.userId}, ${req.entity_type}, ${req.entity_id}, ${"approval." + decision}, ${tx.json({ comment: comment ?? null })})`;
+  if (final) {
+    // integrations: outbound webhooks (queued, delivered after commit) and Slack / Teams (best effort)
+    await emitWebhook(tx, actor.tenant.id, "approval.decided", { entity_type: req.entity_type, entity_id: req.entity_id, request_id: step.request_id, requester_employee_id: req.requester_employee_id, decision: final, decided_by_employee_id: actor.employeeId, summary: req.summary });
+    await notifyChat(tx, actor.tenant.id, `${req.summary} — ${final === "approved" ? "approved" : "declined"} by ${actor.name}`);
+  }
   return { final };
 }
 

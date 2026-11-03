@@ -13,7 +13,7 @@ import { HandCoins, Landmark } from "lucide-react";
 import { BadgeCheck, GitBranch, IdCard, ListPlus, Network } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { cn } from "@/lib/cn";
-import type { ShellData } from "@/ui/app-shell";
+import { planShows, type ShellData } from "@/ui/app-shell";
 import type { PersonHit } from "@/server/modules/employees/service";
 import { searchPeopleAction } from "@/app/(app)/actions";
 
@@ -80,6 +80,10 @@ const PAGES: Item[] = [
   { id: "p-groups", kind: "page", label: "Groups & probation policies", hint: "Settings", href: "/settings/groups", icon: <Users />, keywords: "group types committees projects probation length auto confirm", admin: true },
   { id: "p-jobs", kind: "page", label: "Scheduled jobs", hint: "Settings", href: "/settings/jobs", icon: <History />, keywords: "nightly cron scheduler runs", admin: true },
   { id: "p-idcard", kind: "page", label: "My ID card", href: "/me/id-card", icon: <IdCard />, keywords: "badge qr identity card" },
+  { id: "p-billing", kind: "page", label: "Billing & plan", hint: "Settings", href: "/settings/billing", icon: <Wallet />, keywords: "subscription invoices upgrade seats trial razorpay gst", admin: true },
+  { id: "p-branding", kind: "page", label: "Branding", hint: "Settings", href: "/settings/branding", icon: <Settings />, keywords: "logo accent colour theme login page", admin: true },
+  { id: "p-integrations", kind: "page", label: "Integrations", hint: "Settings", href: "/settings/integrations", icon: <Settings />, keywords: "slack teams calendar google outlook tally zoho accounting export", admin: true },
+  { id: "p-api", kind: "page", label: "API & webhooks", hint: "Settings", href: "/settings/api", icon: <Settings />, keywords: "api keys tokens webhooks developers rest", admin: true },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -161,7 +165,7 @@ export function CommandPalette({ data }: { data?: Promise<ShellData | null> }) {
   }, [q]);
 
   const term = q.trim().toLowerCase();
-  const allowed = (i: Item) => isAdmin || !i.admin || (!!i.area && areas.includes(i.area));
+  const allowed = (i: Item) => planShows(shell, i.href) && (isAdmin || !i.admin || (!!i.area && areas.includes(i.area)));
   const sections: { label: string; items: Item[] }[] = term
     ? [
         { label: "People", items: term.length >= 2 ? people.map((p) => ({ id: "e-" + p.id, kind: "person" as const, label: p.name, hint: [p.title, p.department].filter(Boolean).join(" · "), href: `/people/${p.id}`, person: p })) : [] },

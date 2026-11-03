@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Card } from "@/ui/card";
 import { Skeleton } from "@/ui/feedback";
 import { currentSubdomain, getActor, resolveTenant } from "@/server/auth/session";
+import { ssoButtons } from "@/server/modules/auth/oidc";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -21,12 +22,16 @@ async function LoginCard({ searchParams }: { searchParams: PageProps<"/login">["
     );
   }
   if (await getActor()) redirect("/home");
-  const next = (await searchParams).next;
+  const sp = await searchParams;
+  const next = sp.next, ssoError = sp.sso_error;
+  const a = tenant.authSettings;
+  const sso = ssoButtons(tenant);
+  const passwordOn = !(a?.sso_only && sso.length);
   return (
     <Card className="p-6 sm:p-8">
       <h1 className="text-2xl font-semibold tracking-tight">Sign in to {tenant.name}</h1>
-      <p className="mt-1 mb-6 text-base text-text-muted">Use your work email.</p>
-      <LoginForm next={typeof next === "string" ? next : undefined} />
+      <p className="mt-1 mb-6 text-base text-text-muted">{tenant.branding?.login_note || (passwordOn ? "Use your work email." : "Use your company account.")}</p>
+      <LoginForm next={typeof next === "string" ? next : undefined} sso={sso} password={passwordOn} mobileOtp={!!a?.mobile_otp} ssoError={typeof ssoError === "string" ? ssoError : undefined} />
     </Card>
   );
 }

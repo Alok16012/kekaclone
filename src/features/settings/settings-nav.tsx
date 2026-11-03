@@ -40,6 +40,12 @@ const ITEMS = [
   { group: "Finance", links: [{ href: "/settings/expenses", label: "Expenses" }] },
   { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
   { group: "Service desk", links: [{ href: "/settings/helpdesk", label: "Helpdesk" }] },
+  { group: "Workspace", links: [
+    { href: "/settings/billing", label: "Billing & plan" },
+    { href: "/settings/branding", label: "Branding" },
+    { href: "/settings/integrations", label: "Integrations" },
+    { href: "/settings/api", label: "API & webhooks" },
+  ] },
 ];
 
 /** Vertical on desktop, horizontally scrolling chips on mobile. */

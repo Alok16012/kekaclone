@@ -31,7 +31,10 @@
     "jobs:helpdesk": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-helpdesk.ts",
     "smoke:corehr": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-corehr.ts",
     "jobs:daily": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-daily.ts",
-    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links && pnpm smoke:corehr"
+    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links && pnpm smoke:corehr && pnpm smoke:saas",
+    "smoke:saas": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-saas.ts",
+    "jobs:billing": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-billing.ts",
+    "jobs:webhooks": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-webhooks.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

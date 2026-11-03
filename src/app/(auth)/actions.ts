@@ -9,12 +9,13 @@ import { createHandoff, passwordLogin } from "@/server/modules/auth/service";
 import { requestReset, setPasswordWithToken } from "@/server/modules/auth/flows";
 import { needsCode, resendChallenge, startChallenge, verifyChallenge } from "@/server/modules/auth/mfa";
 import { isTrustedDevice, rememberThisDevice } from "@/server/modules/auth/trusted-device";
+import { startMobileOtp, verifyMobileOtp } from "@/server/modules/auth/mobile-otp";
 
 /**
  * Auth actions return `redirectTo` instead of calling redirect(): a redirect inside a server action is rendered
  * by Next internally without the tenant subdomain, so the browser does a full navigation on the right host instead.
  */
-export type FormState = { error?: string; fields?: Record<string, string>; values?: Record<string, string>; redirectTo?: string; mfa?: { maskedEmail: string; next: string }; notice?: string };
+export type FormState = { error?: string; fields?: Record<string, string>; values?: Record<string, string>; redirectTo?: string; mfa?: { maskedEmail: string; next: string }; otp?: { maskedPhone: string; next: string }; notice?: string };
 
 const signupSchema = z.object({
   company: z.string().trim().min(2, "Enter your company name").max(120),
@@ -92,6 +93,42 @@ export async function verifyCodeAction(prev: FormState, form: FormData): Promise
     const msg = e instanceof AppError ? e.message : "We couldn't check the code. Please try again.";
     const restart = /again\.$/.test(msg) && !/tries? left/.test(msg);
     return restart ? { error: msg, values: prev.values } : { ...prev, notice: undefined, error: msg };
+  }
+}
+
+/** Mobile OTP step 1: send a code to the number (same response whether or not the number is known). */
+export async function mobileOtpStartAction(_: FormState, form: FormData): Promise<FormState> {
+  const phone = String(form.get("phone") ?? "").trim();
+  const values = { phone };
+  if (!phone) return { fields: { phone: "Enter your mobile number." }, values };
+  const tenant = await resolveTenant(await currentSubdomain());
+  if (!tenant) return { error: "This workspace doesn't exist.", values };
+  const raw = String(form.get("next") ?? "");
+  const next = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/home";
+  try {
+    const h = await headers();
+    const r = await startMobileOtp(tenant, phone, h.get("x-forwarded-for")?.split(",")[0]?.trim() || null);
+    return { otp: { ...r, next }, values };
+  } catch (e) {
+    if (e instanceof AppError) return e.field ? { fields: { [e.field]: e.message }, values } : { error: e.message, values };
+    console.error(e);
+    return { error: "We couldn't send the code. Please try again.", values };
+  }
+}
+
+/** Mobile OTP step 2: check the code and sign in. */
+export async function mobileOtpVerifyAction(prev: FormState, form: FormData): Promise<FormState> {
+  const tenant = await resolveTenant(await currentSubdomain());
+  if (!tenant || !prev.otp) return { error: "Your sign-in timed out. Enter your mobile number again." };
+  try {
+    const h = await headers();
+    const userId = await verifyMobileOtp(tenant, String(form.get("code") ?? ""), h.get("x-forwarded-for")?.split(",")[0]?.trim() || null);
+    await createSession(tenant.id, userId);
+    return { redirectTo: prev.otp.next };
+  } catch (e) {
+    const msg = e instanceof AppError ? e.message : "We couldn't check the code. Please try again.";
+    const restart = /again\.$/.test(msg) && !/tries? left/.test(msg);
+    return restart ? { error: msg, values: prev.values } : { ...prev, error: msg };
   }
 }
 

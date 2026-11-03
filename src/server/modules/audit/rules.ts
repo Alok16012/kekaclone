@@ -43,6 +43,10 @@ export const ENTITY_LABELS: Record<string, string> = {
   attendance_assignment: "Shift and weekly-off assignments",
   exit: "Exits",
   generated_letter: "Letters",
+  subscription: "Billing and subscription",
+  api_key: "API keys",
+  webhook_endpoint: "Webhooks",
+  integration: "Integrations",
 };
 
 const MASTER_WORD: Record<string, string> = {

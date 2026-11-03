@@ -3,12 +3,16 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { themeScript } from "@/ui/theme";
 import { Toaster } from "@/ui/toast";
+import { PwaRegister } from "@/features/saas/pwa-register";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
   title: { default: "erp", template: "%s · erp" },
   description: "People, time and payroll in one place.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "erp" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
@@ -24,6 +28,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body>
         {children}
         <Toaster />
+        <PwaRegister />
       </body>
     </html>
   );
