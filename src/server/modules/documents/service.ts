@@ -209,19 +209,28 @@ async function personAccess(tx: Tx, actor: Actor, employeeId: string) {
   return { read, manage };
 }
 
-export type PersonDoc = { id: string; category: string; doc_type: string; number: string | null; status: string; file_id: string; file_name: string; mime: string; size_bytes: number; created_at: Date; expiry_date: string | null };
+export type PersonDoc = { id: string; category: string; doc_type: string; number: string | null; status: string; file_id: string; file_name: string; mime: string; size_bytes: number; created_at: Date; expiry_date: string | null; review_comment: string | null; verified_by_name: string | null; verified_at: Date | null };
 
 export async function personDocuments(tx: Tx, actor: Actor, employeeId: string) {
   const acc = await personAccess(tx, actor, employeeId);
   if (!acc.read) return null;
   const docs = await tx<(Omit<PersonDoc, "size_bytes"> & { size_bytes: bigint | number })[]>`
-    select d.id, d.category, d.doc_type, d.number, d.status, d.file_id, f.name as file_name, f.mime, f.size_bytes, d.created_at, d.expiry_date::text
-    from employee_documents d join files f on f.id = d.file_id where d.employee_id = ${employeeId} order by d.category = 'letter' desc, d.created_at desc`;
+    select d.id, d.category, d.doc_type, d.number, d.status, d.file_id, f.name as file_name, f.mime, f.size_bytes, d.created_at, d.expiry_date::text, d.review_comment,
+      coalesce(ve.display_name, vu.email::text) as verified_by_name, d.verified_at
+    from employee_documents d join files f on f.id = d.file_id left join users vu on vu.id = d.verified_by left join employees ve on ve.user_id = vu.id
+    where d.employee_id = ${employeeId} order by d.category = 'letter' desc, d.created_at desc`;
   return { docs: docs.map((d) => ({ ...d, size_bytes: Number(d.size_bytes) })), canManage: acc.manage, isSelf: actor.employeeId === employeeId };
 }
 
 const CATEGORIES = ["identity", "education", "experience", "other"] as const;
-export async function uploadPersonDocument(tx: Tx, actor: Actor, employeeId: string, input: { category: string; docType: string; number?: string | null; file: { name: string; bytes: Uint8Array } }) {
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+function cleanExpiry(v: string | null | undefined) {
+  if (!v) return null;
+  if (!ISO.test(v) || isNaN(Date.parse(v + "T00:00:00Z"))) throw new AppError("invalid", "Pick a valid expiry date.", "expiryDate");
+  return v;
+}
+
+export async function uploadPersonDocument(tx: Tx, actor: Actor, employeeId: string, input: { category: string; docType: string; number?: string | null; expiryDate?: string | null; file: { name: string; bytes: Uint8Array } }) {
   const acc = await personAccess(tx, actor, employeeId);
   if (!acc.manage && actor.employeeId !== employeeId) throw new AppError("forbidden", "You can't add documents for this person.");
   if (!(CATEGORIES as readonly string[]).includes(input.category)) throw new AppError("invalid", "Pick a category.", "category");
@@ -229,12 +238,62 @@ export async function uploadPersonDocument(tx: Tx, actor: Actor, employeeId: str
   if (!docType) throw new AppError("invalid", "Say what this document is, e.g. PAN card.", "docType");
   const v = validateUpload({ name: input.file.name, size: input.file.bytes.byteLength, head: input.file.bytes.subarray(0, 512) });
   if (!v.ok) throw new AppError("invalid", v.error, "file");
+  const expiry = cleanExpiry(input.expiryDate);
   const fileId = await saveFile(tx, { tenantId: actor.tenant.id, userId: actor.userId, name: v.name, mime: v.mime, bytes: input.file.bytes, ext: v.name.split(".").pop() ?? "" });
   const [d] = await tx<{ id: string }[]>`
-    insert into employee_documents (tenant_id, employee_id, category, doc_type, number, file_id, status, verified_by, verified_at)
-    values (${actor.tenant.id}, ${employeeId}, ${input.category}, ${docType}, ${input.number?.trim() || null}, ${fileId},
+    insert into employee_documents (tenant_id, employee_id, category, doc_type, number, file_id, expiry_date, status, verified_by, verified_at)
+    values (${actor.tenant.id}, ${employeeId}, ${input.category}, ${docType}, ${input.number?.trim() || null}, ${fileId}, ${expiry},
             ${acc.manage ? "verified" : "pending"}, ${acc.manage ? actor.userId : null}, ${acc.manage ? tx`now()` : null}) returning id`;
+  if (!acc.manage) {
+    // HR in scope hears about a new upload to check (the person themselves is never notified about their own upload)
+    const [p] = await tx<{ display_name: string }[]>`select display_name from employees where id = ${employeeId}`;
+    for (const hr of await hrFor(tx, employeeId)) await notifyEmployee(tx, actor.tenant.id, hr, "document.review", "A document needs checking", `${p?.display_name ?? "Someone"} uploaded ${docType}`, `/people/${employeeId}?tab=documents`);
+  }
+  await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
+           values (${actor.tenant.id}, ${actor.userId}, 'employee_document', ${d.id}, 'document.upload', ${tx.json({ employeeId, category: input.category, docType, expiry_date: expiry })})`;
   return d;
+}
+
+/** People with documents.manage (or employees.write) whose scope covers this person, excluding the person. */
+export async function hrFor(tx: Tx, employeeId: string) {
+  const [p] = await tx<Placement[]>`select department_id, location_id, legal_entity_id, business_unit_id from employees where id = ${employeeId}`;
+  if (!p) return [];
+  const rows = await tx<{ employee_id: string; permissions: string[]; scopes: { type: "department" | "location" | "legal_entity" | "business_unit"; ids: string[] }[] }[]>`
+    select ra.employee_id, r.permissions, ra.scopes from role_assignments ra join roles r on r.id = ra.role_id
+    join employees e on e.id = ra.employee_id and e.status <> 'relieved'
+    where ra.employee_id <> ${employeeId} and (${DOCS} = any(r.permissions) or 'employees.write' = any(r.permissions) or '*' = any(r.permissions))`;
+  const ids = new Set<string>();
+  for (const r of rows) {
+    const fake = { grants: [{ permissions: r.permissions, scopes: r.scopes ?? [] }] } as unknown as Actor;
+    if (canFor(fake, DOCS, p) || canFor(fake, "employees.write", p)) ids.add(r.employee_id);
+  }
+  return [...ids];
+}
+
+/**
+ * HR checks an uploaded document: verified or rejected (with a note the person sees), and the expiry date that drives
+ * reminders. Letters are issued verified and can't be reviewed. HR never reviews their own uploads.
+ */
+export async function reviewPersonDocument(tx: Tx, actor: Actor, id: string, input: { status: "verified" | "rejected" | "pending"; comment?: string | null; expiryDate?: string | null }) {
+  const [d] = await tx<{ employee_id: string; category: string; doc_type: string; status: string; expiry_date: string | null }[]>`select employee_id, category, doc_type, status, expiry_date::text from employee_documents where id = ${id} for update`;
+  if (!d) throw new AppError("not_found", "Document not found.");
+  if (d.category === "letter") throw new AppError("invalid", "Issued letters don't need verifying.");
+  const acc = await personAccess(tx, actor, d.employee_id);
+  if (!acc.manage) throw new AppError("forbidden", "You can't review documents for this person.");
+  if (d.employee_id === actor.employeeId) throw new AppError("forbidden", "Someone else in HR has to check your own documents.");
+  if (!["verified", "rejected", "pending"].includes(input.status)) throw new AppError("invalid", "Pick verified or rejected.", "status");
+  const comment = input.comment?.trim().slice(0, 500) || null;
+  if (input.status === "rejected" && !comment) throw new AppError("invalid", "Say what's wrong so the person can fix it.", "comment");
+  const expiry = input.expiryDate === undefined ? d.expiry_date : cleanExpiry(input.expiryDate);
+  await tx`update employee_documents set status = ${input.status}, review_comment = ${comment}, expiry_date = ${expiry},
+           verified_by = ${input.status === "pending" ? null : actor.userId}, verified_at = ${input.status === "pending" ? null : tx`now()`},
+           expiry_reminders = case when expiry_date is distinct from ${expiry}::date then '{}'::jsonb else expiry_reminders end where id = ${id}`;
+  if (input.status !== "pending" && d.status !== input.status) {
+    await notifyEmployee(tx, actor.tenant.id, d.employee_id, "document.reviewed", input.status === "verified" ? "A document was verified" : "A document was sent back",
+      `${d.doc_type}${comment ? ` · ${comment}` : ""}`, `/people/${d.employee_id}?tab=documents`);
+  }
+  await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
+           values (${actor.tenant.id}, ${actor.userId}, 'employee_document', ${id}, 'document.review', ${tx.json({ employeeId: d.employee_id, docType: d.doc_type, status: input.status, comment, expiry_date: expiry })})`;
 }
 
 /** People can remove their own unverified uploads; HR can remove anything except issued letters. */
@@ -267,5 +326,8 @@ export async function fileFor(tx: Tx, actor: Actor, fileId: string) {
     return f;
   }
   if (f.person && (await personAccess(tx, actor, f.person)).read) return f;
+  // a bulk-letter bundle: whoever made the batch, or anyone who manages documents
+  const [batch] = await tx<{ created_by: string | null }[]>`select created_by from letter_batches where zip_file_id = ${fileId}`;
+  if (batch && (batch.created_by === actor.userId || (actor.grants ?? []).some((g) => g.permissions.includes("*") || g.permissions.includes(DOCS)))) return f;
   return null;
 }

@@ -143,7 +143,7 @@ export function ExitDrawer({ exitId, onClose, letterTemplates, today }: { exitId
                           <p className={t.status === "skipped" ? "text-base text-text-muted line-through" : "text-base font-medium"}>{t.title}</p>
                           {t.description && <p className="text-sm text-text-muted">{t.description}</p>}
                           {/asset/i.test(t.title) && t.status !== "skipped" && <ExitAssets employeeId={d.employee.id} />}
-                          <p className="mt-0.5 text-sm text-text-muted">{t.owner}{t.assignee ? ` · ${t.assignee}` : " · no one assigned"} · due {fmtDate(t.due_date)}{overdue && <Badge tone="danger" className="ml-1.5">Overdue</Badge>}</p>
+                          <p className="mt-0.5 text-sm text-text-muted">{t.owner}{t.assignee ? ` · ${t.assignee}` : " · no one assigned"} · due {fmtDate(t.due_date)}{overdue && <Badge tone="danger" className="ml-1.5">Overdue</Badge>}{t.auto && <Badge tone={t.autoDone ? "success" : "neutral"} className="ml-1.5">{t.autoDone ? "Ticked automatically" : "Ticks itself"}</Badge>}</p>
                         </div>
                         {d.can.manage && t.status !== "done" && d.exit.status === "in_progress" && (
                           <Menu trigger={<IconButton size="icon-sm" label={`More for ${t.title}`}><MoreHorizontal /></IconButton>}
@@ -178,6 +178,11 @@ export function ExitDrawer({ exitId, onClose, letterTemplates, today }: { exitId
                   ))}
                 </ul>
               )}
+            </Section>
+          )}
+          {d.survey && (
+            <Section title="Exit survey">
+              <p className="text-base text-text-muted">{!d.survey.sent ? "No survey was sent for this exit." : d.survey.submitted_at ? <>Answered on {fmtDate(d.survey.submitted_at)}.{d.can.manage && <> <Link href="/org/exits/survey" className="text-accent-text hover:underline">See the results</Link>.</>}</> : "Sent, not answered yet."}</p>
             </Section>
           )}
           <p className="text-sm text-text-muted">Started {fmtDate(d.exit.created_at)}{d.exit.initiated_by ? ` by ${d.exit.initiated_by}` : ""}.</p>

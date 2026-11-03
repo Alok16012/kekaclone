@@ -97,21 +97,31 @@ export async function previewLetter(tx: Tx, actor: Actor, templateId: string, em
 /** Render the letter to PDF, store it, and put it in the person's Documents tab. */
 export async function generateLetter(tx: Tx, actor: Actor, templateId: string, employeeId: string, opts: { notify?: boolean } = {}) {
   await guard(tx, actor, employeeId);
+  return issueLetter(tx, { tenantId: actor.tenant.id, userId: actor.userId, companyName: actor.tenant.name }, templateId, employeeId, opts);
+}
+
+export type IssueContext = { tenantId: string; userId: string | null; companyName: string };
+
+/**
+ * The letter itself, without the permission check: used by generateLetter (HR, checked above) and by bulk batches
+ * (checked per person when the batch was created, then run by a job with no actor).
+ */
+export async function issueLetter(tx: Tx, ctx: IssueContext, templateId: string, employeeId: string, opts: { notify?: boolean; batchId?: string | null } = {}) {
   const t = await template(tx, templateId);
   const values = await valuesFor(tx, employeeId);
   const merged = mergeTemplate(sanitizeHtml(t.body_html), values);
   const today = todayIn();
-  const pdf = await renderLetterPdf({ html: merged.html, title: `${t.name} · ${values["employee.name"]}`, company: values["company.name"] ?? actor.tenant.name, footer: `${t.name} for ${values["employee.name"]} · issued ${letterDate(today)}` });
+  const pdf = await renderLetterPdf({ html: merged.html, title: `${t.name} · ${values["employee.name"]}`, company: values["company.name"] ?? ctx.companyName, footer: `${t.name} for ${values["employee.name"]} · issued ${letterDate(today)}` });
   const fileName = safeFileName(`${t.name} - ${values["employee.name"]}.pdf`);
-  const fileId = await saveFile(tx, { tenantId: actor.tenant.id, userId: actor.userId, name: fileName, mime: "application/pdf", bytes: pdf, ext: "pdf" });
+  const fileId = await saveFile(tx, { tenantId: ctx.tenantId, userId: ctx.userId, name: fileName, mime: "application/pdf", bytes: pdf, ext: "pdf" });
   const [g] = await tx<{ id: string }[]>`
-    insert into generated_letters (tenant_id, template_id, employee_id, data, file_id, status, published_at)
-    values (${actor.tenant.id}, ${t.id}, ${employeeId}, ${tx.json({ values, missing: merged.missing } as never)}, ${fileId}, 'published', now()) returning id`;
+    insert into generated_letters (tenant_id, template_id, employee_id, data, file_id, original_file_id, batch_id, status, published_at)
+    values (${ctx.tenantId}, ${t.id}, ${employeeId}, ${tx.json({ values, missing: merged.missing } as never)}, ${fileId}, ${fileId}, ${opts.batchId ?? null}, 'published', now()) returning id`;
   const [d] = await tx<{ id: string }[]>`
     insert into employee_documents (tenant_id, employee_id, category, doc_type, file_id, status, verified_by, verified_at)
-    values (${actor.tenant.id}, ${employeeId}, 'letter', ${t.name}, ${fileId}, 'verified', ${actor.userId}, now()) returning id`;
-  if (opts.notify !== false) await notifyEmployee(tx, actor.tenant.id, employeeId, "letter.issued", "A letter was added to your documents", t.name, `/people/${employeeId}`);
+    values (${ctx.tenantId}, ${employeeId}, 'letter', ${t.name}, ${fileId}, 'verified', ${ctx.userId}, now()) returning id`;
+  if (opts.notify !== false) await notifyEmployee(tx, ctx.tenantId, employeeId, "letter.issued", "A letter was added to your documents", t.name, `/people/${employeeId}`);
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
-           values (${actor.tenant.id}, ${actor.userId}, 'generated_letter', ${g.id}, 'letter.generate', ${tx.json({ template: t.name, employee_id: employeeId, missing: merged.missing })})`;
-  return { letterId: g.id, documentId: d.id, fileId, missing: merged.missing, bytes: pdf.byteLength };
+           values (${ctx.tenantId}, ${ctx.userId}, 'generated_letter', ${g.id}, 'letter.generate', ${tx.json({ template: t.name, employee_id: employeeId, missing: merged.missing, batch_id: opts.batchId ?? null })})`;
+  return { letterId: g.id, documentId: d.id, fileId, fileName, missing: merged.missing, bytes: pdf.byteLength };
 }

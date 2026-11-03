@@ -18,7 +18,18 @@ import { ensurePerformanceDefaults } from "@/server/modules/performance/settings
 
 export const RESERVED = new Set(["www", "app", "api", "admin", "mail", "help", "status", "careers", "portal", "erp", "static", "docs"]);
 
-export type Signup = { company: string; subdomain: string; firstName: string; lastName: string; email: string; password: string; employees?: number };
+export type Signup = { company: string; subdomain: string; firstName: string; lastName: string; email: string; password: string; employees?: number;
+  /** sign-up with email verification: the password was hashed when the form was parked, and the address is already confirmed */
+  passwordHash?: string; emailVerified?: boolean };
+
+/** Reserved or taken addresses are refused before anything is created (also checked again inside provisionTenant). */
+export async function assertSubdomainFree(subdomain: string) {
+  const sub = subdomain.trim().toLowerCase();
+  if (RESERVED.has(sub)) throw new AppError("conflict", "This address is reserved. Try another.", "subdomain");
+  const [{ ok }] = await sql<{ ok: boolean }[]>`select subdomain_available(${sub}) as ok`;
+  if (!ok) throw new AppError("conflict", "This address is already taken.", "subdomain");
+  return sub;
+}
 
 /**
  * New tenant with sensible defaults so the first screen already works:
@@ -88,6 +99,8 @@ export async function provisionTenant(s: Signup) {
       joiningDate: todayIn(), designationId: founder.id, departmentId: mgmt.id,
     }, null);
     await tx`insert into role_assignments (tenant_id, role_id, employee_id) values (${tenantId}, ${ga.id}, ${admin.employeeId})`;
+    if (s.passwordHash) await tx`update users set password_hash = ${s.passwordHash} where id = ${admin.userId}`;
+    if (s.emailVerified) await tx`update users set email_verified_at = coalesce(email_verified_at, now()) where id = ${admin.userId}`;
     await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff) values (${tenantId}, ${admin.userId}, 'tenant', ${tenantId}, 'create', ${tx.json({ name: s.company.trim(), subdomain: sub })})`;
     return { tenantId, subdomain: sub, userId: admin.userId };
   });

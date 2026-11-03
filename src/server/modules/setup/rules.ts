@@ -14,7 +14,9 @@ export const SETUP_STEPS = [
   { key: "locations", label: "Locations", hint: "Offices and the state each one is in" },
   { key: "departments", label: "Departments", hint: "The teams people belong to" },
   { key: "designations", label: "Designations", hint: "Job titles" },
+  { key: "business_units", label: "Business units", hint: "Divisions or brands, if you have them (optional)" },
   { key: "leave", label: "Leave basics", hint: "Leave year and yearly quotas" },
+  { key: "policies", label: "Policies", hint: "Holidays, the default shift and weekly off, pay cycle" },
   { key: "people", label: "Add people", hint: "Add employees one by one or import a spreadsheet" },
   { key: "invite", label: "Invite", hint: "Send everyone a link to set their password" },
 ] as const;
@@ -129,6 +131,35 @@ export const QUOTA_TYPES = [
   { code: "EL", name: "Earned leave" },
 ] as const;
 export type QuotaCode = (typeof QUOTA_TYPES)[number]["code"];
+
+// ---------- policies step ----------
+export const WEEKLY_OFF_PRESETS = [
+  { key: "sat_sun", label: "Saturday and Sunday", pattern: { sat: "off", sun: "off" } },
+  { key: "sun", label: "Sunday only", pattern: { sun: "off" } },
+  { key: "alt_sat", label: "2nd and 4th Saturday, every Sunday", pattern: { sat: ["work", "off", "work", "off", "work"], sun: "off" } },
+] as const;
+export type WeeklyOffPreset = (typeof WEEKLY_OFF_PRESETS)[number]["key"];
+export type PoliciesInput = { shiftStart: unknown; shiftEnd: unknown; weeklyOff: unknown; cutoffDay?: unknown };
+export type PoliciesClean = { shiftStart: string; shiftEnd: string; weeklyOff: WeeklyOffPreset; cutoffDay: number | null };
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Shift times are HH:MM and the day must last at least 4 hours; the weekly off is one of the presets; the cut-off day is 1–31. */
+export function checkPolicies(i: PoliciesInput): { ok: true; value: PoliciesClean } | { ok: false; problem: Problem } {
+  const start = typeof i.shiftStart === "string" ? i.shiftStart.trim() : "", end = typeof i.shiftEnd === "string" ? i.shiftEnd.trim() : "";
+  if (!HHMM.test(start)) return { ok: false, problem: { field: "shiftStart", message: "Enter the shift start as HH:MM, e.g. 09:30." } };
+  if (!HHMM.test(end)) return { ok: false, problem: { field: "shiftEnd", message: "Enter the shift end as HH:MM, e.g. 18:30." } };
+  const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+  const len = (toMin(end) - toMin(start) + 1440) % 1440;
+  if (len < 240) return { ok: false, problem: { field: "shiftEnd", message: "The shift must be at least 4 hours long." } };
+  if (!WEEKLY_OFF_PRESETS.some((p) => p.key === i.weeklyOff)) return { ok: false, problem: { field: "weeklyOff", message: "Pick a weekly-off pattern." } };
+  let cutoffDay: number | null = null;
+  if (i.cutoffDay !== undefined && i.cutoffDay !== null && i.cutoffDay !== "") {
+    const n = typeof i.cutoffDay === "number" ? i.cutoffDay : Number(i.cutoffDay);
+    if (!Number.isInteger(n) || n < 1 || n > 31) return { ok: false, problem: { field: "cutoffDay", message: "The attendance cut-off is a day of the month, 1 to 31." } };
+    cutoffDay = n;
+  }
+  return { ok: true, value: { shiftStart: start, shiftEnd: end, weeklyOff: i.weeklyOff as WeeklyOffPreset, cutoffDay } };
+}
 export type LeaveBasics = { yearStart: "jan" | "apr"; quotas: Record<QuotaCode, number> };
 
 /** Quotas are whole or half days between 0 and 60 a year. */

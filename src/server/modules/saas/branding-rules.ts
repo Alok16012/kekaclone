@@ -3,7 +3,22 @@
  * 4.5:1, and the accent must be visible on white/dark surfaces), plus the CSS overrides the app applies. Pure.
  */
 
-export type BrandingInput = { accent?: string | null; accent_dark?: string | null; logo_file_id?: string | null; login_note?: string | null };
+export type BrandingInput = { accent?: string | null; accent_dark?: string | null; logo_file_id?: string | null; login_note?: string | null; login_bg_file_id?: string | null };
+
+/** Sign-in page background: a photo or pattern up to 2 MB; the bytes must really be the image type claimed. */
+export const BG_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
+export const BG_MAX_BYTES = 2 * 1024 * 1024;
+export function imageProblem(f: { mime: string; size: number; head: Uint8Array }, maxBytes: number, label: string): string | null {
+  if (!BG_MIMES.has(f.mime)) return `Upload a PNG, JPEG or WebP image for the ${label}.`;
+  if (f.size < 16) return "That file looks empty.";
+  if (f.size > maxBytes) return `Keep the ${label} under ${Math.round(maxBytes / 1024 / 1024 * 10) / 10 >= 1 ? `${Math.round(maxBytes / 1024 / 1024)} MB` : `${Math.round(maxBytes / 1024)} KB`}.`;
+  const h = f.head;
+  const png = h[0] === 0x89 && h[1] === 0x50 && h[2] === 0x4e && h[3] === 0x47;
+  const jpg = h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff;
+  const webp = h[0] === 0x52 && h[1] === 0x49 && h[2] === 0x46 && h[3] === 0x46 && h[8] === 0x57 && h[9] === 0x45 && h[10] === 0x42 && h[11] === 0x50;
+  if ((f.mime === "image/png" && !png) || (f.mime === "image/jpeg" && !jpg) || (f.mime === "image/webp" && !webp)) return "This file doesn't look like the image type it claims to be.";
+  return null;
+}
 
 export const HEX = /^#([0-9a-f]{6})$/i;
 

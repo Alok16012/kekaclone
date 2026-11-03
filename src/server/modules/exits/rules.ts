@@ -28,12 +28,21 @@ export const DEFAULT_EXIT_REASONS: { kind: "resignation" | "termination" | "othe
 
 export type TaskOwner = { type: "role"; role: string } | { type: "manager" } | { type: "self" } | { type: "employee"; id: string };
 
+/** Checklist tasks the system can tick on its own (see exits/checklist.ts autoTickExitTasks). */
+export const AUTO_KINDS = ["assets_returned", "access_revoked", "fnf_finalized"] as const;
+export type AutoKind = (typeof AUTO_KINDS)[number];
+export const AUTO_LABEL: Record<AutoKind, string> = {
+  assets_returned: "Ticked when every asset issued to the person has been taken back",
+  access_revoked: "Ticked when the person's sign-in is disabled (on relieving)",
+  fnf_finalized: "Ticked when the final settlement is finalised in Payroll",
+};
+
 /** Default exit checklist. due_offset_days is relative to the last working day (negative = before it). */
-export const DEFAULT_EXIT_TASKS: { title: string; description: string; owner: TaskOwner; due_offset_days: number }[] = [
-  { title: "Return company assets", description: "Laptop, ID card, access cards and anything else issued to the person.", owner: { type: "self" }, due_offset_days: 0 },
+export const DEFAULT_EXIT_TASKS: { title: string; description: string; owner: TaskOwner; due_offset_days: number; auto?: AutoKind }[] = [
+  { title: "Return company assets", description: "Laptop, ID card, access cards and anything else issued to the person.", owner: { type: "self" }, due_offset_days: 0, auto: "assets_returned" },
   { title: "Knowledge transfer", description: "Hand over ongoing work, documents and contacts to the team.", owner: { type: "manager" }, due_offset_days: -3 },
-  { title: "Revoke IT access", description: "Email, tools and system accounts closed on the last working day.", owner: { type: "role", role: "global_admin" }, due_offset_days: 0 },
-  { title: "Final settlement", description: "Pay out or recover dues in the full and final settlement.", owner: { type: "role", role: "hr_admin" }, due_offset_days: 30 },
+  { title: "Revoke IT access", description: "Email, tools and system accounts closed on the last working day.", owner: { type: "role", role: "global_admin" }, due_offset_days: 0, auto: "access_revoked" },
+  { title: "Final settlement", description: "Pay out or recover dues in the full and final settlement.", owner: { type: "role", role: "hr_admin" }, due_offset_days: 30, auto: "fnf_finalized" },
 ];
 
 /** Notice days that apply: the probation figure while someone is still on probation (if the policy has one). */

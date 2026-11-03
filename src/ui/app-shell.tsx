@@ -57,6 +57,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/org/documents", label: "Documents", icon: FileText },
     { href: "/org/onboarding", label: "Onboarding", icon: Rocket },
     { href: "/org/exits", label: "Exits", icon: DoorOpen },
+    { href: "/org/analytics", label: "Analytics", icon: ChartColumn },
     { href: "/payroll", label: "Payroll", icon: Landmark },
     { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
     { href: "/payroll/tax", label: "Tax desk", icon: Landmark },
@@ -122,9 +123,9 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans", "/performance", "/compensation", "/psa/projects", "/learn/admin", "/reports"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/analytics", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans", "/performance", "/compensation", "/psa/projects", "/learn/admin", "/reports"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
-const AREA: Record<string, string> = { "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll", "/hire/jobs": "hire", "/psa/projects": "psa", "/learn/admin": "learn", "/reports": "reports", "/performance": "performance", "/compensation": "compensation", "/org/onboarding": "onboarding" };
+const AREA: Record<string, string> = { "/org/analytics": "reports", "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll", "/hire/jobs": "hire", "/psa/projects": "psa", "/learn/admin": "learn", "/reports": "reports", "/performance": "performance", "/compensation": "compensation", "/org/onboarding": "onboarding" };
 /** Entries that only make sense on a plan that has the feature (hidden when ShellData.features says the plan lacks it). */
 export const FEATURE_OF: Record<string, string> = { "/hire/jobs": "hire", "/me/performance": "performance" };
 export const planShows = (d: ShellData | null, href: string) => !FEATURE_OF[href] || !d?.features || d.features.includes(FEATURE_OF[href]);

@@ -2,7 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Building2, CheckCircle2, FileSpreadsheet, Mail, PartyPopper, Plus, Trash2, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, Building2, CalendarDays, CheckCircle2, FileSpreadsheet, Mail, PartyPopper, Plus, Trash2, UserPlus, Users } from "lucide-react";
 import { Button, IconButton } from "@/ui/button";
 import { Card, CardBody } from "@/ui/card";
 import { Segmented } from "@/ui/choice";
@@ -11,11 +11,11 @@ import { Field, Input } from "@/ui/field";
 import { Stepper } from "@/ui/flow";
 import { Select } from "@/ui/select";
 import { toast } from "@/ui/toast";
-import { QUOTA_TYPES, SETUP_STEPS, STATES, STEP_KEYS, stateName, type SetupStep } from "@/server/modules/setup/rules";
+import { QUOTA_TYPES, SETUP_STEPS, STATES, STEP_KEYS, WEEKLY_OFF_PRESETS, stateName, type SetupStep, type WeeklyOffPreset } from "@/server/modules/setup/rules";
 import type { SetupData } from "@/server/modules/setup/service";
 import type { MasterRow } from "@/server/modules/settings/org";
 import { deleteMasterAction, saveMasterAction } from "@/app/(app)/actions";
-import { completeStepAction, finishSetupAction, inviteEveryoneAction, openSetupAction, saveCompanyAction, saveLeaveBasicsAction } from "@/app/(app)/setup/actions";
+import { completeStepAction, deleteSetupHolidayAction, finishSetupAction, inviteEveryoneAction, openSetupAction, saveCompanyAction, saveLeaveBasicsAction, savePoliciesAction, setupHolidayAction } from "@/app/(app)/setup/actions";
 
 type StepProps = { data: SetupData; onDone: () => void };
 
@@ -82,7 +82,9 @@ export function SetupWizard({ data, initialStep }: { data: SetupData; initialSte
           {step.key === "locations" && <ListStep {...props} kind="locations" rows={data.locations} word="location" placeholder="e.g. Bengaluru office" />}
           {step.key === "departments" && <ListStep {...props} kind="departments" rows={data.departments} word="department" placeholder="e.g. Customer success" />}
           {step.key === "designations" && <ListStep {...props} kind="designations" rows={data.designations} word="designation" placeholder="e.g. Product manager" />}
+          {step.key === "business_units" && <ListStep {...props} kind="business_units" rows={data.businessUnits} word="business unit" placeholder="e.g. Consumer products" optional />}
           {step.key === "leave" && <LeaveStep {...props} />}
+          {step.key === "policies" && <PoliciesStep {...props} />}
           {step.key === "people" && <PeopleStep {...props} />}
           {step.key === "invite" && <InviteStep {...props} />}
         </CardBody>
@@ -139,7 +141,7 @@ function CompanyStep({ data, onDone }: StepProps) {
   );
 }
 
-function ListStep({ onDone, kind, rows, word, placeholder }: StepProps & { kind: "locations" | "departments" | "designations"; rows: MasterRow[]; word: string; placeholder: string }) {
+function ListStep({ onDone, kind, rows, word, placeholder, optional }: StepProps & { kind: "locations" | "departments" | "designations" | "business_units"; rows: MasterRow[]; word: string; placeholder: string; optional?: boolean }) {
   const [name, setName] = React.useState("");
   const [stateCode, setStateCode] = React.useState("");
   const [err, setErr] = React.useState<string | null>(null);
@@ -202,9 +204,10 @@ function ListStep({ onDone, kind, rows, word, placeholder }: StepProps & { kind:
         <Button type="submit" variant="secondary" loading={adding}><Plus />Add</Button>
       </form>
       {isLoc && <p className="text-sm text-text-muted">The state decides professional tax and labour welfare fund rules when you run payroll.</p>}
+      {kind === "business_units" && <p className="text-sm text-text-muted">Business units group departments across legal entities, and roles can be limited to one. Skip this if your company is one unit.</p>}
       <div className="flex justify-end">
         <Button loading={continuing} onClick={() => startContinue(async () => {
-          const r = await completeStepAction(kind, "done");
+          const r = await completeStepAction(kind, optional && rows.length === 0 ? "skipped" : "done");
           if (!r.ok) { toast.error(r.error); return; }
           onDone();
         })}>Continue</Button>
@@ -250,6 +253,84 @@ function LeaveStep({ data, onDone }: StepProps) {
         ))}
       </div>
       <p className="text-sm text-text-muted">People who join during the year get a share for the months left. Detailed rules (accrual, carry forward, sandwich) live in leave settings.</p>
+      <div className="flex justify-end"><Button type="submit" loading={pending}>Save and continue</Button></div>
+    </form>
+  );
+}
+
+/** Holidays for this year, the default shift's hours, the weekly-off pattern, and (with payroll) the attendance cut-off day. */
+function PoliciesStep({ data, onDone }: StepProps) {
+  const p = data.policies;
+  const [shiftStart, setShiftStart] = React.useState(p.shift?.start ?? "09:30");
+  const [shiftEnd, setShiftEnd] = React.useState(p.shift?.end ?? "18:30");
+  const [weeklyOff, setWeeklyOff] = React.useState<WeeklyOffPreset>(p.weeklyOff?.preset ?? "sat_sun");
+  const [cutoff, setCutoff] = React.useState(p.payGroup ? String(p.payGroup.cutoffDay) : "");
+  const [holiday, setHoliday] = React.useState({ name: "", date: "" });
+  const [err, setErr] = React.useState<{ field?: string; message: string } | null>(null);
+  const [hErr, setHErr] = React.useState<string | null>(null);
+  const [pending, start] = React.useTransition();
+  const [adding, startAdd] = React.useTransition();
+  const fe = (f: string) => (err?.field === f ? err.message : undefined);
+  const year = new Date().getFullYear();
+  const addHoliday = () => startAdd(async () => {
+    setHErr(null);
+    const r = await setupHolidayAction({ name: holiday.name, date: holiday.date });
+    if (!r.ok) { setHErr(r.error); return; }
+    toast.success(`Added ${holiday.name.trim()}`); setHoliday({ name: "", date: "" });
+  });
+  return (
+    <form className="flex flex-col gap-6" noValidate onSubmit={(e) => {
+      e.preventDefault();
+      start(async () => {
+        const r = await savePoliciesAction({ shiftStart, shiftEnd, weeklyOff, cutoffDay: cutoff || null });
+        if (!r.ok) { setErr({ field: "field" in r ? r.field : undefined, message: r.error }); return; }
+        setErr(null); toast.success("Policies saved"); onDone();
+      });
+    }}>
+      {err && !err.field && <Banner tone="danger">{err.message}</Banner>}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-base font-semibold">Holidays {p.holidayList ? `· ${p.holidayList.name} ${p.holidayList.year}` : `· ${year}`}</h3>
+        {!p.holidayList || p.holidayList.holidays.length === 0 ? (
+          <EmptyState compact icon={<CalendarDays />} title="No holidays yet" description="Add the public holidays your offices close for. You can keep a list per location later in Settings → Holidays." />
+        ) : (
+          <ul className="divide-y divide-border rounded-md border border-border" aria-label="Holidays">
+            {p.holidayList.holidays.map((h) => (
+              <li key={h.id} className="flex items-center gap-3 px-3 py-2">
+                <span className="w-28 shrink-0 text-sm tabular text-text-muted">{new Date(h.date + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", weekday: "short", timeZone: "UTC" })}</span>
+                <span className="min-w-0 flex-1 truncate text-base">{h.name}{h.is_floater ? " (optional)" : ""}</span>
+                <IconButton label={`Remove ${h.name}`} size="icon-sm" variant="ghost" onClick={async () => { const r = await deleteSetupHolidayAction(h.id); if (!r.ok) toast.error(r.error); }}><Trash2 /></IconButton>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <Field label="Holiday" className="flex-1" error={hErr ?? undefined}><Input value={holiday.name} onChange={(e) => setHoliday({ ...holiday, name: e.target.value })} placeholder="e.g. Republic Day" maxLength={80} /></Field>
+          <Field label="Date" className="sm:w-44"><Input type="date" value={holiday.date} onChange={(e) => setHoliday({ ...holiday, date: e.target.value })} /></Field>
+          <Button type="button" variant="secondary" loading={adding} onClick={addHoliday} disabled={!holiday.name.trim() || !holiday.date}><Plus />Add</Button>
+        </div>
+      </section>
+      <section className="flex flex-col gap-3">
+        <h3 className="text-base font-semibold">Default shift {p.shift ? `· ${p.shift.name}` : ""}</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Starts" required error={fe("shiftStart")}><Input type="time" value={shiftStart} onChange={(e) => setShiftStart(e.target.value)} /></Field>
+          <Field label="Ends" required error={fe("shiftEnd")}><Input type="time" value={shiftEnd} onChange={(e) => setShiftEnd(e.target.value)} /></Field>
+        </div>
+        <p className="text-sm text-text-muted">Applies Monday to Friday for everyone who has no other shift. Breaks, grace time and more shifts live in Settings → Time.</p>
+      </section>
+      <section className="flex flex-col gap-3">
+        <h3 className="text-base font-semibold">Weekly off</h3>
+        <Field label="Days off every week" error={fe("weeklyOff")}>
+          <Select value={weeklyOff} onValueChange={(v) => setWeeklyOff(v as WeeklyOffPreset)} options={WEEKLY_OFF_PRESETS.map((w) => ({ value: w.key, label: w.label }))} />
+        </Field>
+      </section>
+      {p.payGroup && (
+        <section className="flex flex-col gap-3">
+          <h3 className="text-base font-semibold">Pay cycle · {p.payGroup.name}</h3>
+          <Field label="Attendance cut-off day" help="Attendance up to this day of the month goes into that month's salary." error={fe("cutoffDay")} className="sm:w-56">
+            <Input type="number" inputMode="numeric" min={1} max={31} value={cutoff} onChange={(e) => setCutoff(e.target.value)} />
+          </Field>
+        </section>
+      )}
       <div className="flex justify-end"><Button type="submit" loading={pending}>Save and continue</Button></div>
     </form>
   );

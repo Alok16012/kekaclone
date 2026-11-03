@@ -12,6 +12,18 @@ export async function BrandStyle() {
   return <style data-brand="accent" dangerouslySetInnerHTML={{ __html: css }} />;
 }
 
+/** The company's sign-in background image, if one was uploaded (fixed behind the page, dimmed so the card stays readable). */
+export async function BrandBackground() {
+  const tenant = await resolveTenant(await currentSubdomain());
+  const id = tenant?.branding?.login_bg_file_id;
+  if (!id) return null;
+  return (
+    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 bg-cover bg-center" style={{ backgroundImage: `url(/brand/background?v=${id.slice(0, 8)})` }}>
+      <div className="absolute inset-0 bg-canvas/70" />
+    </div>
+  );
+}
+
 /** The company's logo (or erp's mark) for the sign-in page. */
 export async function BrandMark({ className = "" }: { className?: string }) {
   const tenant = await resolveTenant(await currentSubdomain());
