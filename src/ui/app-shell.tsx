@@ -33,6 +33,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/me/performance", label: "Performance", icon: Target },
     { href: "/me/helpdesk", label: "Helpdesk", icon: LifeBuoy },
     { href: "/me/assets", label: "My assets", icon: Laptop },
+    { href: "/me/jobs", label: "Jobs & referrals", icon: BriefcaseBusiness },
   ] },
   { label: "Organisation", items: [
     { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -99,7 +100,7 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  */
 const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
-const AREA: Record<string, string> = { "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk" };
+const AREA: Record<string, string> = { "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/hire/jobs": "hire" };
 const showItem = (d: ShellData | null, href: string) => !ADMIN_ONLY.has(href) || !!d?.isAdmin || (!!AREA[href] && !!d?.areas?.includes(AREA[href]));
 
 function navFor(d: ShellData | null): NavGroup[] {

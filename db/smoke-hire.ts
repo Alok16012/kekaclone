@@ -47,7 +47,7 @@ async function main() {
   });
   const HR = ["employees.read", "employees.write", "hire.admin", "exits.manage"];
   const asha = await actor("Asha", ["*"]), priya = await actor("Priya", HR), aditya = await actor("Aditya", ["hire.recruit"]);
-  const [rohan, arjun, meera, vikram, sneha, imran, karan, fatima] = await Promise.all(["Rohan", "Arjun", "Meera", "Vikram", "Sneha", "Imran", "Karan", "Fatima"].map((n) => actor(n)));
+  const [rohan, arjun, meera, vikram, , imran, karan, fatima] = await Promise.all(["Rohan", "Arjun", "Meera", "Vikram", "Sneha", "Imran", "Karan", "Fatima"].map((n) => actor(n)));
   const [eng] = await withTenant(tenant.id, (tx) => tx<{ id: string }[]>`select id from departments where name = 'Engineering'`);
   const engHireAdmin = await actor("Karan", ["hire.admin"], [{ type: "department", ids: [eng.id] }]);   // hiring admin for Engineering only
   const q1 = async <T>(q: Promise<T[]>) => (await q)[0];

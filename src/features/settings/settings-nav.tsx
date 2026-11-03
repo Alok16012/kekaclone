@@ -37,6 +37,7 @@ const ITEMS = [
   { group: "Finance", links: [{ href: "/settings/expenses", label: "Expenses" }] },
   { group: "Lifecycle", links: [{ href: "/settings/exits", label: "Exits & notice periods" }, { href: "/settings/documents", label: "Documents" }] },
   { group: "Service desk", links: [{ href: "/settings/helpdesk", label: "Helpdesk" }] },
+  { group: "Hiring", links: [{ href: "/settings/hire", label: "Hiring" }] },
 ];
 
 /** Vertical on desktop, horizontally scrolling chips on mobile. */

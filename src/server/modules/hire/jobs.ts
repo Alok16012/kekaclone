@@ -346,3 +346,14 @@ export async function jobFormData(tx: Tx) {
 }
 
 export const hireAdminEverywhere = canAdminHire;
+
+/** Headline numbers for the jobs page, over the jobs the actor can see. */
+export async function jobStats(tx: Tx, actor: Actor) {
+  const ids = await visibleJobIds(tx, actor);
+  const [s] = await tx<{ interviews: number; offers: number; active: number }[]>`
+    select (select count(*)::int from interviews i join applications a on a.id = i.application_id
+              where i.status = 'scheduled' and i.starts_at between now() and now() + interval '7 days' and (${ids === null} or a.job_id = any(${ids ?? []}::uuid[]))) as interviews,
+           (select count(*)::int from offers o join applications a on a.id = o.application_id where o.status = 'released' and (${ids === null} or a.job_id = any(${ids ?? []}::uuid[]))) as offers,
+           (select count(*)::int from applications a where a.status = 'active' and (${ids === null} or a.job_id = any(${ids ?? []}::uuid[]))) as active`;
+  return s;
+}

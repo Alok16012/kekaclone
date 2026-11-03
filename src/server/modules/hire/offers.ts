@@ -3,7 +3,7 @@ import { randomInt } from "node:crypto";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
-import { cancelApproval, notifyEmployee, startApproval, type Level } from "@/server/modules/approvals/service";
+import { cancelApproval, notifyEmployee, startApproval, timeline, type Level } from "@/server/modules/approvals/service";
 import { createEmployee } from "@/server/modules/employees/service";
 import { letterDate, mergeTemplate, safeFileName, sanitizeHtml, validateUpload } from "@/server/modules/documents/rules";
 import { renderLetterPdf } from "@/server/modules/documents/pdf";
@@ -43,6 +43,25 @@ async function nextVersion(tx: Tx, applicationId: string) {
 async function liveOffer(tx: Tx, applicationId: string) {
   const [o] = await tx<{ id: string; status: string }[]>`select id, status from offers where application_id = ${applicationId} and status in ('draft','pending_approval','released','accepted') for update`;
   return o ?? null;
+}
+
+export type OfferDetail = {
+  id: string; version: number; status: string; ctc_paise: number; joining_date: string; expires_on: string | null; note: string | null;
+  candidate: string; email: string; job: string; job_id: string; application_id: string; designation: string | null; template: string | null; created_by: string | null; created_at: Date;
+};
+
+/** One offer with its approval timeline, for the inbox and the offer drawer. Approvers of this offer may read it even off the hiring team. */
+export async function offerDetail(tx: Tx, actor: Actor, offerId: string) {
+  const [o] = await tx<OfferDetail[]>`
+    select o.id, o.version, o.status, o.ctc_paise::bigint as ctc_paise, o.joining_date::text as joining_date, o.expires_on::text as expires_on, o.note,
+           c.name as candidate, c.email, j.title as job, j.id as job_id, a.id as application_id, d.title as designation, t.name as template, e.display_name as created_by, o.created_at
+    from offers o join applications a on a.id = o.application_id join candidates c on c.id = a.candidate_id join jobs j on j.id = a.job_id
+    left join designations d on d.id = o.designation_id left join letter_templates t on t.id = o.template_id left join employees e on e.id = o.created_by
+    where o.id = ${offerId}`;
+  if (!o) throw new AppError("not_found", "Offer not found.");
+  const [approver] = await tx`select 1 from approval_requests q join approval_steps s on s.request_id = q.id where q.entity_type = 'offer' and q.entity_id = ${offerId} and s.approver_employee_id = ${actor.employeeId}`;
+  if (!approver) await seeApplication(tx, actor, o.application_id);
+  return { offer: { ...o, ctc_paise: Number(o.ctc_paise) }, steps: await timeline(tx, "offer", offerId) };
 }
 
 /** Drafts an offer for an active application (one live offer at a time; use Revise to change a sent one). */

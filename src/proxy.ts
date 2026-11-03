@@ -18,6 +18,7 @@ export function proxy(req: NextRequest) {
   if (sub && path === "/signup") return NextResponse.redirect(new URL("/login", req.url));   // sign-up lives on the apex only
   // optimistic gate: no session cookie on a tenant's app page → straight to sign-in (the page still verifies the session)
   const isPublic = path === "/login" || path === "/forgot-password" || path.startsWith("/auth/") || path.startsWith("/api/") || path.startsWith("/_next")
+    || path === "/careers" || path.startsWith("/careers/") || path.startsWith("/p/")   // hiring: public careers page and candidate / interviewer token links
     || (process.env.NODE_ENV !== "production" && path.startsWith("/dev/"));
   if (sub && !isPublic && !req.cookies.has(process.env.SESSION_COOKIE ?? "erp_session")) {
     const url = new URL("/login", req.url);
