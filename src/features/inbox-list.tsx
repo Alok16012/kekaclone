@@ -17,12 +17,13 @@ import { AttendanceRequestDetail } from "@/features/attendance/request-detail";
 import { ExitSummary, useExitDetail } from "@/features/exits/exit-drawer";
 import { ExpenseReviewDetail } from "@/features/expenses/review";
 import { AssetRequestDetail } from "@/features/assets/request-detail";
+import { ProposalDetail } from "@/features/performance/proposal-detail";
 
 export type InboxRow = { stepId: string; entityType: string; entityId: string; summary: string; requester: string; requesterTitle: string | null; createdAt: string; ago: string };
 type Detail = Awaited<ReturnType<typeof leaveRequestDetailAction>>;
 type ChangeDetail = Awaited<ReturnType<typeof profileChangeDetailAction>>;
 type CompOffDetail = { employee: string; days: number; note: string | null; dates: { date: string; dayType: string; clockedIn: boolean }[]; steps: { level: number; status: string; comment: string | null; acted_at: string | null; approver: string; title: string | null }[] } | null;
-const KIND: Record<string, string> = { leave: "Leave", attendance_request: "Attendance", profile_change: "Profile change", comp_off: "Comp-off", exit: "Resignation", expense_claim: "Expense claim", expense_advance: "Expense advance", asset_request: "Asset" };
+const KIND: Record<string, string> = { leave: "Leave", attendance_request: "Attendance", profile_change: "Profile change", comp_off: "Comp-off", exit: "Resignation", expense_claim: "Expense claim", expense_advance: "Expense advance", asset_request: "Asset", comp_proposal: "Increment" };
 const DAY_TYPE: Record<string, string> = { weekly_off: "Weekly off", half_weekly_off: "Half weekly off", holiday: "Holiday", working: "Working day" };
 const show = (v: unknown): string => v == null || v === "" ? "—" : typeof v === "object" ? Object.values(v as Record<string, unknown>).map(show).filter((x) => x !== "—").join(", ") || "—" : String(v);
 
@@ -117,6 +118,8 @@ export function InboxList({ items }: { items: InboxRow[] }) {
               <Field label="Comment" help="Shared with the requester"><Textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} /></Field>
             </div>
           )
+        ) : open?.entityType === "comp_proposal" ? (
+          <ProposalDetail id={open.entityId} comment={comment} onComment={setComment} />
         ) : open?.entityType === "asset_request" ? (
           <AssetRequestDetail id={open.entityId} comment={comment} onComment={setComment} />
         ) : open?.entityType === "attendance_request" ? (

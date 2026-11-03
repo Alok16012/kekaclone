@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { DoorOpen, FilePen, UserMinus } from "lucide-react";
 import { Headset, Laptop, Package, PackagePlus } from "lucide-react";
+import { Gauge, GitBranch, IndianRupee, MessagesSquare, Users2 } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
 import { cn } from "@/lib/cn";
 import type { ShellData } from "@/ui/app-shell";
@@ -64,6 +65,14 @@ const PAGES: Item[] = [
   { id: "p-assets", kind: "page", label: "Assets", href: "/org/assets", icon: <Package />, keywords: "inventory laptop hand over return recovery", admin: true, area: "assets" },
   { id: "p-helpdesk-set", kind: "page", label: "Helpdesk categories", hint: "Settings", href: "/settings/helpdesk", icon: <Settings />, keywords: "sla escalation agents ticket", admin: true, area: "helpdesk-settings" },
   { id: "p-letters", kind: "page", label: "Letter templates", hint: "Settings", href: "/settings/documents", icon: <FilePen />, keywords: "letters relieving experience placeholders templates", admin: true },
+  { id: "p-perf-fb", kind: "page", label: "Feedback", hint: "Performance", href: "/me/performance/feedback", icon: <MessagesSquare />, keywords: "feedback request praise note" },
+  { id: "p-perf-11", kind: "page", label: "1:1 meetings", hint: "Performance", href: "/me/performance/one-on-ones", icon: <Users2 />, keywords: "one on one meeting manager agenda action items" },
+  { id: "p-perf-rev", kind: "page", label: "My reviews", hint: "Performance", href: "/me/performance/reviews", icon: <Target />, keywords: "appraisal self review peer manager rating results" },
+  { id: "p-perf-tree", kind: "page", label: "Goal alignment tree", hint: "Performance", href: "/performance/okr-tree", icon: <GitBranch />, keywords: "okr objectives key results company department" },
+  { id: "p-perf-cycles", kind: "page", label: "Review cycles", hint: "Performance", href: "/performance", icon: <Gauge />, keywords: "appraisal calibration bell curve 9 box publish nudge", admin: true },
+  { id: "p-perf-set", kind: "page", label: "Performance settings", hint: "Settings", href: "/performance/settings", icon: <Settings />, keywords: "okr kra rating scale bands forms periods", admin: true },
+  { id: "p-perf-skills", kind: "page", label: "Skills and competencies", hint: "Settings", href: "/performance/settings/skills", icon: <Settings />, keywords: "core values competency library", admin: true },
+  { id: "p-comp", kind: "page", label: "Compensation", href: "/compensation", icon: <IndianRupee />, keywords: "increment hike appraisal budget raise matrix", admin: true },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -78,6 +87,9 @@ const ACTIONS: Item[] = [
   { id: "a-regularize", kind: "action", label: "Regularize attendance", hint: "From a day's menu", href: "/me/attendance", icon: <Clock />, keywords: "forgot clock out fix punch missing swipe" },
   { id: "a-wfh", kind: "action", label: "Ask to work from home", href: "/me/attendance?tab=requests", icon: <Home />, keywords: "wfh remote on duty od" },
   { id: "a-ticket", kind: "action", label: "Raise a helpdesk ticket", href: "/me/helpdesk?new=1", icon: <LifeBuoy />, keywords: "help support it hr question problem issue" },
+  { id: "a-goal", kind: "action", label: "Add a goal", href: "/me/performance?new=1", icon: <Target />, keywords: "okr objective kra key result" },
+  { id: "a-1on1", kind: "action", label: "Schedule a 1:1", href: "/me/performance/one-on-ones?new=1", icon: <Users2 />, keywords: "one on one meeting" },
+  { id: "a-feedback", kind: "action", label: "Give feedback", href: "/me/performance/feedback", icon: <MessagesSquare />, keywords: "feedback request" },
   { id: "a-asset-req", kind: "action", label: "Request an asset", href: "/me/assets?request=1", icon: <PackagePlus />, keywords: "laptop monitor headset equipment need" },
   { id: "a-resign", kind: "action", label: "Resign", hint: "From your profile", href: "/me", icon: <UserMinus />, keywords: "resignation quit leave job notice" },
 ];

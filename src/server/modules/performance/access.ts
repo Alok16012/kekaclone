@@ -67,3 +67,11 @@ export async function oversees(tx: Tx, actor: Actor, employeeId: string) {
   if (perfAdminFor(actor, p)) return true;
   return isAbove(tx, actor.employeeId, employeeId);
 }
+
+/** Everyone working here, for people pickers. */
+export async function peopleOptions(tx: Tx) {
+  return tx<{ id: string; name: string; title: string | null; department: string | null }[]>`
+    select e.id, e.display_name as name, g.title, d.name as department from employees e
+    left join designations g on g.id = e.designation_id left join departments d on d.id = e.department_id
+    where e.status in ('active','notice') order by e.display_name`;
+}

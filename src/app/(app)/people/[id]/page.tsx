@@ -21,6 +21,8 @@ import { FinancesTab } from "@/features/payroll/finances-tab";
 import { personAssets } from "@/server/modules/assets/service";
 import { PersonAssets } from "@/features/assets/person-assets";
 import { toPersonAssetsDTO } from "@/features/assets/dto";
+import { profilePerformance } from "@/server/modules/performance/profile";
+import { PerformanceTab } from "@/features/performance/profile-tab";
 
 export const metadata: Metadata = { title: "Profile" };
 
@@ -35,12 +37,13 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
     const self = actor.employeeId === id;
     const manageExit = !self && canFor(actor, "exits.manage", m);
     const [docs, praise, finances, assets] = await Promise.all([personDocuments(tx, actor, id), praiseFor(tx, actor, id), financesFor(tx, actor, id), personAssets(tx, actor, id)]);
+    const performance = await profilePerformance(tx, actor, id);
     const issue = !!docs?.canManage && canFor(actor, "documents.manage", m);
     return {
       p, lookups: p.access === "admin" ? await lookups(tx) : null, managerId: m.manager_id, self, manageExit,
       exit: self || manageExit ? await myExit(tx, id) : null,
       reasons: (self || manageExit) && p.employee.status !== "relieved" ? await listReasons(tx) : [],
-      praise, docs, finances, assets: assets ? toPersonAssetsDTO(assets) : null, templates: issue ? (await listTemplates(tx)).map((t) => ({ id: t.id, name: t.name, kind: t.kind })) : [],
+      praise, docs, finances, performance, assets: assets ? toPersonAssetsDTO(assets) : null, templates: issue ? (await listTemplates(tx)).map((t) => ({ id: t.id, name: t.name, kind: t.kind })) : [],
     };
   });
   if (!d) notFound();
@@ -59,6 +62,7 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
   }] : [];
   if (d.assets) tabs.push({ value: "assets", label: "Assets", content: <PersonAssets data={d.assets} name={e.display_name} /> });
   if (d.finances) tabs.push({ value: "finances", label: "Finances", content: <FinancesTab employeeId={e.id} d={d.finances} /> });
+  tabs.push({ value: "performance", label: "Performance", content: <PerformanceTab d={d.performance} name={e.display_name} /> });
   return <ProfileView initialTab={typeof tab === "string" ? tab : undefined} p={d.p} lookups={d.lookups} today={today} currentManagerId={d.managerId} actions={actions} banner={banner} extraTabs={tabs}
     aboutExtra={<PraiseReceivedCard items={d.praise} self={d.p.access === "self"} />} />;
 }
