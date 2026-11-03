@@ -1,5 +1,4 @@
-import { withTenant } from "@/server/db";
-import { resolveTenant } from "@/server/auth/session";
+import { sql, withTenant } from "@/server/db";
 import { deliverQueued } from "@/server/email";
 import { deviceBySerial, ingestPunches, touchDevice, type AdmsDevice } from "@/server/modules/attendance/devices";
 import { RateLimiter } from "@/server/modules/attendance/device-rules";
@@ -26,8 +25,10 @@ export async function admsContext(req: Request): Promise<{ tenantId: string; dev
   if (!limiters.ip.take(ip)) return text("ERROR: too many requests", 429, { "retry-after": String(limiters.ip.retryAfter(ip)) });
   const serial = admsSerial(new URL(req.url).searchParams.get("SN"));
   if (!serial) return text("ERROR: SN missing", 400);
-  const tenant = await resolveTenant(req.headers.get("x-erp-tenant"));
-  if (!tenant) return text("ERROR: unknown company host", 404);
+  // the public tenant lookup only (no session machinery: devices have none)
+  const sub = (req.headers.get("x-erp-tenant") ?? "").trim();
+  const [tenant] = sub ? await sql<{ id: string; status: string }[]>`select id, status from tenant_by_subdomain(${sub})` : [];
+  if (!tenant || tenant.status === "suspended" || tenant.status === "cancelled") return text("ERROR: unknown company host", 404);
   const device = await withTenant(tenant.id, (tx) => deviceBySerial(tx, serial));
   if (!device) return text("ERROR: device not registered", 401);   // add it in Settings → Time → Devices with protocol ADMS
   if (!limiters.device.take(device.id)) return text("ERROR: too many requests", 429, { "retry-after": String(limiters.device.retryAfter(device.id)) });

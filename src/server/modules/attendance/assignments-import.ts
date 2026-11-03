@@ -107,15 +107,18 @@ async function check(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
     const from = toDate(r.from);
     if (!from) errors.push("Effective from must be a date, like 2026-11-03.");
     else if (from < addDaysISO(today, -31) || from > addDaysISO(today, 366)) errors.push("The effective date can be up to a month back or a year ahead.");
+    // what applies on the effective date: the scheduled one if it starts by then, else today's
+    const shiftAt = !cur ? null : cur.next_shift && cur.next_shift_from && from && cur.next_shift_from <= from ? cur.next_shift : cur.shift;
+    const offAt = !cur ? null : cur.next_weekly_off && cur.next_weekly_off_from && from && cur.next_weekly_off_from <= from ? cur.next_weekly_off : cur.weekly_off;
     if (r.shift) {
       const s = shifts.find((x) => x.code.toLowerCase() === r.shift.toLowerCase());
       if (!s) errors.push(`Unknown shift code ${r.shift}.`);
-      else if (!cur || cur.shift !== s.name || (cur.next_shift && cur.next_shift_from && from && cur.next_shift_from >= from)) plan.push({ kind: "shift", policyId: s.id, label: `Shift → ${s.name}` });
+      else if (shiftAt !== s.name) plan.push({ kind: "shift", policyId: s.id, label: `Shift → ${s.name}` });
     }
     if (r.off) {
       const o = byName(offs, r.off);
       if (!o) errors.push(`Unknown weekly off policy ${r.off}.`);
-      else if (!cur || cur.weekly_off !== o.name || (cur.next_weekly_off && cur.next_weekly_off_from && from && cur.next_weekly_off_from >= from)) plan.push({ kind: "weekly_off", policyId: o.id, label: `Weekly off → ${o.name}` });
+      else if (offAt !== o.name) plan.push({ kind: "weekly_off", policyId: o.id, label: `Weekly off → ${o.name}` });
     }
     if (r.capture) {
       const c = byName(caps, r.capture);
