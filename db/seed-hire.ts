@@ -35,7 +35,7 @@ export async function seedHire(tenantId: string) {
   };
   const HR = ["employees.read", "employees.write", "hire.admin", "exits.manage", "documents.manage"];
   const asha = await actor("Asha", ["*"]), priya = await actor("Priya", HR), aditya = await actor("Aditya", ["hire.recruit"]);
-  const [rohan, arjun, meera, vikram, sneha, imran, fatima] = await Promise.all(["Rohan", "Arjun", "Meera", "Vikram", "Sneha", "Imran", "Fatima"].map((n) => actor(n)));
+  const [rohan, arjun, meera, vikram, sneha, imran, fatima, karan] = await Promise.all(["Rohan", "Arjun", "Meera", "Vikram", "Sneha", "Imran", "Fatima", "Karan"].map((n) => actor(n)));
   const today = todayIn();
   const ids = await withTenant(tenantId, async (tx) => {
     await setup.ensureHireDefaults(tx, tenantId);
@@ -45,6 +45,7 @@ export async function seedHire(tenantId: string) {
     return {
       eng: await one(tx<{ id: string }[]>`select id from departments where name = 'Engineering'`),
       sales: await one(tx<{ id: string }[]>`select id from departments where name = 'Sales'`),
+      fin: await one(tx<{ id: string }[]>`select id from departments where name = 'Finance'`),
       ops: await one(tx<{ id: string }[]>`select id from departments where name = 'Operations'`),
       people: await one(tx<{ id: string }[]>`select id from departments where name = 'People'`),
       office: await one(tx<{ id: string }[]>`select id from locations order by created_at limit 1`),
@@ -80,11 +81,11 @@ export async function seedHire(tenantId: string) {
   }));
   await run((tx) => jobs.setJobStatus(tx, aditya, backend, "publish"));
 
-  const se = await run((tx) => jobs.saveRequisition(tx, sneha, null, {
-    title: "Senior Sales Executive", openings: 1, jobType: "full_time", departmentId: ids.sales, locationId: ids.office, salaryMinPaise: 9_00_000_00, salaryMaxPaise: 14_00_000_00,
-    targetDate: addDaysISO(today, 45), description: "Grow the west region accounts.", qualification: null, experienceMin: 4, experienceMax: 8, backfillForId: null,
+  const se = await run((tx) => jobs.saveRequisition(tx, karan, null, {
+    title: "Finance Analyst", openings: 1, jobType: "full_time", departmentId: ids.fin, locationId: ids.office, salaryMinPaise: 9_00_000_00, salaryMaxPaise: 14_00_000_00,
+    targetDate: addDaysISO(today, 45), description: "Month-end close, reconciliations and management reporting as we add entities.", qualification: "CA Inter or MBA (Finance)", experienceMin: 3, experienceMax: 6, backfillForId: null,
   }));
-  await run((tx) => jobs.submitRequisition(tx, sneha, se.id));   // waits for Asha in her inbox
+  await run((tx) => jobs.submitRequisition(tx, karan, se.id));   // Karan reports to Asha, so it waits in her inbox (Karan stays; Sneha and Divya are leaving in the exits demo)
   const leaving = await run((tx) => jobs.backfillCandidates(tx));
   const divya = leaving.find((l) => l.name.startsWith("Divya"));
   if (divya) await run((tx) => jobs.saveRequisition(tx, priya, null, {
