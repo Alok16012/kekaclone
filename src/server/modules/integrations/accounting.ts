@@ -5,10 +5,7 @@ import { canRunPayroll } from "@/server/modules/payrun/access";
 import { journal } from "@/server/modules/payrun/reports";
 import { csv, rupees } from "@/server/modules/payrun/rules";
 import { assertFeature } from "@/server/modules/saas/gate";
-
-export const ACCOUNTING_FORMATS = { tally: "Tally (journal voucher CSV)", zoho: "Zoho Books (journal import CSV)" } as const;
-export type AccountingFormat = keyof typeof ACCOUNTING_FORMATS;
-export const isAccountingFormat = (v: unknown): v is AccountingFormat => v === "tally" || v === "zoho";
+import type { AccountingFormat } from "./rules";
 
 /** Finalised payroll runs that can be exported, newest first. Payroll runners only. */
 export async function exportableRuns(tx: Tx, actor: Actor) {

@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { AppError, withTenant } from "@/server/db";
 import { getActor } from "@/server/auth/session";
-import { accountingExport, isAccountingFormat } from "@/server/modules/integrations/accounting";
+import { accountingExport } from "@/server/modules/integrations/accounting";
+import { isAccountingFormat } from "@/server/modules/integrations/rules";
 
 /** Accounting export of a finalised payroll run: ?format=tally|zoho. Payroll runners only. */
 export async function GET(req: Request, ctx: RouteContext<"/settings/integrations/export/[runId]">) {

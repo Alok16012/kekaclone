@@ -87,3 +87,8 @@ export function pageLimit(raw: string | null | undefined, fallback = 50, max = 1
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? Math.min(n, max) : fallback;
 }
+
+/** Accounting export formats (Settings → Integrations). */
+export const ACCOUNTING_FORMATS = { tally: "Tally (journal voucher CSV)", zoho: "Zoho Books (journal import CSV)" } as const;
+export type AccountingFormat = keyof typeof ACCOUNTING_FORMATS;
+export const isAccountingFormat = (v: unknown): v is AccountingFormat => v === "tally" || v === "zoho";

@@ -4,6 +4,7 @@ import { getActor } from "@/server/auth/session";
 import { canSeeBilling } from "@/server/modules/billing/service";
 import { renderLetterPdf } from "@/server/modules/documents/pdf";
 import { formatINR } from "@/lib/money";
+import { isPlan, PLAN_DEFS } from "@/server/modules/saas/plans";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -30,7 +31,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/settings/billing/in
     <p>Supplier: erp (SaaS subscription, HSN/SAC 998314)</p>
     <h3>Items</h3>
     <ul>
-      <li>erp ${esc(inv.plan ?? "")} plan · ${inv.seats ?? "—"} employees · ${esc(inv.billing_cycle ?? "")}: ${formatINR(amount)}</li>
+      <li>erp ${esc(isPlan(inv.plan) ? PLAN_DEFS[inv.plan].name : inv.plan ?? "")} plan · ${inv.seats ?? "—"} employees · ${esc(inv.billing_cycle ?? "")}: ${formatINR(amount)}</li>
       <li>GST @ 18%: ${formatINR(gst)}</li>
     </ul>
     <p><strong>Total: ${formatINR(amount + gst)}</strong></p>

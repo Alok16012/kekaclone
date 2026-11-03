@@ -8,9 +8,10 @@ import { ipAllowed } from "@/server/auth/network-rules";
 /** Step 2 of SSO: check state, exchange the code, verify the id_token, link to the existing account, sign in. */
 export async function GET(req: NextRequest, ctx: RouteContext<"/auth/sso/[provider]/callback">) {
   const { provider } = await ctx.params;
+  const origin = `${req.headers.get("x-forwarded-proto") ?? "http"}://${req.headers.get("host") ?? new URL(req.url).host}`;   // keep the workspace subdomain
   const tenant = await resolveTenant(req.headers.get("x-erp-tenant"));
   const back = (msg: string) => {
-    const res = NextResponse.redirect(new URL(`/login?sso_error=${encodeURIComponent(msg)}`, req.url));
+    const res = NextResponse.redirect(new URL(`/login?sso_error=${encodeURIComponent(msg)}`, origin));
     res.cookies.delete({ name: SSO_COOKIE, path: "/auth/sso" });
     return res;
   };
@@ -23,10 +24,10 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/auth/sso/[provid
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
   if (!ipAllowed(ip, tenant.authSettings?.ip_allowlist ?? [])) return back("Sign-in isn't allowed from this network.");
   try {
-    const claims = await finishSso(provider, tenant, { code, redirectUri: new URL(`/auth/sso/${provider}/callback`, req.url).toString(), verifier: c.verifier, nonce: c.nonce });
+    const claims = await finishSso(provider, tenant, { code, redirectUri: new URL(`/auth/sso/${provider}/callback`, origin).toString(), verifier: c.verifier, nonce: c.nonce });
     const userId = await completeSso(tenant, provider, claims, { ip, userAgent: req.headers.get("user-agent") });
     await createSession(tenant.id, userId);
-    const res = NextResponse.redirect(new URL(c.next, req.url));
+    const res = NextResponse.redirect(new URL(c.next, origin));
     res.cookies.delete({ name: SSO_COOKIE, path: "/auth/sso" });
     return res;
   } catch (e) {

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { getActor } from "@/server/auth/session";
 import { canWorkspace } from "@/server/modules/saas/gate";
 import { trialDaysLeft } from "@/server/modules/saas/plans";
@@ -6,6 +7,7 @@ import { Banner } from "@/ui/feedback";
 
 /** Trial countdown / payment problem banner, shown to billing admins only. Reads the tenant row already on the actor. */
 export async function PlanNotice() {
+  await connection();   // per request: the countdown reads the clock
   const actor = await getActor();
   if (!actor || !canWorkspace(actor, "settings.billing")) return null;
   const t = actor.tenant;

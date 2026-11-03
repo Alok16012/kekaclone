@@ -4,11 +4,9 @@
  */
 import { createHash, createPublicKey, randomBytes, verify as cryptoVerify, type JsonWebKey as NodeJwk } from "node:crypto";
 
-export type SsoProvider = "google" | "microsoft";
-export const SSO_PROVIDERS: SsoProvider[] = ["google", "microsoft"];
-export const isSsoProvider = (v: unknown): v is SsoProvider => v === "google" || v === "microsoft";
+import { isSsoProvider, type SsoProvider } from "./sso-types";
+export { isSsoProvider, SSO_LABELS, SSO_PROVIDERS, type SsoProvider } from "./sso-types";
 export const SSO_COOKIE = "erp_sso";
-export const SSO_LABELS: Record<SsoProvider, string> = { google: "Google", microsoft: "Microsoft" };
 
 const b64url = (b: Buffer) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const fromB64url = (s: string) => Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64");

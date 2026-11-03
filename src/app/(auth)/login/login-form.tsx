@@ -7,7 +7,7 @@ import { Field, Input } from "@/ui/field";
 import { Banner } from "@/ui/feedback";
 import { Checkbox } from "@/ui/choice";
 import { Segmented } from "@/ui/choice";
-import { SSO_LABELS, type SsoProvider } from "@/server/modules/auth/oidc-rules";
+import { SSO_LABELS, type SsoProvider } from "@/server/modules/auth/sso-types";
 import { loginAction, mobileOtpStartAction, mobileOtpVerifyAction, verifyCodeAction, type FormState } from "../actions";
 
 type Props = { next?: string; sso?: SsoProvider[]; password?: boolean; mobileOtp?: boolean; ssoError?: string };

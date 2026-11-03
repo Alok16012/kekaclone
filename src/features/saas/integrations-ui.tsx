@@ -12,7 +12,7 @@ import { ConfirmDialog } from "@/ui/overlay";
 import { toast } from "@/ui/toast";
 import type { integrationsOverview } from "@/server/modules/integrations/service";
 import type { exportableRuns } from "@/server/modules/integrations/accounting";
-import { ACCOUNTING_FORMATS } from "@/server/modules/integrations/accounting";
+import { ACCOUNTING_FORMATS } from "@/server/modules/integrations/rules";
 import { removeIntegrationAction, saveChatIntegrationAction, sendChatTestAction, setCalendarPlaceholderAction } from "@/app/(app)/settings/integrations/actions";
 
 type Overview = Awaited<ReturnType<typeof integrationsOverview>>;

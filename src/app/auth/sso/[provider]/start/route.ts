@@ -7,13 +7,14 @@ import { encodeSsoCookie, isSsoProvider, SSO_COOKIE } from "@/server/modules/aut
 /** Step 1 of SSO: remember state/nonce/PKCE in a short cookie and send the browser to the provider. */
 export async function GET(req: NextRequest, ctx: RouteContext<"/auth/sso/[provider]/start">) {
   const { provider } = await ctx.params;
+  const origin = `${req.headers.get("x-forwarded-proto") ?? "http"}://${req.headers.get("host") ?? new URL(req.url).host}`;   // keep the workspace subdomain
   const tenant = await resolveTenant(req.headers.get("x-erp-tenant"));
-  const back = (msg: string) => NextResponse.redirect(new URL(`/login?sso_error=${encodeURIComponent(msg)}`, req.url));
+  const back = (msg: string) => NextResponse.redirect(new URL(`/login?sso_error=${encodeURIComponent(msg)}`, origin));
   if (!tenant || !isSsoProvider(provider)) return back("This sign-in method isn't available.");
   const rawNext = req.nextUrl.searchParams.get("next") ?? "/home";
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/home";
   try {
-    const { url, cookie } = await beginSso(provider, tenant, new URL(`/auth/sso/${provider}/callback`, req.url).toString(), next);
+    const { url, cookie } = await beginSso(provider, tenant, new URL(`/auth/sso/${provider}/callback`, origin).toString(), next);
     const res = NextResponse.redirect(url);
     res.cookies.set(SSO_COOKIE, encodeSsoCookie(cookie), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/auth/sso", maxAge: 600 });
     return res;
