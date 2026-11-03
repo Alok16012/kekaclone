@@ -72,6 +72,16 @@ const PAGES: Item[] = [
   { id: "p-assets", kind: "page", label: "Assets", href: "/org/assets", icon: <Package />, keywords: "inventory laptop hand over return recovery", admin: true, area: "assets" },
   { id: "p-helpdesk-set", kind: "page", label: "Helpdesk categories", hint: "Settings", href: "/settings/helpdesk", icon: <Settings />, keywords: "sla escalation agents ticket", admin: true, area: "helpdesk-settings" },
   { id: "p-letters", kind: "page", label: "Letter templates", hint: "Settings", href: "/settings/documents", icon: <FilePen />, keywords: "letters relieving experience placeholders templates", admin: true },
+  { id: "p-timesheet", kind: "page", label: "My timesheet", href: "/me/timesheet", icon: <Clock />, keywords: "hours projects week log time billable submit" },
+  { id: "p-learn-me", kind: "page", label: "My learning", href: "/me/learn", icon: <Target />, keywords: "courses training lms quiz certificate" },
+  { id: "p-projects", kind: "page", label: "Projects", hint: "Projects desk", href: "/psa/projects", icon: <LayoutGrid />, keywords: "psa clients tasks milestones team bill rate", admin: true, area: "psa" },
+  { id: "p-clients", kind: "page", label: "Clients", hint: "Projects desk", href: "/psa/clients", icon: <LayoutGrid />, keywords: "psa customers gstin", admin: true, area: "psa" },
+  { id: "p-ts-approvals", kind: "page", label: "Timesheet approvals", hint: "Projects desk", href: "/psa/approvals", icon: <Clock />, keywords: "approve hours week team" },
+  { id: "p-billing", kind: "page", label: "Billing", hint: "Projects desk", href: "/psa/billing", icon: <Wallet />, keywords: "invoice gst retainer milestone pdf", admin: true, area: "psa" },
+  { id: "p-ts-policy", kind: "page", label: "Timesheet policy", hint: "Settings", href: "/settings/timesheets", icon: <Settings />, keywords: "minimum hours lock approver weekly daily", admin: true, area: "psa" },
+  { id: "p-learn-admin", kind: "page", label: "Learn admin", href: "/learn/admin", icon: <Target />, keywords: "courses author assign completion overdue lms", admin: true, area: "learn" },
+  { id: "p-reports", kind: "page", label: "Reports", href: "/reports", icon: <ChartBar />, keywords: "headcount attrition leave attendance expenses export csv xlsx", admin: true, area: "reports" },
+  { id: "p-report-builder", kind: "page", label: "Report builder", hint: "Reports", href: "/reports/builder", icon: <ChartBar />, keywords: "custom dataset columns filters schedule email", admin: true, area: "reports" },
 ];
 const ACTIONS: Item[] = [
   { id: "a-leave", kind: "action", label: "Apply for leave", href: "/me/leave?apply=1", icon: <CalendarPlus />, keywords: "request time off chhutti" },
@@ -90,6 +100,7 @@ const ACTIONS: Item[] = [
   { id: "a-ticket", kind: "action", label: "Raise a helpdesk ticket", href: "/me/helpdesk?new=1", icon: <LifeBuoy />, keywords: "help support it hr question problem issue" },
   { id: "a-asset-req", kind: "action", label: "Request an asset", href: "/me/assets?request=1", icon: <PackagePlus />, keywords: "laptop monitor headset equipment need" },
   { id: "a-resign", kind: "action", label: "Resign", hint: "From your profile", href: "/me", icon: <UserMinus />, keywords: "resignation quit leave job notice" },
+  { id: "a-timesheet", kind: "action", label: "Fill in my timesheet", href: "/me/timesheet", icon: <Clock />, keywords: "log hours week project submit" },
 ];
 
 const RECENT_KEY = "erp-recent";
