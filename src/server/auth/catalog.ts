@@ -36,6 +36,10 @@ export const PERMISSIONS = [
     { key: "helpdesk.admin", label: "Set up helpdesk categories and handle every ticket" },
     { key: "assets.admin", label: "Manage the asset inventory, hand assets out and take them back" },
   ] },
+  { group: "Hiring", items: [
+    { key: "hire.admin", label: "Set up hiring (flows, scorecards, templates, careers page) and see every job, candidate and offer" },
+    { key: "hire.recruit", label: "Recruit: post jobs, add candidates, schedule interviews and draft offers for the jobs you're on" },
+  ] },
   { group: "Settings", items: [
     { key: "settings.org", label: "Edit company structure (departments, locations, …)" },
     { key: "settings.roles", label: "Manage roles and who has them" },

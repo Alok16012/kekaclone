@@ -52,6 +52,7 @@ const ITEMS = [
     { href: "/settings/integrations", label: "Integrations" },
     { href: "/settings/api", label: "API & webhooks" },
   ] },
+  { group: "Hiring", links: [{ href: "/settings/hire", label: "Hiring" }] },
 ];
 
 /** Vertical on desktop, horizontally scrolling chips on mobile. */

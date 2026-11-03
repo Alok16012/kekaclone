@@ -20,7 +20,7 @@ export type TemplateRow = { id: string; name: string; kind: LetterKind; body_htm
 export async function listTemplates(tx: Tx) {
   return tx<TemplateRow[]>`
     select t.id, t.name, t.kind, t.body_html, t.updated_at, (select count(*)::int from generated_letters g where g.template_id = t.id) as issued
-    from letter_templates t order by t.name`;
+    from letter_templates t where t.kind <> 'offer' order by t.name`;   // offer letters are managed in Hiring settings
 }
 
 export async function saveTemplate(tx: Tx, actor: Actor, id: string | null, input: { name: string; kind: string; body: string }) {
@@ -81,7 +81,7 @@ async function guard(tx: Tx, actor: Actor, employeeId: string) {
 }
 
 async function template(tx: Tx, id: string) {
-  const [t] = await tx<{ id: string; name: string; kind: string; body_html: string }[]>`select id, name, kind, body_html from letter_templates where id = ${id}`;
+  const [t] = await tx<{ id: string; name: string; kind: string; body_html: string }[]>`select id, name, kind, body_html from letter_templates where id = ${id} and kind <> 'offer'`;
   if (!t) throw new AppError("not_found", "Template not found.", "templateId");
   return t;
 }

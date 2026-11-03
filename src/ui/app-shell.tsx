@@ -43,6 +43,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/me/assets", label: "My assets", icon: Laptop },
     { href: "/me/tasks", label: "My tasks", icon: ListChecks },
     { href: "/me/surveys", label: "Surveys", icon: ClipboardList },
+    { href: "/me/jobs", label: "Jobs & referrals", icon: BriefcaseBusiness },
   ] },
   { label: "Organisation", items: [
     { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -114,7 +115,7 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  */
 const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
-const AREA: Record<string, string> = { "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll" };
+const AREA: Record<string, string> = { "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll", "/hire/jobs": "hire" };
 /** Entries that only make sense on a plan that has the feature (hidden when ShellData.features says the plan lacks it). */
 export const FEATURE_OF: Record<string, string> = { "/hire/jobs": "hire", "/me/performance": "performance" };
 export const planShows = (d: ShellData | null, href: string) => !FEATURE_OF[href] || !d?.features || d.features.includes(FEATURE_OF[href]);

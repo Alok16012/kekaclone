@@ -13,6 +13,7 @@ import { ensureAssetDefaults } from "@/server/modules/assets/service";
 import { ensureLoanDefaults } from "@/server/modules/loans/service";
 import { ensureCoreHrDefaults } from "@/server/modules/corehr/lifecycle";
 import { ensureOnboardingDefaults } from "@/server/modules/onboarding/service";
+import { ensureHireDefaults } from "@/server/modules/hire/setup";
 
 export const RESERVED = new Set(["www", "app", "api", "admin", "mail", "help", "status", "careers", "portal", "erp", "static", "docs"]);
 
@@ -59,7 +60,7 @@ export async function provisionTenant(s: Signup) {
     }
     const [ga] = await tx<{ id: string }[]>`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'global_admin', 'Global admin', true, ${["*"]}) returning id`;
     await tx`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'hr_admin', 'HR admin', true,
-      ${["employees.read", "employees.write", "leave.admin", "attendance.admin", "approvals.override", "reports.read", "settings.org", "exits.manage", "documents.manage", "engage.announce", "helpdesk.admin", "assets.admin", "settings.notifications", "onboarding.manage", "surveys.manage"]})`;
+      ${["employees.read", "employees.write", "leave.admin", "attendance.admin", "approvals.override", "reports.read", "settings.org", "exits.manage", "documents.manage", "engage.announce", "helpdesk.admin", "assets.admin", "settings.notifications", "onboarding.manage", "surveys.manage", "hire.admin"]})`;
     // the 30-day trial runs on Pro so every feature can be tried; the plan chosen at checkout replaces it
     await tx`insert into roles (tenant_id, key, name, is_system, permissions) values (${tenantId}, 'payroll_admin', 'Payroll admin', true, ${["payroll.admin", "employees.read"]})`;
     for (const b of DEFAULT_BADGES) await tx`insert into badges (tenant_id, name, icon) values (${tenantId}, ${b.name}, ${b.icon})`;
@@ -76,6 +77,7 @@ export async function provisionTenant(s: Signup) {
     await ensureLoanDefaults(tx, tenantId);     // salary advance, emergency and personal loan types
     await ensureCoreHrDefaults(tx, tenantId);   // probation policies (6 months; 3 months with auto-confirm)
     await ensureOnboardingDefaults(tx, tenantId); // a standard onboarding checklist
+    await ensureHireDefaults(tx, tenantId);     // hiring flow, scorecard, email / JD / offer templates, careers page, Recruiter role
 
     const [founder] = await tx<{ id: string }[]>`select id from designations where title = 'Founder'`;
     const [mgmt] = await tx<{ id: string }[]>`select id from departments where name = 'Management'`;

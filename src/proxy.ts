@@ -21,6 +21,7 @@ export function proxy(req: NextRequest) {
     || path.startsWith("/verify/id/")   // ID-card QR check: tenant from the subdomain, signed token, minimal answer
     || path === "/offline" || path === "/manifest.webmanifest" || path === "/sw.js" || path.startsWith("/icons/") || path.startsWith("/brand/")
     || path.startsWith("/join/")   // joiner portal: token checked inside the subdomain's company
+    || path === "/careers" || path.startsWith("/careers/") || path.startsWith("/p/")   // hiring: public careers page and candidate / interviewer token links
     || (process.env.NODE_ENV !== "production" && path.startsWith("/dev/"));
   if (sub && !isPublic && !req.cookies.has(process.env.SESSION_COOKIE ?? "erp_session")) {
     const url = new URL("/login", req.url);
