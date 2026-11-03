@@ -10,6 +10,7 @@ export const PERMISSIONS = [
   ] },
   { group: "Engage", items: [
     { key: "engage.announce", label: "Post announcements and moderate the Home wall" },
+    { key: "surveys.manage", label: "Create surveys and see their results" },
   ] },
   { group: "Payroll", items: [
     { key: "payroll.admin", label: "Set up and run payroll, manage people's salaries, bank and statutory details, and record a CA check of statutory rates" },
@@ -21,6 +22,7 @@ export const PERMISSIONS = [
   ] },
   { group: "Lifecycle", items: [
     { key: "exits.manage", label: "Run exits: start, approve, complete and cancel them" },
+    { key: "onboarding.manage", label: "Run onboarding for new joiners and edit onboarding task templates" },
   ] },
   { group: "Documents", items: [
     { key: "documents.manage", label: "Manage company documents, letter templates and issue letters" },

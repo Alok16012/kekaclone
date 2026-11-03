@@ -17,6 +17,11 @@ import { ClockCard } from "@/features/clock-card";
 import { ApplyLeave } from "@/features/apply-leave";
 import { Wall } from "@/features/engage/wall";
 import { CelebrationsCard, HolidaysCard } from "@/features/engage/home-widgets";
+import { canEditQuickLinks, quickLinks, remoteToday } from "@/server/modules/home/service";
+import { myOnboarding } from "@/server/modules/onboarding/service";
+import { mySurveys, processDueSurveys } from "@/server/modules/surveys/service";
+import { QuickLinksCard, RemoteTodayCard, SurveysWaiting } from "@/features/home/extras";
+import { OnboardingChecklist } from "@/features/onboarding/checklist";
 
 export const metadata: Metadata = { title: "Home" };
 
@@ -29,6 +34,7 @@ export default async function HomePage(props: PageProps<"/home">) {
   const data = await load(async (tx, actor) => {
     const today = todayIn();
     await engage.publishDue(tx, actor.tenant.id);   // scheduled announcements that are now due go out before we read the wall
+    await processDueSurveys(tx, today);              // likewise scheduled surveys and pulse rounds
     const [state, bal, off, marks, opts, [{ pending }], [{ headcount }], wall, composer, celebrations, holidays] = await Promise.all([
       attendance.today(tx, actor.employeeId), leave.balances(tx, actor.employeeId), leave.offToday(tx),
       leaveMarks(tx, actor.employeeId), orgOptions(tx),
@@ -36,7 +42,11 @@ export default async function HomePage(props: PageProps<"/home">) {
       tx<{ headcount: number }[]>`select count(*)::int as headcount from employees where status <> 'relieved'`,
       engage.feed(tx, actor, { tab: "org" }), engage.composerOptions(tx, actor), engage.celebrationsFor(tx, today), engage.upcomingHolidays(tx, actor.employeeId, today),
     ]);
-    return { actor, today, state, bal, off, marks, people: opts.people.filter((p) => p.id !== actor.employeeId), pending, headcount, admin: can(actor, "employees.write"), wall, composer, celebrations, holidays };
+    const [links, remote, onboarding, surveys] = await Promise.all([quickLinks(tx), remoteToday(tx, today), myOnboarding(tx, actor, actor.employeeId, today), mySurveys(tx, actor)]);
+    return {
+      actor, today, state, bal, off, marks, people: opts.people.filter((p) => p.id !== actor.employeeId), pending, headcount, admin: can(actor, "employees.write"), wall, composer, celebrations, holidays,
+      links, editLinks: canEditQuickLinks(actor), remote, onboarding: onboarding && onboarding.tasks.length ? onboarding : null, surveys: surveys.filter((x) => !x.answered),
+    };
   });
   const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
   const date = new Date(data.today + "T00:00:00Z").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
@@ -60,6 +70,8 @@ export default async function HomePage(props: PageProps<"/home">) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[auto_1fr] lg:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1">
           <ClockCard state={data.state} />
+          {data.onboarding && <OnboardingChecklist data={data.onboarding} compact />}
+          <SurveysWaiting surveys={data.surveys} />
           {data.pending > 0 && (
             <Link href="/inbox" className="group flex items-center gap-4 rounded-lg border border-border bg-surface px-4 py-3 shadow-card hover:bg-surface-sunken">
               <span className="flex size-10 items-center justify-center rounded-pill bg-accent-soft text-accent-text"><Inbox className="size-5" aria-hidden /></span>
@@ -97,7 +109,9 @@ export default async function HomePage(props: PageProps<"/home">) {
               </ul>
             )}
           </Card>
+          <RemoteTodayCard people={data.remote} />
           <HolidaysCard holidays={data.holidays} today={data.today} />
+          <QuickLinksCard links={data.links} canEdit={data.editLinks} />
         </div>
       </div>
     </div>

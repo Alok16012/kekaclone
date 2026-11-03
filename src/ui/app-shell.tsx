@@ -10,6 +10,7 @@ import {
 import { DoorOpen } from "lucide-react";
 import { HandCoins, Headset, Landmark, Laptop, Package } from "lucide-react";
 import { Network } from "lucide-react";
+import { ClipboardList, ListChecks, Rocket } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar } from "./avatar";
 import { IconButton } from "./button";
@@ -40,6 +41,8 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/me/performance", label: "Performance", icon: Target },
     { href: "/me/helpdesk", label: "Helpdesk", icon: LifeBuoy },
     { href: "/me/assets", label: "My assets", icon: Laptop },
+    { href: "/me/tasks", label: "My tasks", icon: ListChecks },
+    { href: "/me/surveys", label: "Surveys", icon: ClipboardList },
   ] },
   { label: "Organisation", items: [
     { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -47,6 +50,7 @@ export const DEFAULT_NAV: NavGroup[] = [
     { href: "/org/employees", label: "People", icon: LayoutGrid },
     { href: "/org/tree", label: "Org chart", icon: Network },
     { href: "/org/documents", label: "Documents", icon: FileText },
+    { href: "/org/onboarding", label: "Onboarding", icon: Rocket },
     { href: "/org/exits", label: "Exits", icon: DoorOpen },
     { href: "/payroll", label: "Payroll", icon: Landmark },
     { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
@@ -108,7 +112,7 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
  * Layout: sidebar (lg+, collapsible to icons), top bar with search / notifications / profile,
  * off-canvas sidebar on md, bottom tab bar below md. A skip link jumps to main content.
  */
-const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans"]);
+const ADMIN_ONLY = new Set(["/settings", "/hire/jobs", "/org/dashboard", "/org/onboarding", "/org/exits", "/engage/announcements", "/expenses/approvals", "/org/assets", "/helpdesk", "/payroll", "/payroll/tax", "/payroll/loans"]);
 /** Admin-only entries that a narrower role also opens (ShellData.areas, worked out in the app layout). */
 const AREA: Record<string, string> = { "/payroll": "payrun", "/settings": "settings", "/expenses/approvals": "expenses", "/org/assets": "assets", "/helpdesk": "helpdesk", "/payroll/tax": "payroll", "/payroll/loans": "payroll" };
 /** Entries that only make sense on a plan that has the feature (hidden when ShellData.features says the plan lacks it). */
