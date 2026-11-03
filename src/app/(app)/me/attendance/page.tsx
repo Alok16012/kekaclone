@@ -11,6 +11,7 @@ import { StatTile } from "@/ui/card";
 import { ClockCard } from "@/features/clock-card";
 import { MyAttendance, type MyRequestRow } from "@/features/attendance/my-attendance";
 import { REQUEST_KIND, hm } from "@/features/attendance/status";
+import { getT } from "@/i18n/server";
 
 export const metadata: Metadata = { title: "Attendance" };
 
@@ -35,7 +36,8 @@ export default async function AttendancePage(props: PageProps<"/me/attendance">)
   const fixedDays = d.rows.filter((r) => r.firstIn && r.dayType === "working");
   const onTime = fixedDays.length ? Math.round((fixedDays.filter((r) => r.late === 0).length / fixedDays.length) * 100) : null;
   const penalties = d.rows.reduce((s, r) => s + r.penalties.reduce((x, p) => x + p.days, 0), 0);
-  const monthName = new Date(month + "T00:00:00Z").toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
+  const { t, date: fmtDate } = await getT();
+  const monthName = fmtDate(month, { month: "long", year: "numeric" });
   const prev = addDaysISO(month, -1).slice(0, 7);
   const next = addDaysISO(month, 32).slice(0, 7);
   const reqRows: MyRequestRow[] = d.mine.map((r) => ({
@@ -44,7 +46,7 @@ export default async function AttendancePage(props: PageProps<"/me/attendance">)
   }));
   return (
     <>
-      <PageHeader title="Attendance" description={`Your logs for ${monthName}.`}
+      <PageHeader title={t("attendance.title")} description={`${t("attendance.description")} ${monthName}`}
         actions={
           <nav aria-label="Month" className="flex items-center gap-1">
             <Button asChild variant="ghost" size="icon-sm"><Link href={`/me/attendance?month=${prev}`} aria-label="Previous month"><ChevronLeft /></Link></Button>

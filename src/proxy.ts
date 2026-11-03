@@ -22,6 +22,7 @@ export function proxy(req: NextRequest) {
     || path === "/offline" || path === "/manifest.webmanifest" || path === "/sw.js" || path.startsWith("/icons/") || path.startsWith("/brand/")
     || path.startsWith("/join/")   // joiner portal: token checked inside the subdomain's company
     || path === "/careers" || path.startsWith("/careers/") || path.startsWith("/p/")   // hiring: public careers page and candidate / interviewer token links
+    || path === "/developers"   // plat2: API / OAuth2 / webhooks guide (no tenant data)
     || (process.env.NODE_ENV !== "production" && path.startsWith("/dev/"));
   if (sub && !isPublic && !req.cookies.has(process.env.SESSION_COOKIE ?? "erp_session")) {
     const url = new URL("/login", req.url);

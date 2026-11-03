@@ -14,6 +14,7 @@ import { EmptyState } from "@/ui/feedback";
 import { ApplyLeave } from "@/features/apply-leave";
 import { LeaveRequests, type RequestRow } from "@/features/leave-requests";
 import { ClaimCompOff, CompOffList, UpcomingHolidays } from "@/features/my-leave-extras";
+import { getT } from "@/i18n/server";
 
 export const metadata: Metadata = { title: "Leave" };
 
@@ -21,7 +22,6 @@ const part = (r: { from_date: string; to_date: string; from_half: string; to_hal
   r.from_date === r.to_date ? (r.from_half === "second" ? "Second half" : r.to_half === "first" ? "First half" : null)
   : [r.from_half === "second" ? "from 2nd half" : null, r.to_half === "first" ? "till 1st half" : null].filter(Boolean).join(", ") || null;
 
-const num = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, ""));
 
 export default async function LeavePage(props: PageProps<"/me/leave">) {
   const sp = await props.searchParams;
@@ -34,6 +34,7 @@ export default async function LeavePage(props: PageProps<"/me/leave">) {
     return { bal, reqs, marks, hol, co, coRows, people: opts.people.filter((p) => p.id !== actor.employeeId) };
   });
   const today = todayIn();
+  const { t, number: num } = await getT();
   const rows: RequestRow[] = d.reqs.map((r) => ({
     id: r.id, type: r.type, color: r.color, range: leave.fmtRange(r.from_date, r.to_date), days: Number(r.days), part: part(r), status: r.status, note: r.note,
     cancellable: r.status === "pending" || (r.status === "approved" && r.from_date >= today),
@@ -41,7 +42,7 @@ export default async function LeavePage(props: PageProps<"/me/leave">) {
   const types = d.bal.map((b) => ({ id: b.id, name: b.name, available: Number.isFinite(b.available) ? b.available : null, allowHalfDay: !!b.rules.allowHalfDay }));
   return (
     <>
-      <PageHeader title="Leave" description="Your balances, requests, holidays and approvals."
+      <PageHeader title={t("leave.title")} description={t("leave.description")}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="ghost"><Link href="/team/leave"><CalendarRange />Team calendar</Link></Button>
@@ -56,7 +57,7 @@ export default async function LeavePage(props: PageProps<"/me/leave">) {
           {d.bal.map((b) => (
             <Card key={b.id} className="p-4">
               <div className="flex items-center gap-2"><span aria-hidden className="size-2.5 rounded-pill" style={{ background: b.color }} /><span className="text-sm font-medium">{b.name}</span></div>
-              <p className={`mt-2 text-2xl font-semibold tabular ${!b.unlimited && b.available < 0 ? "text-danger-text" : ""}`}>{b.unlimited ? "—" : num(b.available)}<span className="ml-1 text-sm font-normal text-text-muted">{b.unlimited ? "no limit" : "available"}</span></p>
+              <p className={`mt-2 text-2xl font-semibold tabular ${!b.unlimited && b.available < 0 ? "text-danger-text" : ""}`}>{b.unlimited ? "—" : num(b.available)}<span className="ml-1 text-sm font-normal text-text-muted">{b.unlimited ? "no limit" : t("leave.available")}</span></p>
               <p className="mt-1 text-sm text-text-muted tabular">{b.unlimited ? `${num(b.used)} used this year` : `${num(b.credited)} ${b.kind === "comp_off" ? "earned" : "credited"} · ${num(b.used)} used${b.pending ? ` · ${num(b.pending)} pending` : ""}`}</p>
             </Card>
           ))}

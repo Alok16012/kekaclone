@@ -23,24 +23,27 @@ export function IntegrationsPage({ overview, runs }: { overview: Overview; runs:
   return (
     <div className="flex flex-col gap-4">
       {!overview.allowed && <Banner tone="info">Integrations are available on the Plus plan. Upgrade in Settings → Billing to connect Slack, Teams and calendars.</Banner>}
-      <ChatCard provider="slack" title="Slack" help="Create an Incoming Webhook in Slack (Apps → Incoming WebHooks), pick the channel, and paste the URL here." state={overview.slack} allowed={overview.allowed} />
-      <ChatCard provider="teams" title="Microsoft Teams" help="In the Teams channel, add the Incoming Webhook connector and paste its URL here." state={overview.teams} allowed={overview.allowed} />
+      <ChatCard provider="slack" title="Slack" help="Create an Incoming Webhook in Slack (Apps → Incoming WebHooks), pick the channel, and paste the URL here." state={overview.slack} allowed={overview.allowed}
+        extra={overview.chatApprovals.slackInteractive ? <Badge tone="success">Approve / decline buttons on</Badge> : <Badge tone="warning">Buttons off — add {overview.chatApprovals.slackHint}</Badge>} />
+      <ChatCard provider="teams" title="Microsoft Teams" help="In the Teams channel, add the Incoming Webhook connector and paste its URL here." state={overview.teams} allowed={overview.allowed}
+        extra={<Badge tone="success">Approve / decline links on</Badge>} />
       <CalendarCard calendars={overview.calendars} allowed={overview.allowed} />
       <AccountingCard runs={runs} allowed={overview.accountingAllowed} />
     </div>
   );
 }
 
-function ChatCard({ provider, title, help, state, allowed }: { provider: "slack" | "teams"; title: string; help: string; state: Overview["slack"]; allowed: boolean }) {
+function ChatCard({ provider, title, help, state, allowed, extra }: { provider: "slack" | "teams"; title: string; help: string; state: Overview["slack"]; allowed: boolean; extra?: React.ReactNode }) {
   const [url, setUrl] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [pending, start] = React.useTransition();
   return (
     <Card>
       <CardHeader title={<span className="flex items-center gap-2"><MessageSquare className="size-4 text-text-muted" aria-hidden />{title}</span>}
-        description="Posts a short message to a channel when a request is approved or declined."
+        description="Posts to a channel when a request needs approval (with Approve / Decline) and when it's decided."
         action={state.connected ? <Badge tone={state.status === "error" ? "danger" : "success"}>{state.status === "error" ? "Last message failed" : "Connected"}</Badge> : <Badge tone="neutral">Not connected</Badge>} />
       <CardBody className="flex flex-col gap-3">
+        {extra && <div>{extra}</div>}
         {state.connected ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-text-muted">Channel webhook: <span className="font-mono">{state.hint}</span></span>
@@ -65,14 +68,14 @@ function CalendarCard({ calendars, allowed }: { calendars: Overview["calendars"]
   const [pending, start] = React.useTransition();
   const row = (key: "google_workspace" | "microsoft_365", label: string, c: Overview["calendars"]["google"]) => (
     <div className="flex flex-wrap items-center gap-3">
-      <Switch label={`${label}: add approved leave to calendars`} checked={c.on} disabled={!allowed || !c.configured || pending}
+      <Switch label={`${label}: let people connect their calendar`} checked={c.on} disabled={!allowed || !c.configured || pending}
         onCheckedChange={(on) => start(async () => { const r = await setCalendarPlaceholderAction(key, on); if (r.ok) toast.success(on ? `${label} calendar on` : `${label} calendar off`); else toast.error(r.error); })} />
-      {!c.configured && <Badge tone="warning">Not configured — add {c.hint}</Badge>}
+      {!c.configured ? <Badge tone="warning">Not configured — add {c.hint}</Badge> : c.on ? <Badge tone="success">{c.people} {c.people === 1 ? "person" : "people"} connected</Badge> : null}
     </div>
   );
   return (
     <Card>
-      <CardHeader title={<span className="flex items-center gap-2"><CalendarDays className="size-4 text-text-muted" aria-hidden />Calendars</span>} description="Google Workspace and Outlook calendar sync. The switch records your choice; syncing starts once the calendar connector is live on this server." />
+      <CardHeader title={<span className="flex items-center gap-2"><CalendarDays className="size-4 text-text-muted" aria-hidden />Calendars</span>} description="Interviews, 1:1s and approved leave land in people's own Google or Outlook calendars. Turn a provider on here; each person then connects their calendar under Me → Calendar & devices. The .ics download stays as a fallback." />
       <CardBody className="flex flex-col gap-3">
         {row("google_workspace", "Google Workspace", calendars.google)}
         {row("microsoft_365", "Outlook / Microsoft 365", calendars.microsoft)}

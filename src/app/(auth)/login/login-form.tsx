@@ -9,6 +9,7 @@ import { Checkbox } from "@/ui/choice";
 import { Segmented } from "@/ui/choice";
 import { SSO_LABELS, type SsoProvider } from "@/server/modules/auth/sso-types";
 import { loginAction, mobileOtpStartAction, mobileOtpVerifyAction, verifyCodeAction, type FormState } from "../actions";
+import { useT } from "@/i18n/client";
 
 type Props = { next?: string; sso?: SsoProvider[]; password?: boolean; mobileOtp?: boolean; ssoError?: string };
 
@@ -16,6 +17,7 @@ type Props = { next?: string; sso?: SsoProvider[]; password?: boolean; mobileOtp
 export function LoginForm({ next, sso = [], password = true, mobileOtp = false, ssoError }: Props) {
   const [method, setMethod] = React.useState<"email" | "mobile">(password ? "email" : mobileOtp ? "mobile" : "email");
   const showTabs = password && mobileOtp;
+  const { t } = useT();
   return (
     <div className="flex flex-col gap-4">
       {ssoError && <Banner tone="danger">{ssoError}</Banner>}
@@ -26,16 +28,17 @@ export function LoginForm({ next, sso = [], password = true, mobileOtp = false, 
               <a href={`/auth/sso/${p}/start${next ? `?next=${encodeURIComponent(next)}` : ""}`}>Continue with {SSO_LABELS[p]}</a>
             </Button>
           ))}
-          {(password || mobileOtp) && <div className="my-1 flex items-center gap-3 text-sm text-text-muted" aria-hidden><span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" /></div>}
+          {(password || mobileOtp) && <div className="my-1 flex items-center gap-3 text-sm text-text-muted" aria-hidden><span className="h-px flex-1 bg-border" />{t("login.or")}<span className="h-px flex-1 bg-border" /></div>}
         </div>
       )}
-      {showTabs && <Segmented value={method} onChange={setMethod} label="Sign-in method" options={[{ value: "email", label: "Email" }, { value: "mobile", label: "Mobile OTP" }]} />}
+      {showTabs && <Segmented value={method} onChange={setMethod} label="Sign-in method" options={[{ value: "email", label: t("login.email") }, { value: "mobile", label: t("login.mobile") }]} />}
       {method === "mobile" && mobileOtp ? <MobileOtpForm next={next} /> : password ? <PasswordForm next={next} /> : sso.length === 0 && !mobileOtp ? <Banner tone="warning">No sign-in method is turned on for this workspace. Ask your admin.</Banner> : null}
     </div>
   );
 }
 
 function PasswordForm({ next }: { next?: string }) {
+  const { t } = useT();
   const [state, action, pending] = React.useActionState<FormState, FormData>(loginAction, {});
   const f = state.fields ?? {};
   React.useEffect(() => { if (state.redirectTo) window.location.assign(state.redirectTo); }, [state.redirectTo]);
@@ -44,10 +47,10 @@ function PasswordForm({ next }: { next?: string }) {
     <form action={action} className="flex flex-col gap-4" noValidate>
       {state.error && <Banner tone="danger">{state.error}</Banner>}
       <input type="hidden" name="next" value={next ?? ""} />
-      <Field label="Work email" error={f.email}><Input name="email" type="email" autoComplete="username" defaultValue={state.values?.email} autoFocus required /></Field>
-      <Field label="Password" error={f.password}><Input name="password" type="password" autoComplete="current-password" required /></Field>
-      <Link href="/forgot-password" className="-mt-2 self-end text-sm font-medium text-accent-text hover:underline">Forgot password?</Link>
-      <Button type="submit" size="lg" block loading={pending || !!state.redirectTo}>Sign in</Button>
+      <Field label={t("login.email")} error={f.email}><Input name="email" type="email" autoComplete="username" defaultValue={state.values?.email} autoFocus required /></Field>
+      <Field label={t("login.password")} error={f.password}><Input name="password" type="password" autoComplete="current-password" required /></Field>
+      <Link href="/forgot-password" className="-mt-2 self-end text-sm font-medium text-accent-text hover:underline">{t("login.forgot")}</Link>
+      <Button type="submit" size="lg" block loading={pending || !!state.redirectTo}>{t("login.submit")}</Button>
     </form>
   );
 }

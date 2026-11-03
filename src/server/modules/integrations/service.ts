@@ -6,6 +6,8 @@ import { sha256 } from "@/server/auth/password";
 import { audit } from "@/server/modules/audit/service";
 import { assertFeature, assertWorkspace, canWorkspace, hasFeature } from "@/server/modules/saas/gate";
 import { decryptField, encryptField } from "@/server/modules/payroll/secret";
+import { calendarOverview } from "@/server/modules/calendar/service";
+import { chatApprovalStatus } from "./chat";
 import { ALL_EVENTS, endpointUrlProblem, isEvent, isScope, MAX_ATTEMPTS, nextRetryMinutes, parseToken, rateLimitTick, signWebhook, TOKEN_PREFIX } from "./rules";
 
 const b36 = (n: number) => { let s = ""; while (s.length < n) s += randomBytes(16).toString("base64").replace(/[^a-z0-9]/g, ""); return s.slice(0, n); };
@@ -206,11 +208,12 @@ export async function integrationsOverview(tx: Tx, actor: Actor) {
     try { const u = new URL(decryptField(r.config_enc, chatScope(actor.tenant.id, p))); hint = `${u.hostname}/…${u.pathname.slice(-6)}`; } catch { hint = "(unreadable)"; }
     return { connected: true as const, status: r.status, hint, updatedAt: r.updated_at.toISOString() };
   };
+  const counts = await calendarOverview(tx);
   const calendars = {
-    google: { configured: !!process.env.GOOGLE_CLIENT_ID, hint: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.local", on: byProvider.google_workspace?.status === "connected" },
-    microsoft: { configured: !!process.env.MICROSOFT_CLIENT_ID, hint: "MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET in .env.local", on: byProvider.microsoft_365?.status === "connected" },
+    google: { configured: !!process.env.GOOGLE_CLIENT_ID, hint: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.local", on: byProvider.google_workspace?.status === "connected", people: counts.google },
+    microsoft: { configured: !!process.env.MICROSOFT_CLIENT_ID, hint: "MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET in .env.local", on: byProvider.microsoft_365?.status === "connected", people: counts.microsoft },
   };
-  return { slack: chat("slack"), teams: chat("teams"), calendars, allowed: hasFeature(actor, "integrations"), accountingAllowed: hasFeature(actor, "accounting_export") };
+  return { slack: chat("slack"), teams: chat("teams"), calendars, chatApprovals: chatApprovalStatus(), allowed: hasFeature(actor, "integrations"), accountingAllowed: hasFeature(actor, "accounting_export") };
 }
 
 const CHAT_HOSTS: Record<ChatProvider, RegExp> = { slack: /(^|\.)slack\.com$/i, teams: /(^|\.)(office\.com|webhook\.office\.com|logic\.azure\.com|azure\.com|microsoft\.com)$/i };
@@ -234,7 +237,7 @@ export async function removeIntegration(tx: Tx, actor: Actor, provider: string) 
   await audit(tx, actor, { entityType: "integration", action: "disconnect", diff: { provider } });
 }
 
-/** Calendar sync is a placeholder: the toggle records the intent; syncing arrives with the calendar connector. */
+/** Calendar sync switch: once on (and the OAuth keys exist) people connect their own calendar under Me → Calendar & devices. */
 export async function setCalendarPlaceholder(tx: Tx, actor: Actor, provider: "google_workspace" | "microsoft_365", on: boolean) {
   assertWorkspace(actor, "settings.integrations");
   assertFeature(actor, "integrations");
