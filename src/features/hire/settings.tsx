@@ -24,6 +24,8 @@ type Props = {
   canEdit: boolean; flows: FlowRow[]; cards: { scales: ScaleRow[]; cards: ScorecardRow[] }; jds: JdTemplate[]; emails: EmailTemplate[]; offers: OfferTemplate[];
   site: CareerSite | null; chains: { requisition: ChainLevel[] | null; offer: ChainLevel[] | null; roles: { key: string; name: string }[] }; fields: FieldDef[];
   people: { id: string; name: string; title: string | null }[]; subdomain: string; calendar: { configured: boolean; provider: string | null; missing: string[] }; initialTab: string;
+  /** the "Privacy & AI" tab (rendered by the page) */
+  privacy?: React.ReactNode;
 };
 type Res = { ok: boolean; error?: string; field?: string };
 const done = (r: Res, msg: string, after?: () => void) => { if (r.ok) { toast.success(msg); after?.(); } else toast.error(r.error ?? "Couldn't save."); };
@@ -36,7 +38,7 @@ export function HireSettings(p: Props) {
       {!p.canEdit && <Banner tone="info" title="View only">Only hiring admins for the whole company can change hiring settings.</Banner>}
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList items={[{ value: "flows", label: "Hiring flows" }, { value: "scorecards", label: "Scorecards" }, { value: "templates", label: "Templates" }, { value: "careers", label: "Careers page" },
-          { value: "approvals", label: "Approvals" }, { value: "fields", label: "Candidate fields" }, { value: "integrations", label: "Integrations" }]} />
+          { value: "approvals", label: "Approvals" }, { value: "fields", label: "Candidate fields" }, { value: "integrations", label: "Integrations" }, ...(p.privacy ? [{ value: "privacy", label: "Privacy & AI" }] : [])]} />
         <TabsContent value="flows"><Flows {...p} /></TabsContent>
         <TabsContent value="scorecards"><Scorecards {...p} /></TabsContent>
         <TabsContent value="templates"><Templates {...p} /></TabsContent>
@@ -44,6 +46,7 @@ export function HireSettings(p: Props) {
         <TabsContent value="approvals"><Approvals {...p} /></TabsContent>
         <TabsContent value="fields"><Fields {...p} /></TabsContent>
         <TabsContent value="integrations"><Integrations {...p} /></TabsContent>
+        {p.privacy && <TabsContent value="privacy">{p.privacy}</TabsContent>}
       </Tabs>
     </div>
   );

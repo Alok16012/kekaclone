@@ -9,6 +9,8 @@ import { todayIn } from "@/lib/dates";
 import { Card, CardHeader } from "@/ui/card";
 import { Progress, Skeleton } from "@/ui/feedback";
 import { TaskItem } from "@/features/onboarding/task-item";
+import { joinerOffer } from "@/server/modules/onboarding/offer-sign";
+import { JoinerOfferSign } from "@/features/onboarding/offer-sign";
 
 export const metadata: Metadata = { title: "Your first steps", robots: { index: false, follow: false } };
 
@@ -23,6 +25,7 @@ async function Body({ params }: { params: PageProps<"/join/[token]">["params"] }
   const { token } = await params;
   const tenant = await resolveTenant(await currentSubdomain());
   const v = tenant ? await withTenant(tenant.id, (tx) => portalView(tx, tenant, token, todayIn())) : null;
+  const offer = tenant && v ? await withTenant(tenant.id, (tx) => joinerOffer(tx, token)) : null;
   if (!v) {
     return (
       <Card className="p-6 text-center sm:p-8">
@@ -41,6 +44,7 @@ async function Body({ params }: { params: PageProps<"/join/[token]">["params"] }
         <div className="mt-4"><div className="mb-1 flex justify-between text-sm text-text-muted"><span>{v.progress.done} of {v.progress.total} done</span><span className="tabular">{v.progress.pct}%</span></div>
           <Progress value={v.progress.done} max={Math.max(1, v.progress.total)} label="Your checklist progress" /></div>
       </Card>
+      {offer && <JoinerOfferSign token={token} offer={offer} />}
       <Card>
         <CardHeader title={<span className="inline-flex items-center gap-2"><Rocket className="size-4 text-accent-text" aria-hidden />Your checklist</span>} description="Details you share go to HR for a quick check." />
         {v.tasks.length === 0 ? <p className="px-5 pb-5 text-base text-text-muted">Nothing for you to do right now.</p> : (

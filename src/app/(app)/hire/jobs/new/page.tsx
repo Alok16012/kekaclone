@@ -3,6 +3,7 @@ import { load } from "@/server/page-data";
 import { AppError } from "@/server/db";
 import { canRecruit } from "@/server/modules/hire/access";
 import { jobFormData } from "@/server/modules/hire/jobs";
+import { assistantState } from "@/server/modules/hire/assist";
 import { Card } from "@/ui/card";
 import { EmptyState } from "@/ui/feedback";
 import { JobWizard, type WizardJob } from "@/features/hire/job-wizard";
@@ -14,8 +15,8 @@ export default async function NewJobPage(props: PageProps<"/hire/jobs/new">) {
   const sp = await props.searchParams;
   const d = await load(async (tx, actor) => {
     const tabs = await hireTabs(tx, actor);
-    if (!canRecruit(actor)) return { tabs, data: null, job: null };
-    const data = await jobFormData(tx);
+    if (!canRecruit(actor)) return { tabs, data: null, job: null, assistant: undefined };
+    const [data, assistant] = await Promise.all([jobFormData(tx), assistantState(tx)]);
     const flow = data.flows.find((f) => f.is_default) ?? data.flows[0];
     if (!flow) throw new AppError("invalid", "Set up a hiring flow first.");
     const job: WizardJob = {
@@ -35,12 +36,12 @@ export default async function NewJobPage(props: PageProps<"/hire/jobs/new">) {
         team: [{ employee_id: actor.employeeId, role: "recruiter" }, ...(r.raised_by_employee_id !== actor.employeeId ? [{ employee_id: r.raised_by_employee_id, role: "hiring_manager" }] : [])],
       });
     }
-    return { tabs, data, job };
+    return { tabs, data, job, assistant };
   });
   return (
     <>
       <HireHeader tabs={d.tabs} title="Create job" description="Four short steps: the posting, details, the hiring team, and where to publish." />
-      {!d.data || !d.job ? <Card><EmptyState title="Only recruiters can create jobs" description="Ask a hiring admin to give you the Recruiter role, or raise a requisition instead." /></Card> : <JobWizard data={d.data} job={d.job} />}
+      {!d.data || !d.job ? <Card><EmptyState title="Only recruiters can create jobs" description="Ask a hiring admin to give you the Recruiter role, or raise a requisition instead." /></Card> : <JobWizard data={d.data} job={d.job} assistant={d.assistant} />}
     </>
   );
 }
