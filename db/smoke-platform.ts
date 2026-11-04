@@ -286,7 +286,9 @@ async function main() {
       await setup.completeStep(tx, owner, "designations", "done");
       const s = (await setup.setupSummary(tx, owner))!;
       assert.deepEqual(Object.fromEntries(Object.entries(s.state.steps).map(([k, v]) => [k, v!.status])), { company: "done", locations: "done", departments: "skipped", designations: "done" });
-      assert.equal(s.next, "leave"); assert.equal(s.progress.done, 3);
+      assert.equal(s.next, "business_units"); assert.equal(s.progress.done, 3);   // docs2 added the Business units step
+      await setup.completeStep(tx, owner, "business_units", "skipped");
+      assert.equal((await setup.setupSummary(tx, owner))!.next, "leave");
     });
     // leave basics: April year, new quotas; the owner's opening balances follow
     await withTenant(ft.id, async (tx) => {
