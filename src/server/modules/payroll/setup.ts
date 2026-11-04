@@ -20,11 +20,13 @@ const unique = async <T>(tx: Tx, fn: (sp: Tx) => PromiseLike<T>, message: string
 export type ComponentRow = {
   id: string; code: string; name: string; kind: ComponentKind; is_taxable: boolean; tax_section: string | null; lop_prorated: boolean;
   frequency: (typeof FREQUENCIES)[number]; on_payslip: boolean; in_arrears: boolean; pf_wage: boolean; esi_wage: boolean; structures: number; used: boolean;
+  is_fbp: boolean; annual_max_paise: number | null; gl_code: string | null;
 };
 
 export async function listComponents(tx: Tx) {
   return tx<ComponentRow[]>`
     select c.id, c.code, c.name, c.kind, c.is_taxable, c.tax_section, c.lop_prorated, c.frequency, c.on_payslip, c.in_arrears, c.pf_wage, c.esi_wage,
+      c.is_fbp, c.annual_max_paise::bigint::text::numeric::float8::int as annual_max_paise, c.gl_code,
       (select count(*)::int from salary_structure_lines l where l.component_id = c.id) as structures,
       exists (select 1 from employee_salaries s where s.breakup ? c.code) as used
     from salary_components c
@@ -43,6 +45,12 @@ export const componentInput = z.object({
   inArrears: z.boolean(),
   pfWage: z.boolean(),
   esiWage: z.boolean(),
+  /** flexible benefit plan: people choose how much of it they want for the year, within the annual limit */
+  isFbp: z.boolean().optional(),
+  /** annual limit in paise for FBP choices and reimbursable claims (null: a year of the component in the salary) */
+  annualMaxPaise: z.number().int("Limits are in whole paise").positive("Enter a limit above zero").max(1_00_00_000_00).nullable().optional(),
+  /** ledger code for the accounting exports */
+  glCode: z.string().trim().max(30).regex(/^[A-Za-z0-9._\-/ ]*$/, "Use up to 30 letters, numbers, dots or dashes").nullable().optional(),
 });
 
 export async function saveComponent(tx: Tx, actor: Actor, id: string | null, raw: unknown) {
@@ -54,8 +62,9 @@ export async function saveComponent(tx: Tx, actor: Actor, id: string | null, raw
   const taxSection = v.taxable ? null : v.taxSection || null;   // a section only explains why something is exempt
   if (!id) {
     const [r] = await unique(tx, (sp) => sp<{ id: string }[]>`
-      insert into salary_components (tenant_id, code, name, kind, is_taxable, tax_section, lop_prorated, frequency, on_payslip, in_arrears, pf_wage, esi_wage)
-      values (${actor.tenant.id}, ${v.code}, ${v.name}, ${v.kind}, ${v.taxable}, ${taxSection}, ${v.lopProrated}, ${v.frequency}, ${v.onPayslip}, ${v.inArrears}, ${v.pfWage}, ${v.esiWage})
+      insert into salary_components (tenant_id, code, name, kind, is_taxable, tax_section, lop_prorated, frequency, on_payslip, in_arrears, pf_wage, esi_wage, is_fbp, annual_max_paise, gl_code)
+      values (${actor.tenant.id}, ${v.code}, ${v.name}, ${v.kind}, ${v.taxable}, ${taxSection}, ${v.lopProrated}, ${v.frequency}, ${v.onPayslip}, ${v.inArrears}, ${v.pfWage}, ${v.esiWage},
+        ${!!v.isFbp}, ${v.annualMaxPaise ?? null}, ${v.glCode || null})
       returning id`, "Another component already uses this code.", "code");
     await audit(tx, actor, { entityType: "salary_component", entityId: r.id, action: "create", diff: v });
     return { id: r.id };
@@ -71,7 +80,7 @@ export async function saveComponent(tx: Tx, actor: Actor, id: string | null, raw
   await unique(tx, (sp) => sp`
     update salary_components set code = ${v.code}, name = ${v.name}, kind = ${v.kind}, is_taxable = ${v.taxable}, tax_section = ${taxSection},
       lop_prorated = ${v.lopProrated}, frequency = ${v.frequency}, on_payslip = ${v.onPayslip}, in_arrears = ${v.inArrears},
-      pf_wage = ${v.pfWage}, esi_wage = ${v.esiWage}, updated_at = now()
+      pf_wage = ${v.pfWage}, esi_wage = ${v.esiWage}, is_fbp = ${!!v.isFbp}, annual_max_paise = ${v.annualMaxPaise ?? null}, gl_code = ${v.glCode || null}, updated_at = now()
     where id = ${id}`, "Another component already uses this code.", "code");
   await audit(tx, actor, { entityType: "salary_component", entityId: id, action: "update", diff: v });
   return { id };

@@ -21,6 +21,8 @@ export type FinancesData = {
   current: { id: string; structureId: string; structureName: string; ctcPaise: number; effectiveFrom: string; reason: string; arrearsFromMonth: string | null; lines: Line[] } | null;
   upcoming: { effectiveFrom: string; ctcPaise: number }[];
   history: { id: string; effectiveFrom: string; ctcPaise: number; reason: string; structureName: string; arrearsFromMonth: string | null; status: string; deletable: boolean }[];
+  pending: { id: string; effectiveFrom: string; ctcPaise: number; reason: string; structureName: string; arrearsFromMonth: string | null; createdAt: string; requestedBy: string | null; waitingOn: string | null }[];
+  revisionsNeedApproval: boolean;
   statutory: { pfEnabled: boolean; uan: string | null; pfNumber: string | null; pfOnFullWage: boolean; esiEnabled: boolean; esiNumber: string | null; ptState: string | null; ptStateSource: "profile" | "location" | null; ptStateOverride: string | null; locationState: string | null; lwfState: string | null; taxRegime: "old" | "new" };
   bank: { bankName: string; ifsc: string; last4: string; holderName: string; updatedAt: string } | null;
   payGroup: { id: string; name: string } | null;
@@ -55,6 +57,14 @@ export function FinancesTab({ employeeId, d }: { employeeId: string; d: Finances
           action={d.canEdit ? <Button size="sm" onClick={() => setRevising(true)}>{d.history.length ? <><TrendingUp />Revise salary</> : <><Plus />Assign salary</>}</Button> : undefined} />
         <CardBody className="flex flex-col gap-4">
           {d.upcoming.map((u) => <Banner key={u.effectiveFrom} tone="info" title={`New CTC of ${money(u.ctcPaise)} from ${fmtDate(u.effectiveFrom)}`}>{d.self ? "Your breakup updates on that date." : "Scheduled; it takes effect on that date."}</Banner>)}
+          {!d.self && d.pending.map((u) => (
+            <Banner key={u.id} tone="warning" title={`Revision to ${money(u.ctcPaise)} from ${fmtDate(u.effectiveFrom)} is waiting for approval`}
+              action={d.canEdit ? <ConfirmDialog title="Withdraw this revision?" description="It leaves the approver's inbox and isn't applied." confirmLabel="Withdraw"
+                onConfirm={async () => { const r = await deleteSalaryAction(u.id); if (r.ok) toast.success("Revision withdrawn"); else toast.error(r.error); }}
+                trigger={<Button size="sm" variant="ghost">Withdraw</Button>} /> : undefined}>
+              {REASON_LABEL[u.reason] ?? u.reason} · {u.structureName}{u.requestedBy ? ` · raised by ${u.requestedBy}` : ""}{u.waitingOn ? ` · with ${u.waitingOn}` : ""}{u.arrearsFromMonth ? ` · arrears from ${fmtMonth(u.arrearsFromMonth)} once approved` : ""}
+            </Banner>
+          ))}
           {!d.current ? (
             <EmptyState compact icon={<Wallet />} title={d.self ? "Your salary hasn't been set up yet" : "No salary yet"}
               description={d.self ? "Your payroll team adds it. Ask them if you think it's missing." : d.canEdit ? "Assign a CTC on one of the pay group's salary structures." : undefined} />
@@ -160,7 +170,8 @@ function ReviseDialog({ employeeId, d, onClose }: { employeeId: string; d: Finan
     if (!ctcPaise) { setError({ message: "Enter the annual CTC, like 12,00,000.", field: "ctcPaise" }); return; }
     const r = await saveSalaryAction({ employeeId, structureId, ctcPaise, effectiveFrom: from, reason: first ? "joining" : reason });
     if (!r.ok) { setError({ message: r.error, field: r.field }); return; }
-    toast.success(r.data!.unchanged ? "Already saved" : first ? "Salary assigned" : "Salary revised", { description: r.data!.arrearsFromMonth ? `Arrears from ${fmtMonth(r.data!.arrearsFromMonth)} will be paid in the next payroll.` : `${d.name} has been notified.` });
+    toast.success(r.data!.unchanged ? "Already saved" : r.data!.pendingApproval ? "Revision sent for approval" : first ? "Salary assigned" : "Salary revised",
+      { description: r.data!.pendingApproval ? "It applies once the approver in Settings → Approvals says yes." : r.data!.arrearsFromMonth ? `Arrears from ${fmtMonth(r.data!.arrearsFromMonth)} will be paid in the next payroll.` : `${d.name} has been notified.` });
     onClose();
   });
   const fe = (f: string) => (error?.field === f ? error.message : undefined);
@@ -176,7 +187,7 @@ function ReviseDialog({ employeeId, d, onClose }: { employeeId: string; d: Finan
             <Field label="Annual CTC (₹)" required error={fe("ctcPaise")} help={change != null && Number.isFinite(change) ? `${change >= 0 ? "+" : ""}${change.toFixed(1)}% on today's ${money(d.current!.ctcPaise)}` : undefined}>
               <Input inputMode="decimal" value={ctc} onChange={(e) => setCtc(e.target.value)} autoFocus className="tabular" placeholder="12,00,000" />
             </Field>
-            <Field label="Takes effect from" required error={fe("effectiveFrom")} help={backdated ? "In a past month: the difference is paid as arrears." : "Future dates are fine."}>
+            <Field label="Takes effect from" required error={fe("effectiveFrom")} help={`${backdated ? "In a past month: the difference is paid as arrears." : "Future dates are fine."}${!first && d.revisionsNeedApproval ? " Revisions go through approval first." : ""}`}>
               <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             </Field>
             <Field label="Salary structure" required error={fe("structureId")}>

@@ -1,4 +1,5 @@
 import "server-only";
+import { fetchDailyRates } from "@/server/modules/expenses/fx";
 import { withTenant, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor } from "@/server/auth/permissions";
@@ -68,6 +69,7 @@ export const STEPS: Step[] = [
     return { month, overtime: count((await settleOvertime(tx, c.tenantId, month, null)).lines), allowances: count((await settleShiftAllowance(tx, c.tenantId, month, null)).lines) };
   } },
   { key: "webhooks", label: "Retry outbound webhooks", daily: false, own: async (c) => { const r = await deliverWebhooks(c.tenantId, undefined, c.now); return { sent: r.sent, failed: r.failed }; } },
+  { key: "fx_rates", label: "Fetch today's exchange rates for expenses (when a provider is configured)", daily: true, tx: (tx, c) => fetchDailyRates(tx, c.tenantId, c.today) },
 ];
 
 async function tenantRow(tx: Tx, tenantId: string) {

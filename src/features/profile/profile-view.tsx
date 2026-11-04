@@ -21,7 +21,7 @@ type Lookups = Parameters<typeof JobChangeDialog>[0]["lookups"];
 const fmtDate = (d: string | null | undefined) => (d ? new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : null);
 const LABEL: Record<string, string> = {
   female: "Female", male: "Male", non_binary: "Non-binary", undisclosed: "Prefer not to say", single: "Single", married: "Married", divorced: "Divorced", widowed: "Widowed",
-  permanent: "Permanent", contract: "Contract", intern: "Intern", consultant: "Consultant", full_time: "Full time", part_time: "Part time",
+  permanent: "Permanent", contract: "Contract", intern: "Intern", consultant: "Consultant", daily: "Daily wage", piece: "Piece rate", full_time: "Full time", part_time: "Part time",
 };
 const EVENT: Record<string, string> = {
   joined: "Joined", profile_updated: "Profile updated", transfer: "Transferred", promotion: "Promoted", manager_change: "Manager changed",

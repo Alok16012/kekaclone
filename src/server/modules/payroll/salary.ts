@@ -3,7 +3,9 @@ import { z } from "zod";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { audit } from "@/server/modules/audit/service";
-import { notifyEmployee } from "@/server/modules/approvals/service";
+import { cancelApproval, notifyEmployee, startApproval, timeline } from "@/server/modules/approvals/service";
+import { inr } from "@/server/modules/tax/rules";
+import { onSalaryRevisionDecided } from "./effects";
 import { markPersonRunsStale } from "@/server/modules/payrun/stale";
 import { todayIn } from "@/lib/dates";
 import { assertCanChangePay, canPayrollFor, placementOf } from "./access";
@@ -87,7 +89,7 @@ export type SalaryInput = z.infer<typeof salaryInput>;
  * and a date reaching back into an already-paid month records `arrears_from_month` for payroll to settle.
  * Idempotent: the exact same CTC and structure on the same date returns the existing row.
  */
-export async function saveSalary(tx: Tx, actor: Actor, raw: unknown, opts: { today?: string; notify?: boolean } = {}) {
+export async function saveSalary(tx: Tx, actor: Actor, raw: unknown, opts: { today?: string; notify?: boolean; approval?: boolean } = {}) {
   const p = salaryInput.safeParse(raw);
   if (!p.success) throw new AppError("invalid", p.error.issues[0].message, String(p.error.issues[0].path[0] ?? ""));
   const v = p.data;
@@ -104,9 +106,10 @@ export async function saveSalary(tx: Tx, actor: Actor, raw: unknown, opts: { tod
   if (emp.pay_group_id && emp.pay_group_id !== st.pay_group_id) throw new AppError("invalid", `${emp.display_name} is in another pay group. Pick a structure from their pay group, or move them to ${st.pay_group} first.`, "structureId");
   if (!emp.pay_group_id && emp.legal_entity_id && emp.legal_entity_id !== st.legal_entity_id) throw new AppError("invalid", `${st.pay_group} belongs to a different legal entity than ${emp.display_name}.`, "structureId");
 
-  const [existing] = await tx<{ id: string; ctc_paise: bigint; structure_id: string }[]>`select id, ctc_paise, structure_id from employee_salaries where employee_id = ${v.employeeId} and effective_from = ${v.effectiveFrom}`;
+  const [existing] = await tx<{ id: string; ctc_paise: bigint; structure_id: string; status: string }[]>`select id, ctc_paise, structure_id, status from employee_salaries where employee_id = ${v.employeeId} and effective_from = ${v.effectiveFrom}`;
   if (existing) {
-    if (Number(existing.ctc_paise) === v.ctcPaise && existing.structure_id === v.structureId) return { id: existing.id, unchanged: true, arrearsFromMonth: null as string | null };
+    if (Number(existing.ctc_paise) === v.ctcPaise && existing.structure_id === v.structureId) return { id: existing.id, unchanged: true, arrearsFromMonth: null as string | null, pendingApproval: existing.status === "pending_approval" };
+    if (existing.status === "pending_approval") throw new AppError("conflict", "A revision starting on this date is waiting for approval. Decide that one first, or pick another date.", "effectiveFrom");
     throw new AppError("conflict", "A salary already starts on this date. Delete it first, or pick another date.", "effectiveFrom");
   }
   const [{ n: prior }] = await tx<{ n: number }[]>`select count(*)::int as n from employee_salaries where employee_id = ${v.employeeId} and status in ('active','superseded')`;
@@ -118,11 +121,20 @@ export async function saveSalary(tx: Tx, actor: Actor, raw: unknown, opts: { tod
   const b = computeBreakup(toDef(lines), v.ctcPaise);
   if (!b.ok) throw new AppError("invalid", b.errors[0].message, "ctcPaise");
   const arrears = arrearsFromMonth(v.effectiveFrom, today, await lockedMonths(tx, st.pay_group_id));
+  // revisions go through approval when the company has an approval workflow for them (Settings → Approvals); a first salary never does
+  const needsApproval = reason !== "joining" && opts.approval !== false && await revisionsNeedApproval(tx);
 
   const [row] = await tx<{ id: string }[]>`
     insert into employee_salaries (tenant_id, employee_id, structure_id, ctc_paise, effective_from, breakup, reason, arrears_from_month, status, created_by)
-    values (${actor.tenant.id}, ${v.employeeId}, ${v.structureId}, ${v.ctcPaise}, ${v.effectiveFrom}, ${tx.json(b.breakup)}, ${reason}, ${arrears}, 'superseded', ${actor.userId})
+    values (${actor.tenant.id}, ${v.employeeId}, ${v.structureId}, ${v.ctcPaise}, ${v.effectiveFrom}, ${tx.json(b.breakup)}, ${reason}, ${arrears}, ${needsApproval ? "pending_approval" : "superseded"}, ${actor.userId})
     returning id`;
+  if (needsApproval) {
+    await audit(tx, actor, { entityType: "employee_salary", entityId: row.id, action: "salary.revision_requested", diff: { employeeId: v.employeeId, ctcPaise: v.ctcPaise, structureId: v.structureId, effectiveFrom: v.effectiveFrom, reason, arrearsFromMonth: arrears } });
+    const r = await startApproval(tx, { tenantId: actor.tenant.id, entityType: "salary_revision", entityId: row.id, requesterId: actor.employeeId,
+      summary: `${actor.name} · Salary ${reason} · ${emp.display_name} · ${inr(v.ctcPaise)} a year from ${v.effectiveFrom}` });
+    if (r.status === "approved") { await onSalaryRevisionDecided(tx, actor, row.id, "approved"); return { id: row.id, unchanged: false, arrearsFromMonth: arrears, pendingApproval: false }; }
+    return { id: row.id, unchanged: false, arrearsFromMonth: arrears, pendingApproval: true };
+  }
   await restatus(tx, v.employeeId);
   if (!emp.pay_group_id) await tx`update employees set pay_group_id = ${st.pay_group_id}, updated_at = now() where id = ${v.employeeId}`;
   await markPersonRunsStale(tx, v.employeeId, arrears ?? v.effectiveFrom);   // an open run already calculated must pick the new salary up
@@ -132,16 +144,27 @@ export async function saveSalary(tx: Tx, actor: Actor, raw: unknown, opts: { tod
     await notifyEmployee(tx, actor.tenant.id, v.employeeId, "salary.updated", reason === "joining" ? "Your salary has been set up" : "Your salary has been revised",
       `Effective ${v.effectiveFrom}. See the breakup on the Finances tab of your profile.`, `/people/${v.employeeId}?tab=finances`);
   }
-  return { id: row.id, unchanged: false, arrearsFromMonth: arrears };
+  return { id: row.id, unchanged: false, arrearsFromMonth: arrears, pendingApproval: false };
+}
+
+/** Whether salary revisions need approval: yes when an active workflow for them exists. */
+export async function revisionsNeedApproval(tx: Tx) {
+  return (await tx`select 1 from approval_workflows where entity_type = 'salary_revision' and is_active limit 1`).length > 0;
 }
 
 /** Remove a salary record payroll hasn't used yet (e.g. a mistaken or cancelled future revision). */
 export async function deleteSalary(tx: Tx, actor: Actor, salaryId: string) {
-  const [s] = await tx<{ employee_id: string; effective_from: string; used: boolean }[]>`
-    select employee_id, effective_from::text, exists (select 1 from payroll_lines l where l.salary_id = s.id) as used from employee_salaries s where id = ${salaryId}`;
+  const [s] = await tx<{ employee_id: string; effective_from: string; used: boolean; status: string }[]>`
+    select employee_id, effective_from::text, exists (select 1 from payroll_lines l where l.salary_id = s.id) as used, status from employee_salaries s where id = ${salaryId}`;
   if (!s) throw new AppError("not_found", "Salary record not found.");
   await assertCanChangePay(tx, actor, s.employee_id);
   if (s.used) throw new AppError("invalid", "Payroll has already used this salary. Add a correction revision instead.");
+  if (s.status === "pending_approval") {
+    await cancelApproval(tx, "salary_revision", salaryId);
+    await tx`delete from employee_salaries where id = ${salaryId}`;
+    await audit(tx, actor, { entityType: "employee_salary", entityId: salaryId, action: "salary.revision_withdrawn", diff: { employeeId: s.employee_id, effectiveFrom: s.effective_from } });
+    return;
+  }
   const [{ n }] = await tx<{ n: number }[]>`select count(*)::int as n from employee_salaries where employee_id = ${s.employee_id} and effective_from > ${s.effective_from}`;
   const [{ m }] = await tx<{ m: number }[]>`select count(*)::int as m from employee_salaries where employee_id = ${s.employee_id}`;
   if (n > 0 && m > 1 && (await tx`select 1 from employee_salaries where employee_id = ${s.employee_id} and effective_from < ${s.effective_from} limit 1`).length === 0)
@@ -223,6 +246,9 @@ export type FinancesView = {
   current: (ActiveSalary & { lines: { code: string; name: string; kind: ComponentKind; monthlyPaise: number }[] }) | null;
   upcoming: { effectiveFrom: string; ctcPaise: number }[];
   history: { id: string; effectiveFrom: string; ctcPaise: number; reason: string; structureName: string; arrearsFromMonth: string | null; status: string; createdAt: string; deletable: boolean }[];
+  /** revisions waiting for approval (the approvals engine decides them) */
+  pending: { id: string; effectiveFrom: string; ctcPaise: number; reason: string; structureName: string; arrearsFromMonth: string | null; createdAt: string; requestedBy: string | null; waitingOn: string | null }[];
+  revisionsNeedApproval: boolean;
   statutory: StatutoryProfile;
   bank: { bankName: string; ifsc: string; last4: string; holderName: string; updatedAt: string } | null;
   payGroup: { id: string; name: string } | null;
@@ -255,8 +281,16 @@ export async function financesFor(tx: Tx, actor: Actor, employeeId: string): Pro
     select bank_name, ifsc, account_last4, holder_name, updated_at from employee_bank_accounts where employee_id = ${employeeId} and is_primary`;
   const [pg] = await tx<{ id: string; name: string }[]>`select g.id, g.name from employees e join pay_groups g on g.id = e.pay_group_id where e.id = ${employeeId}`;
   const canEdit = admin && !self;
+  const pendingRows = await tx<(SalaryRow & { requested_by: string | null; waiting_on: string | null })[]>`
+    select ${salaryCols(tx)}, (select display_name from employees b where b.user_id = s.created_by) as requested_by,
+      (select a.display_name from approval_requests r join approval_steps x on x.request_id = r.id and x.status = 'pending' join employees a on a.id = x.approver_employee_id
+        where r.entity_type = 'salary_revision' and r.entity_id = s.id and r.status = 'pending' limit 1) as waiting_on
+    from employee_salaries s join salary_structures st on st.id = s.structure_id
+    where s.employee_id = ${employeeId} and s.status = 'pending_approval' order by s.effective_from`;
   return {
     self, canEdit, name: p.display_name, current,
+    pending: pendingRows.map((r) => ({ id: r.id, effectiveFrom: r.effective_from, ctcPaise: Number(r.ctc_paise), reason: r.reason, structureName: r.structure_name, arrearsFromMonth: r.arrears_from_month, createdAt: r.created_at.toISOString(), requestedBy: r.requested_by, waitingOn: r.waiting_on })),
+    revisionsNeedApproval: await revisionsNeedApproval(tx),
     upcoming: rows.filter((r) => r.effective_from > today).map((r) => ({ effectiveFrom: r.effective_from, ctcPaise: Number(r.ctc_paise) })).reverse(),
     history: rows.map((r) => ({ id: r.id, effectiveFrom: r.effective_from, ctcPaise: Number(r.ctc_paise), reason: r.reason, structureName: r.structure_name, arrearsFromMonth: r.arrears_from_month, status: r.effective_from > today ? "upcoming" : r.id === currentRow?.id ? "current" : "past", createdAt: r.created_at.toISOString(), deletable: canEdit && !r.used })),
     statutory: await getStatutoryProfile(tx, employeeId),
@@ -264,5 +298,24 @@ export async function financesFor(tx: Tx, actor: Actor, employeeId: string): Pro
     payGroup: pg ?? null,
     structures: canEdit ? (await listStructures(tx)).filter((s) => !pg || s.pay_group_id === pg.id).map((s) => ({ id: s.id, name: s.name, pay_group_id: s.pay_group_id, pay_group: s.pay_group, lines: s.lines })) : [],
     states: INDIAN_STATES, today,
+  };
+}
+
+/** A pending (or decided) revision for the inbox drawer: the person, old and new CTC, and the approval steps. Approvers in its chain and payroll admins in scope may see it. */
+export async function revisionDetail(tx: Tx, actor: Actor, salaryId: string) {
+  const [r] = await tx<{ id: string; employee_id: string; name: string; number: string; ctc_paise: bigint; effective_from: string; reason: string; arrears_from_month: string | null; structure: string; status: string; created_at: Date; by: string | null }[]>`
+    select s.id, s.employee_id, e.display_name as name, e.employee_number as number, s.ctc_paise, s.effective_from::text, s.reason, s.arrears_from_month::text, st.name as structure, s.status, s.created_at,
+      (select display_name from employees b where b.user_id = s.created_by) as by
+    from employee_salaries s join employees e on e.id = s.employee_id join salary_structures st on st.id = s.structure_id where s.id = ${salaryId}`;
+  if (!r) return null;
+  const [step] = await tx<{ id: string }[]>`select x.id from approval_requests q join approval_steps x on x.request_id = q.id where q.entity_type = 'salary_revision' and q.entity_id = ${salaryId} and x.approver_employee_id = ${actor.employeeId} limit 1`;
+  const p = await placementOf(tx, r.employee_id);
+  if (!step && !(p && canPayrollFor(actor, p))) return null;
+  const before = await getActiveSalary(tx, r.employee_id, r.effective_from);
+  const steps = await timeline(tx, "salary_revision", salaryId);
+  return {
+    id: r.id, employee: { id: r.employee_id, name: r.name, number: r.number }, currentCtcPaise: before && before.effectiveFrom < r.effective_from ? before.ctcPaise : null, newCtcPaise: Number(r.ctc_paise),
+    effectiveFrom: r.effective_from, reason: r.reason, structure: r.structure, arrearsFromMonth: r.arrears_from_month, status: r.status, requestedBy: r.by, requestedAt: r.created_at.toISOString(),
+    steps: steps.map((x) => ({ ...x, acted_at: x.acted_at?.toISOString() ?? null })),
   };
 }

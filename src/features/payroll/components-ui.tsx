@@ -12,11 +12,12 @@ import { Banner, EmptyState } from "@/ui/feedback";
 import { toast } from "@/ui/toast";
 import { deleteComponentAction, saveComponentAction } from "@/app/(app)/settings/payroll/actions";
 import { COMPONENT_KINDS, FREQUENCIES, type ComponentKind } from "@/server/modules/payroll/rules";
-import { FREQ_LABEL, KIND_HINT, KIND_LABEL } from "./labels";
+import { FREQ_LABEL, KIND_HINT, KIND_LABEL, money, rupeesToPaise } from "./labels";
 
 export type ComponentItem = {
   id: string; code: string; name: string; kind: ComponentKind; is_taxable: boolean; tax_section: string | null; lop_prorated: boolean;
   frequency: string; on_payslip: boolean; in_arrears: boolean; pf_wage: boolean; esi_wage: boolean; structures: number; used: boolean;
+  is_fbp: boolean; annual_max_paise: number | null; gl_code: string | null;
 };
 
 const TONE: Partial<Record<ComponentKind, "accent" | "warning" | "success" | "neutral">> = { earning: "success", deduction: "warning", employer_contribution: "accent" };
@@ -43,7 +44,8 @@ export function ComponentsAdmin({ rows }: { rows: ComponentItem[] }) {
                 <p className="text-sm text-text-muted">
                   {[r.is_taxable ? "Taxable" : `Not taxable${r.tax_section ? ` (${r.tax_section})` : ""}`, FREQ_LABEL[r.frequency],
                     r.lop_prorated ? "reduced for unpaid days" : "paid in full", r.pf_wage && "counts for PF", r.esi_wage && "counts for ESI",
-                    !r.on_payslip && "hidden on payslip", r.structures ? `on ${r.structures} ${r.structures === 1 ? "structure" : "structures"}` : null].filter(Boolean).join(" · ")}
+                    !r.on_payslip && "hidden on payslip", r.is_fbp && "flexible benefit", r.annual_max_paise ? `limit ${money(r.annual_max_paise)} a year` : null, r.gl_code ? `GL ${r.gl_code}` : null,
+                    r.structures ? `on ${r.structures} ${r.structures === 1 ? "structure" : "structures"}` : null].filter(Boolean).join(" · ")}
                 </p>
               </div>
               <Menu trigger={<IconButton label={`Actions for ${r.name}`} size="icon-sm" variant="ghost"><MoreHorizontal /></IconButton>}
@@ -67,13 +69,16 @@ function ComponentDialog({ row, onClose }: { row: ComponentItem | null; onClose:
     name: row?.name ?? "", code: row?.code ?? "", kind: row?.kind ?? ("earning" as ComponentKind), taxable: row?.is_taxable ?? true, taxSection: row?.tax_section ?? "",
     lopProrated: row?.lop_prorated ?? true, frequency: row?.frequency ?? "monthly", onPayslip: row?.on_payslip ?? true, inArrears: row?.in_arrears ?? true,
     pfWage: row?.pf_wage ?? false, esiWage: row?.esi_wage ?? true,
+    isFbp: row?.is_fbp ?? false, annualMax: row?.annual_max_paise ? String(row.annual_max_paise / 100) : "", glCode: row?.gl_code ?? "",
   });
   const set = <K extends keyof typeof v>(k: K, x: (typeof v)[K]) => setV((s) => ({ ...s, [k]: x }));
   const [error, setError] = React.useState<{ message: string; field?: string } | null>(null);
   const [pending, start] = React.useTransition();
   const locked = !!row && (row.structures > 0 || row.used);
   const save = () => start(async () => {
-    const r = await saveComponentAction(row?.id ?? null, { ...v, taxSection: v.taxSection || null });
+    const annualMaxPaise = v.annualMax.trim() ? rupeesToPaise(v.annualMax) : null;
+    if (v.annualMax.trim() && !annualMaxPaise) { setError({ message: "Enter the yearly limit in rupees, like 24000.", field: "annualMaxPaise" }); return; }
+    const r = await saveComponentAction(row?.id ?? null, { ...v, taxSection: v.taxSection || null, annualMaxPaise, glCode: v.glCode || null });
     if (!r.ok) { setError({ message: r.error, field: r.field }); return; }
     toast.success(row ? `${v.name} updated` : `${v.name} added`);
     onClose();
@@ -106,7 +111,16 @@ function ComponentDialog({ row, onClose }: { row: ComponentItem | null; onClose:
           <Switch label="Include in arrears" checked={v.inArrears} onCheckedChange={(c) => set("inArrears", c)} />
           <Switch label="Counts towards PF wages" checked={v.pfWage} onCheckedChange={(c) => set("pfWage", c)} />
           <Switch label="Counts towards ESI wages" checked={v.esiWage} onCheckedChange={(c) => set("esiWage", c)} />
+          {(v.kind === "earning" || v.kind === "reimbursable") && <Switch label="Flexible benefit (people choose how much of it they want each year)" checked={v.isFbp} onCheckedChange={(c) => set("isFbp", c)} />}
         </fieldset>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(v.kind === "earning" || v.kind === "reimbursable") && (
+            <Field label="Yearly limit (₹)" error={fe("annualMaxPaise")} help="For flexible benefits and reimbursable claims. Empty: a year of the component in the salary.">
+              <Input inputMode="decimal" value={v.annualMax} onChange={(e) => set("annualMax", e.target.value)} className="tabular" placeholder="24,000" />
+            </Field>
+          )}
+          <Field label="GL code" error={fe("glCode")} help="Ledger for the Tally / Zoho Books exports"><Input value={v.glCode} onChange={(e) => set("glCode", e.target.value)} maxLength={30} placeholder="5001" /></Field>
+        </div>
         <button type="submit" hidden />
       </form>
     </Modal>

@@ -18,6 +18,7 @@ function assertManage(actor: Actor) {
 export const ENTITY_LABELS: Record<string, string> = {
   leave: "Leave", attendance_request: "Attendance requests", profile_change: "Profile changes", comp_off: "Comp-off",
   exit: "Resignations", expense_claim: "Expense claims", expense_advance: "Expense advances", asset_request: "Asset requests", loan: "Loans", requisition: "Requisitions", offer: "Offers", comp_proposal: "Increment proposals", timesheet: "Timesheets",
+  salary_revision: "Salary revisions", component_claim: "Reimbursable claims",
 };
 export const entityTypes = () => Object.keys(DEFAULT_LEVELS) as EntityType[];
 const isEntity = (s: string): s is EntityType => (entityTypes() as string[]).includes(s);
@@ -49,7 +50,7 @@ export async function workflowOptions(tx: Tx) {
       select e.id, e.display_name as name, d.title, dp.name as department from employees e left join designations d on d.id = e.designation_id
       left join departments dp on dp.id = e.department_id where e.status <> 'relieved' order by e.display_name`,
   ]);
-  const worker_type = ["permanent", "contract", "intern", "consultant"].map((v) => ({ id: v, name: v[0].toUpperCase() + v.slice(1) }));
+  const worker_type = ["permanent", "contract", "intern", "consultant", "daily", "piece"].map((v) => ({ id: v, name: v === "daily" ? "Daily wage" : v === "piece" ? "Piece rate" : v[0].toUpperCase() + v.slice(1) }));
   return { values: { department, location, designation, legal_entity, business_unit, worker_type }, roles, people };
 }
 
@@ -89,7 +90,7 @@ export async function saveWorkflow(tx: Tx, actor: Actor, id: string | null, inpu
     const values = [...new Set(c.values)].slice(0, 200);
     if (!values.length) continue;
     if (c.field === "worker_type") {
-      if (values.some((v) => !["permanent", "contract", "intern", "consultant"].includes(v))) throw new AppError("invalid", "Unknown worker type.", "conditions");
+      if (values.some((v) => !["permanent", "contract", "intern", "consultant", "daily", "piece"].includes(v))) throw new AppError("invalid", "Unknown worker type.", "conditions");
     } else {
       const found = await tx<{ id: string }[]>`select id from ${tx(TABLE[c.field])} where id = any(${values}::uuid[])`;
       if (found.length !== values.length) throw new AppError("invalid", "Some of the chosen values no longer exist.", "conditions");
