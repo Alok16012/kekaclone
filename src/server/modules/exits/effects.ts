@@ -50,6 +50,9 @@ export async function startExitProcess(tx: Tx, exitId: string, actorUserId: stri
   }
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${x.tenant_id}, ${x.employee_id}, 'exit_started', current_date, ${tx.json({ exit_id: exitId, last_working_date: x.last_working_date })}, ${actorUserId})`;
+  // hiring: undecided requisitions the leaver raised are closed (loaded lazily: the approvals engine imports this file)
+  const { closeLeaverRequisitions } = await import("@/server/modules/hire/leaver");
+  await closeLeaverRequisitions(tx, x.tenant_id, x.employee_id, actorUserId);
   return true;
 }
 

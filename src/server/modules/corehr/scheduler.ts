@@ -13,6 +13,8 @@ import { applyDueJobChanges, autoConfirmProbation } from "./lifecycle";
 import { reassignPending, runApprovalTimers, EVERYWHERE } from "./approvals-admin";
 import { digestIn } from "@/server/modules/notifications/digest";
 import { expireOffers } from "@/server/modules/hire/offers";
+import { sendInterviewReminders } from "@/server/modules/hire/reminders";
+import { retentionSweep } from "@/server/modules/hire/privacy";
 import { runAutoCycles } from "@/server/modules/performance/reviews";
 import { checkInReminders } from "@/server/modules/performance/goals";
 import { processDueSurveys } from "@/server/modules/surveys/service";
@@ -54,6 +56,8 @@ export const STEPS: Step[] = [
   { key: "approval_digest", label: "Email approvers what's waiting", daily: true, tx: (tx, c) => digestIn(tx, c.tenantId, c.now) },
   // the other packages' housekeeping (each is also available as its own pnpm jobs:* script)
   { key: "hire", label: "Expire offers past their deadline", daily: false, tx: async (tx, c) => ({ expired: await expireOffers(tx, c.today) }) },
+  { key: "hire_reminders", label: "Remind candidates and panels about interviews in the next day", daily: false, tx: async (tx, c) => ({ sent: await sendInterviewReminders(tx, c.tenantId, c.now) }) },
+  { key: "hire_privacy", label: "Anonymise candidates past the company's retention period", daily: true, own: (c) => retentionSweep(c.tenantId, c.today) },
   { key: "performance", label: "Automatic review cycles and goal check-in reminders", daily: true, tx: async (tx, c) => ({ added: await runAutoCycles(tx, c.tenantId, c.today), reminded: await checkInReminders(tx, c.tenantId) }) },
   { key: "surveys", label: "Open, roll over and close scheduled surveys", daily: false, tx: async (tx, c) => ({ processed: await processDueSurveys(tx, c.today) }) },
   { key: "learn", label: "Enrol people by course rules and send learning reminders", daily: true, tx: async (tx, c) => {
