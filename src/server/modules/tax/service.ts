@@ -21,6 +21,7 @@ import {
   type HouseProperty, type ItemRow, type OtherIncome, type PreviousEmployer, type RentPeriod, type SectionTotals, type TaxSettings, type WindowState,
 } from "./rules";
 import { readZip, ZipError } from "./zip";
+import { fbpFor } from "./fbp";
 
 const N = (v: bigint | number | string | null | undefined) => (v == null ? 0 : Number(v));
 const bad = (message: string, field?: string) => new AppError("invalid", message, field);
@@ -67,6 +68,7 @@ const settingsInput = z.object({
   declarationCutoff: md.nullable(),
   proofWindow: z.object({ opens: md, closes: md }).nullable(),
   lateJoinerDays: z.number().int(),
+  fbpWindow: z.object({ opens: md, closes: md }).nullable().optional(),
 });
 
 /** Declaration windows are company policy for the whole pay group: payroll.admin without a scope. */
@@ -74,7 +76,7 @@ export async function saveTaxSettings(tx: Tx, actor: Actor, payGroupId: string, 
   if (!isPayrollAdmin(actor)) throw new AppError("forbidden", "Only payroll admins for the whole company can change declaration windows.");
   const p = settingsInput.safeParse(raw);
   if (!p.success) throw bad(p.error.issues[0].message, String(p.error.issues[0].path[0] ?? ""));
-  const c = checkTaxSettings(p.data);
+  const c = checkTaxSettings({ ...p.data, fbpWindow: p.data.fbpWindow ?? null });
   if (!c.ok) throw bad(c.error, c.field);
   const r = await tx`update pay_groups set tax_settings = ${tx.json(c.settings as never)}, updated_at = now() where id = ${payGroupId}`;
   if (!r.count) throw new AppError("not_found", "Pay group not found.");
@@ -226,6 +228,8 @@ export type TaxInputs = {
   otherIncomePaise: number; otherIncome: OtherIncome;
   /** Ready for statutory projectTds()/annualTax(). Payroll adds the person's actual PF (80C) and PT itself. */
   taxDeductions: TaxDeductions;
+  /** flexible benefit plan: what was declared for the year and the exemption it brings (old regime) */
+  fbp: { declaredPaise: number; exemptPaise: number; status: "none" | "submitted" };
   limitsNote: string;
 };
 
@@ -244,14 +248,16 @@ export async function getTaxInputs(tx: Tx, employeeId: string, fyStart: string, 
   const items = submitted ? await itemsOf(tx, d.id) : [];
   const c = await compute(tx, p, fyStart, submitted ? d : null, items, { asOf: opts.asOf ?? todayIn(), withEstimates: false });
   const regime = submitted ? d.regime : (await getStatutoryProfile(tx, employeeId)).taxRegime;
+  const fbp = await fbpFor(tx, employeeId, fyStart);
   return {
     fyStart, fy: fyLabel(fyStart), regime, regimeSource: submitted ? "declaration" : "statutory_profile",
+    fbp: { declaredPaise: fbp.declaredPaise, exemptPaise: fbp.exemptPaise, status: fbp.status },
     status: !d ? "none" : d.status === "draft" ? "draft" : "submitted",
     proofsFinal: c.final, deductions: c.totals,
     bySection: items.map((i) => ({ section: i.section, item: i.item, declaredPaise: N(i.declared_paise), countedPaise: countedPaise(toItem(i), c.final), proofStatus: i.proof_status })),
     hraExemptionPaise: c.hraExemptPaise, rentPaidPaise: c.rentPaidPaise,
     previousEmployer: c.previous, otherIncomePaise: c.otherIncomePaise, otherIncome: c.other,
-    taxDeductions: { ...c.deductions, professionalTaxPaise: 0 },
+    taxDeductions: { ...c.deductions, professionalTaxPaise: 0, otherExemptionsPaise: fbp.exemptPaise },
     limitsNote: limitsFor(fyLabel(fyStart)).sourceNote,
   };
 }
@@ -277,8 +283,9 @@ export async function myTax(tx: Tx, actor: Actor, fyStart: string, today = today
     comparison = { ...r, grossIncomePaise: c.grossIncomePaise, estimatesPaise: { pf: c.deductions.section80CPaise! - c.totals.section80CPaise, pt: c.deductions.professionalTaxPaise ?? 0 } };
   } catch (e) { ratesError = e instanceof AppError ? e.message : "Tax rates couldn't be loaded."; }
   const caps = await (async () => { try { const o = await loadTaxRates(tx, fyLabel(fyStart), "old"); return o.config.caps; } catch { return null; } })();
-  const [f16] = await tx<{ part_a_file_id: string | null; name: string | null; published_at: Date | null }[]>`
-    select d.part_a_file_id, f.name, d.published_at from form16_documents d left join files f on f.id = d.part_a_file_id where d.employee_id = ${p.id} and d.fy_start = ${fyStart}`;
+  const [f16] = await tx<{ part_a_file_id: string | null; name: string | null; part_b_file_id: string | null; name_b: string | null; published_at: Date | null }[]>`
+    select d.part_a_file_id, f.name, d.part_b_file_id, fb.name as name_b, d.published_at from form16_documents d left join files f on f.id = d.part_a_file_id left join files fb on fb.id = d.part_b_file_id
+    where d.employee_id = ${p.id} and d.fy_start = ${fyStart}`;
   const status = await verificationStatus(tx);
   return {
     fyStart, fy: fyLabel(fyStart), today, fyOptions: fyOptions(today, p.joining_date), name: p.display_name,
@@ -291,7 +298,9 @@ export async function myTax(tx: Tx, actor: Actor, fyStart: string, today = today
     house: c.house, previous: c.previous, other: c.other,
     totals: c.totals, hraExemptPaise: c.hraExemptPaise, projection: { taxablePaise: c.projection.taxablePaise, hraPaise: c.projection.hraPaise, basicPaise: c.projection.basicPaise, hasSalary: c.projection.hasSalary },
     comparison, ratesError, caps, limits: limitsFor(fyLabel(fyStart)), pan: await panFor(tx, p.id),
-    form16: f16 && f16.published_at && f16.part_a_file_id ? { fileId: f16.part_a_file_id, name: f16.name ?? "Form 16 Part A.pdf", publishedAt: f16.published_at.toISOString() } : null,
+    form16: f16 && f16.published_at && (f16.part_a_file_id || f16.part_b_file_id) ? {
+      fileId: f16.part_a_file_id, name: f16.name ?? "Form 16 Part A.pdf", partBFileId: f16.part_b_file_id, partBName: f16.name_b ?? "Form 16 Part B.pdf", publishedAt: f16.published_at.toISOString(),
+    } : null,
     rates: { verified: status.verified, stale: status.stale, latest: status.latest ? { verified_by_name: status.latest.verified_by_name, verified_on: status.latest.verified_on } : null },
   };
 }
@@ -602,15 +611,17 @@ export async function declarationsOverview(tx: Tx, actor: Actor, fyStart: string
 export async function form16List(tx: Tx, actor: Actor, fyStart: string) {
   assertFy(fyStart);
   if (!hasAnyPayrollAdmin(actor)) throw new AppError("forbidden", "Only payroll admins can manage Form 16.");
-  const rows = await tx<(Placement & { id: string; display_name: string; employee_number: string | null; doc_id: string | null; file_id: string | null; file_name: string | null; published_at: Date | null; uploaded_at: Date | null; pan: string | null })[]>`
+  const rows = await tx<(Placement & { id: string; display_name: string; employee_number: string | null; doc_id: string | null; file_id: string | null; file_name: string | null; part_b_id: string | null; part_b_name: string | null; published_at: Date | null; uploaded_at: Date | null; pan: string | null; paid_months: number })[]>`
     select e.id, e.display_name, e.employee_number, e.department_id, e.location_id, e.legal_entity_id, e.business_unit_id,
-      f.id as doc_id, f.part_a_file_id as file_id, fl.name as file_name, f.published_at, f.updated_at as uploaded_at,
-      (select number_last4 from employee_identities x where x.employee_id = e.id and x.kind = 'pan') as pan
-    from employees e left join form16_documents f on f.employee_id = e.id and f.fy_start = ${fyStart} left join files fl on fl.id = f.part_a_file_id
+      f.id as doc_id, f.part_a_file_id as file_id, fl.name as file_name, f.part_b_file_id as part_b_id, fb.name as part_b_name, f.published_at, f.updated_at as uploaded_at,
+      (select number_last4 from employee_identities x where x.employee_id = e.id and x.kind = 'pan') as pan,
+      (select count(*)::int from payroll_lines l join payroll_runs r on r.id = l.run_id where l.employee_id = e.id and r.status in ('finalized','payslips_released','paid') and r.period_month between ${fyStart} and ${fyEnd(fyStart)}) as paid_months
+    from employees e left join form16_documents f on f.employee_id = e.id and f.fy_start = ${fyStart} left join files fl on fl.id = f.part_a_file_id left join files fb on fb.id = f.part_b_file_id
     where e.joining_date <= ${fyEnd(fyStart)} and (e.status <> 'relieved' or f.id is not null) order by e.display_name`;
   return rows.filter((r) => canPayrollFor(actor, r)).map((r) => ({
     employeeId: r.id, name: r.display_name, employeeNumber: r.employee_number, panLast4: r.pan, docId: r.doc_id,
-    file: r.file_id ? { id: r.file_id, name: r.file_name ?? "Form 16.pdf" } : null, publishedAt: r.published_at?.toISOString() ?? null, uploadedAt: r.uploaded_at?.toISOString() ?? null,
+    file: r.file_id ? { id: r.file_id, name: r.file_name ?? "Form 16.pdf" } : null, partB: r.part_b_id ? { id: r.part_b_id, name: r.part_b_name ?? "Form 16 Part B.pdf" } : null,
+    publishedAt: r.published_at?.toISOString() ?? null, uploadedAt: r.uploaded_at?.toISOString() ?? null, paidMonths: r.paid_months,
   }));
 }
 
@@ -666,18 +677,22 @@ export async function publishForm16(tx: Tx, actor: Actor, fyStart: string, emplo
   assertFy(fyStart);
   if (!isPayrollAdmin(actor)) throw new AppError("forbidden", "Only payroll admins for the whole company can publish Form 16.");
   const rows = employeeIds === "all"
-    ? await tx<{ id: string; employee_id: string }[]>`update form16_documents set published_at = now(), published_by = ${actor.userId} where fy_start = ${fyStart} and part_a_file_id is not null and published_at is null returning id, employee_id`
-    : await tx<{ id: string; employee_id: string }[]>`update form16_documents set published_at = now(), published_by = ${actor.userId} where fy_start = ${fyStart} and part_a_file_id is not null and published_at is null and employee_id = any(${employeeIds}::uuid[]) returning id, employee_id`;
-  for (const r of rows) await notifyEmployee(tx, actor.tenant.id, r.employee_id, "tax.form16", "Your Form 16 is ready", `Form 16 Part A for FY ${fyLabel(fyStart)} is available to download.`, `/me/tax?fy=${fyLabel(fyStart)}&tab=forms`);
+    ? await tx<{ id: string; employee_id: string; part_a_file_id: string | null; part_b_file_id: string | null }[]>`update form16_documents set published_at = now(), published_by = ${actor.userId} where fy_start = ${fyStart} and (part_a_file_id is not null or part_b_file_id is not null) and published_at is null returning id, employee_id, part_a_file_id, part_b_file_id`
+    : await tx<{ id: string; employee_id: string; part_a_file_id: string | null; part_b_file_id: string | null }[]>`update form16_documents set published_at = now(), published_by = ${actor.userId} where fy_start = ${fyStart} and (part_a_file_id is not null or part_b_file_id is not null) and published_at is null and employee_id = any(${employeeIds}::uuid[]) returning id, employee_id, part_a_file_id, part_b_file_id`;
+  for (const r of rows) {
+    const parts = [r.part_a_file_id ? "Part A" : null, r.part_b_file_id ? "Part B" : null].filter(Boolean).join(" and ");
+    await notifyEmployee(tx, actor.tenant.id, r.employee_id, "tax.form16", "Your Form 16 is ready", `Form 16 ${parts} for FY ${fyLabel(fyStart)} ${r.part_a_file_id && r.part_b_file_id ? "are" : "is"} available to download.`, `/me/tax?fy=${fyLabel(fyStart)}&tab=forms`);
+  }
   await audit(tx, actor, { entityType: "form16", entityId: null, action: "form16.publish", diff: { fyStart, count: rows.length } });
   return { published: rows.length };
 }
 
 export async function deleteForm16(tx: Tx, actor: Actor, docId: string) {
   if (!isPayrollAdmin(actor)) throw new AppError("forbidden", "Only payroll admins for the whole company can remove Form 16 files.");
-  const [d] = await tx<{ part_a_file_id: string | null; employee_id: string }[]>`delete from form16_documents where id = ${docId} returning part_a_file_id, employee_id`;
+  const [d] = await tx<{ part_a_file_id: string | null; part_b_file_id: string | null; employee_id: string }[]>`delete from form16_documents where id = ${docId} returning part_a_file_id, part_b_file_id, employee_id`;
   if (!d) throw new AppError("not_found", "Form 16 not found.");
-  const keys = d.part_a_file_id ? (await tx<{ storage_key: string }[]>`delete from files where id = ${d.part_a_file_id} returning storage_key`).map((r) => r.storage_key) : [];
+  const ids = [d.part_a_file_id, d.part_b_file_id].filter((x): x is string => !!x);
+  const keys = ids.length ? (await tx<{ storage_key: string }[]>`delete from files where id = any(${ids}::uuid[]) returning storage_key`).map((r) => r.storage_key) : [];
   await audit(tx, actor, { entityType: "form16", entityId: docId, action: "form16.delete", diff: { employeeId: d.employee_id } });
   return { removedKeys: keys };
 }

@@ -20,10 +20,12 @@ import { DeductionsTab } from "./deductions";
 import { HouseTab } from "./house";
 import { OtherIncomeTab } from "./other-income";
 import { ProofsTab } from "./proofs";
+import { FbpTab } from "./fbp";
+import type { MyFbp } from "@/server/modules/tax/fbp";
 
-type Tab = "overview" | "deductions" | "house" | "other" | "proofs" | "forms";
+type Tab = "overview" | "deductions" | "house" | "other" | "fbp" | "proofs" | "forms";
 
-export function MyTaxView({ d, tab }: { d: MyTax; tab: Tab }) {
+export function MyTaxView({ d, tab, fbp }: { d: MyTax; tab: Tab; fbp: MyFbp }) {
   const router = useRouter();
   const path = usePathname();
   const [current, setCurrent] = React.useState<Tab>(tab);
@@ -53,12 +55,13 @@ export function MyTaxView({ d, tab }: { d: MyTax; tab: Tab }) {
       <Tabs value={current} onValueChange={(v) => { setCurrent(v as Tab); go({ tab: v as Tab }); }}>
         <TabsList items={[
           { value: "overview", label: "Overview" }, { value: "deductions", label: "Investments" }, { value: "house", label: "Rent and home loan" },
-          { value: "other", label: "Other income" }, { value: "proofs", label: "Proofs", count: pendingProofs || undefined }, { value: "forms", label: "Forms" },
+          { value: "other", label: "Other income" }, { value: "fbp", label: "Flexible benefits" }, { value: "proofs", label: "Proofs", count: pendingProofs || undefined }, { value: "forms", label: "Forms" },
         ]} />
         <TabsContent value="overview"><Overview d={d} /></TabsContent>
         <TabsContent value="deductions"><DeductionsTab d={d} /></TabsContent>
         <TabsContent value="house"><HouseTab d={d} /></TabsContent>
         <TabsContent value="other"><OtherIncomeTab d={d} /></TabsContent>
+        <TabsContent value="fbp"><FbpTab d={fbp} regime={d.declaration.regime} /></TabsContent>
         <TabsContent value="proofs"><ProofsTab d={d} /></TabsContent>
         <TabsContent value="forms"><Forms d={d} /></TabsContent>
       </Tabs>
@@ -205,9 +208,12 @@ function Forms({ d }: { d: MyTax }) {
         <CardBody>
           {d.form16 ? (
             <div className="flex flex-col gap-2">
-              <p className="text-base">Part A for FY {d.fy}, shared on {shortDate(d.form16.publishedAt)}.</p>
-              <div><Button variant="secondary" asChild><a href={`/tax/files/${d.form16.fileId}?download`}><FileDown />Download Part A</a></Button></div>
-              <p className="text-sm text-text-muted">Part B (salary details) isn&apos;t generated in erp yet; ask your payroll team for it.</p>
+              <p className="text-base">Shared on {shortDate(d.form16.publishedAt)} for FY {d.fy}.</p>
+              <div className="flex flex-wrap gap-2">
+                {d.form16.fileId && <Button variant="secondary" asChild><a href={`/tax/files/${d.form16.fileId}?download`}><FileDown />Download Part A</a></Button>}
+                {d.form16.partBFileId && <Button variant="secondary" asChild><a href={`/tax/files/${d.form16.partBFileId}?download`}><FileDown />Download Part B</a></Button>}
+              </div>
+              <p className="text-sm text-text-muted">{d.form16.fileId ? "Part A comes from the TRACES portal." : "Part A (from the TRACES portal) hasn't been shared yet."} {d.form16.partBFileId ? "Part B is erp's statement of your salary and tax for the year, on rates not yet verified by a CA." : "Part B isn't shared yet."}</p>
             </div>
           ) : <EmptyState compact icon={<FileText />} title="Not available yet" description={`Your payroll team uploads Form 16 for FY ${d.fy} after the year ends, usually by mid-June.`} />}
         </CardBody>

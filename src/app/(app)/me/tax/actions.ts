@@ -4,6 +4,7 @@ import { runAction } from "@/server/action";
 import { storage } from "@/server/storage";
 import { MAX_UPLOAD_BYTES } from "@/server/modules/documents/rules";
 import * as tax from "@/server/modules/tax/service";
+import { saveFbp } from "@/server/modules/tax/fbp";
 
 const uuid = z.uuid();
 const fyStart = z.string().regex(/^\d{4}-04-01$/);
@@ -72,4 +73,11 @@ export async function uploadProofAction(form: FormData) {
 export async function removeProofAction(itemId: string, fileId: string) {
   if (!uuid.safeParse(itemId).success || !uuid.safeParse(fileId).success) return bad("File not found.");
   return withBlobs(runAction((tx, actor) => tax.removeProof(tx, actor, itemId, fileId)));
+}
+
+/** Flexible benefits for the year: {CODE: annual paise}. Saving submits. */
+export async function saveFbpAction(fy: string, items: Record<string, number>) {
+  if (!fyStart.safeParse(fy).success) return bad("Pick a financial year.");
+  if (!items || typeof items !== "object") return bad("Enter the amounts.");
+  return runAction((tx, actor) => saveFbp(tx, actor, fy, items));
 }

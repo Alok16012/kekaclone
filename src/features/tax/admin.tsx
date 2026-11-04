@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { CheckCircle2, FileDown, FileText, Inbox, Paperclip, Send, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, FileDown, FileText, Inbox, Paperclip, Send, Sparkles, Trash2, Upload } from "lucide-react";
 import { Card, CardBody, CardHeader, StatTile } from "@/ui/card";
 import { Button, IconButton } from "@/ui/button";
 import { Badge } from "@/ui/badge";
@@ -13,18 +13,23 @@ import { Banner, EmptyState } from "@/ui/feedback";
 import { DataTable, type Column } from "@/ui/table";
 import { Tabs, TabsContent, TabsList } from "@/ui/tabs";
 import { toast } from "@/ui/toast";
-import { deleteForm16Action, publishForm16Action, saveTaxSettingsAction, uploadForm16Action, verifyProofAction } from "@/app/(app)/payroll/tax/actions";
+import { deleteForm16Action, generatePartBAction, publishForm16Action, saveTaxSettingsAction, uploadForm16Action, verifyProofAction } from "@/app/(app)/payroll/tax/actions";
+import type { ClaimRow } from "@/server/modules/payroll/claims";
+import type { fbpOverview } from "@/server/modules/tax/fbp";
+import { QUARTERS } from "@/server/modules/payrun/tds24q";
+import { ClaimStatusBadge } from "@/features/payroll/claims-ui";
 import { DEFAULT_TAX_SETTINGS, SECTION_LABEL, type Section, type TaxSettings } from "@/server/modules/tax/rules";
 import type { declarationsOverview, form16List, listTaxSettings, ProofRow } from "@/server/modules/tax/service";
 import { Money, paiseText, ProofStatus, RupeeInput, shortDate, toPaise } from "./shared";
 
-type Tab = "proofs" | "declarations" | "form16" | "windows";
+type Tab = "proofs" | "declarations" | "fbp" | "claims" | "form16" | "returns" | "windows";
+type Fbp = Awaited<ReturnType<typeof fbpOverview>>;
 type People = Awaited<ReturnType<typeof declarationsOverview>>;
 type Form16 = Awaited<ReturnType<typeof form16List>>;
 type Settings = Awaited<ReturnType<typeof listTaxSettings>>;
 export type TaxDeskData = {
   fy: string; fyLabel: string; fyOptions: { value: string; label: string }[]; today: string; companyWide: boolean;
-  pending: ProofRow[]; reviewed: ProofRow[]; people: People; form16: Form16; settings: Settings;
+  pending: ProofRow[]; reviewed: ProofRow[]; people: People; form16: Form16; settings: Settings; fbp: Fbp; claims: ClaimRow[];
 };
 
 export function TaxDesk({ d, tab }: { d: TaxDeskData; tab: Tab }) {
@@ -44,10 +49,14 @@ export function TaxDesk({ d, tab }: { d: TaxDeskData; tab: Tab }) {
         <StatTile label="Form 16 shared" value={`${d.form16.filter((f) => f.publishedAt).length} of ${d.form16.length}`} />
       </div>
       <Tabs value={current} onValueChange={(v) => { setCurrent(v as Tab); go({ tab: v as Tab }); }}>
-        <TabsList items={[{ value: "proofs", label: "Proofs", count: d.pending.length || undefined }, { value: "declarations", label: "Declarations" }, { value: "form16", label: "Form 16" }, { value: "windows", label: "Windows" }]} />
+        <TabsList items={[{ value: "proofs", label: "Proofs", count: d.pending.length || undefined }, { value: "declarations", label: "Declarations" }, { value: "fbp", label: "Flexible benefits" },
+          { value: "claims", label: "Reimbursable claims", count: d.claims.filter((c) => c.status === "submitted").length || undefined }, { value: "form16", label: "Form 16" }, { value: "returns", label: "Returns" }, { value: "windows", label: "Windows" }]} />
         <TabsContent value="proofs"><Proofs d={d} /></TabsContent>
         <TabsContent value="declarations"><Declarations d={d} /></TabsContent>
+        <TabsContent value="fbp"><FbpOverview d={d} /></TabsContent>
+        <TabsContent value="claims"><ClaimsDesk d={d} /></TabsContent>
         <TabsContent value="form16"><Form16Tab d={d} /></TabsContent>
+        <TabsContent value="returns"><Returns d={d} /></TabsContent>
         <TabsContent value="windows"><Windows d={d} /></TabsContent>
       </Tabs>
     </div>
@@ -137,7 +146,13 @@ function Form16Tab({ d }: { d: TaxDeskData }) {
   const [report, setReport] = React.useState<{ matched: { file: string; employee: string; replaced: boolean }[]; unmatched: { file: string; reason: string }[] } | null>(null);
   const [pending, start] = React.useTransition();
   const [removing, setRemoving] = React.useState<Form16[number] | null>(null);
-  const unpublished = d.form16.filter((f) => f.file && !f.publishedAt).length;
+  const unpublished = d.form16.filter((f) => (f.file || f.partB) && !f.publishedAt).length;
+  const withPay = d.form16.filter((f) => f.paidMonths > 0).length;
+  const generate = (ids: string[] | "all") => start(async () => {
+    const r = await generatePartBAction(d.fy, ids);
+    if (!r.ok) { toast.error(r.error); return; }
+    toast.success(`Part B generated for ${r.data!.generated} ${r.data!.generated === 1 ? "person" : "people"}`, { description: r.data!.skipped.length ? `${r.data!.skipped.length} skipped: no finalised pay in the year.` : "Share them when you're ready." });
+  });
   const upload = (files: FileList | null) => {
     if (!files?.length) return;
     const form = new FormData(); form.set("fyStart", d.fy);
@@ -154,11 +169,13 @@ function Form16Tab({ d }: { d: TaxDeskData }) {
     { key: "name", header: "Person", cell: (r) => <span className="font-medium">{r.name}</span>, sortValue: (r) => r.name },
     { key: "pan", header: "PAN", cell: (r) => (r.panLast4 ? `••••••${r.panLast4}` : <span className="text-warning-text">Missing</span>), hideBelow: "md" },
     { key: "file", header: "Part A", cell: (r) => (r.file ? <a href={`/tax/files/${r.file.id}`} target="_blank" rel="noopener" className="text-accent-text underline-offset-4 hover:underline">{r.file.name}</a> : "Not uploaded") },
-    { key: "pub", header: "Shared", cell: (r) => (r.publishedAt ? shortDate(r.publishedAt) : r.file ? <Badge tone="warning">Not yet</Badge> : "—"), hideBelow: "md" },
-    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => d.companyWide && r.docId ? (
+    { key: "partb", header: "Part B", cell: (r) => (r.partB ? <a href={`/tax/files/${r.partB.id}`} target="_blank" rel="noopener" className="text-accent-text underline-offset-4 hover:underline">{r.partB.name}</a> : r.paidMonths ? <span className="text-text-muted">Not generated</span> : <span className="text-text-muted">No pay this year</span>) },
+    { key: "pub", header: "Shared", cell: (r) => (r.publishedAt ? shortDate(r.publishedAt) : r.file || r.partB ? <Badge tone="warning">Not yet</Badge> : "—"), hideBelow: "md" },
+    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => d.companyWide && (r.docId || r.paidMonths > 0) ? (
       <div className="flex justify-end gap-1">
-        {r.file && !r.publishedAt && <Button size="sm" variant="secondary" onClick={() => start(async () => { const x = await publishForm16Action(d.fy, [r.employeeId]); if (x.ok) toast.success(`Shared with ${r.name}`); else toast.error(x.error); })}>Share</Button>}
-        <IconButton label={`Remove ${r.name}'s Form 16`} variant="ghost" size="icon-sm" onClick={() => setRemoving(r)}><Trash2 /></IconButton>
+        {r.paidMonths > 0 && <Button size="sm" variant="ghost" disabled={pending} onClick={() => generate([r.employeeId])}>{r.partB ? "Regenerate B" : "Generate B"}</Button>}
+        {(r.file || r.partB) && !r.publishedAt && <Button size="sm" variant="secondary" onClick={() => start(async () => { const x = await publishForm16Action(d.fy, [r.employeeId]); if (x.ok) toast.success(`Shared with ${r.name}`); else toast.error(x.error); })}>Share</Button>}
+        {r.docId && <IconButton label={`Remove ${r.name}'s Form 16`} variant="ghost" size="icon-sm" onClick={() => setRemoving(r)}><Trash2 /></IconButton>}
       </div>
     ) : null },
   ];
@@ -172,10 +189,11 @@ function Form16Tab({ d }: { d: TaxDeskData }) {
             <div className="flex flex-wrap gap-2">
               <input ref={input} type="file" multiple accept=".zip,.pdf" className="sr-only" id="form16-files" onChange={(e) => upload(e.target.files)} />
               <Button loading={pending} onClick={() => input.current?.click()}><Upload />Upload ZIP or PDFs</Button>
-              <Button variant="secondary" disabled={!unpublished || pending} onClick={() => start(async () => { const r = await publishForm16Action(d.fy, "all"); if (r.ok) toast.success(`Shared ${r.data!.published} Form 16${r.data!.published === 1 ? "" : "s"}`); else toast.error(r.error); })}><Send />Share all uploaded ({unpublished})</Button>
+              <Button variant="secondary" disabled={!withPay || pending} onClick={() => generate("all")}><FileText />Generate Part B for everyone ({withPay})</Button>
+              <Button variant="secondary" disabled={!unpublished || pending} onClick={() => start(async () => { const r = await publishForm16Action(d.fy, "all"); if (r.ok) toast.success(`Shared ${r.data!.published} Form 16${r.data!.published === 1 ? "" : "s"}`); else toast.error(r.error); })}><Send />Share all ready ({unpublished})</Button>
             </div>
           )}
-          <p className="text-sm text-text-muted">Up to 5 MB per upload. Part B (salary details) isn&apos;t generated by erp yet.</p>
+          <p className="text-sm text-text-muted">Up to 5 MB per upload. Part B is erp&apos;s statement of each person&apos;s salary, exemptions, deductions and tax for the year, built from finalised payroll and submitted declarations on rates a CA has not verified; it carries that note. Sharing publishes whatever parts exist.</p>
           {report && (
             <div className="flex flex-col gap-2 rounded-md bg-surface-sunken p-3 text-base" aria-live="polite">
               <p className="font-medium">{report.matched.length} matched, {report.unmatched.length} not matched</p>
@@ -257,6 +275,15 @@ function WindowCard({ group, canEdit }: { group: Settings[number]; canEdit: bool
                 )}
               </div>
             </div>
+            <div className="flex flex-col gap-2">
+              <Segmented label="Flexible benefits window" value={s.fbpWindow ? "on" : "off"} onChange={(v) => setS({ ...s, fbpWindow: v === "on" ? { opens: "04-01", closes: "04-30" } : null })} options={[{ value: "on", label: "Choose in a window" }, { value: "off", label: "Any time" }]} />
+              {s.fbpWindow && (
+                <div className="grid grid-cols-1 gap-3 sm:w-80">
+                  <MdPicker label="Flexible benefits open" value={s.fbpWindow.opens} onChange={(v) => setS({ ...s, fbpWindow: { ...s.fbpWindow!, opens: v } })} />
+                  <MdPicker label="Flexible benefits close" value={s.fbpWindow.closes} onChange={(v) => setS({ ...s, fbpWindow: { ...s.fbpWindow!, closes: v } })} />
+                </div>
+              )}
+            </div>
             <Field label="Days new joiners get to declare" className="sm:w-80" help="New joiners can declare for this long after joining, even outside the windows." error={error?.field === "lateJoinerDays" ? error.message : undefined}>
               <Input type="number" min={0} max={180} value={s.lateJoinerDays} onChange={(e) => setS({ ...s, lateJoinerDays: Number(e.target.value) })} />
             </Field>
@@ -266,5 +293,63 @@ function WindowCard({ group, canEdit }: { group: Settings[number]; canEdit: bool
         </form>
       </CardBody>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------- flexible benefits
+function FbpOverview({ d }: { d: TaxDeskData }) {
+  const cols: Column<Fbp[number]>[] = [
+    { key: "name", header: "Person", cell: (r) => <span className="font-medium">{r.name}</span>, sortValue: (r) => r.name },
+    { key: "status", header: "Status", cell: (r) => (r.submittedAt ? <Badge tone="success">Declared {shortDate(r.submittedAt)}</Badge> : <Badge tone="neutral">Nothing declared</Badge>), sortValue: (r) => (r.submittedAt ? 1 : 0) },
+    { key: "declared", header: "Declared for the year", align: "right", cell: (r) => <Money paise={r.declaredPaise} />, sortValue: (r) => r.declaredPaise },
+    { key: "items", header: "Components", cell: (r) => Object.entries(r.items).map(([k, v]) => `${k} ${paiseText(v) ? "₹" + paiseText(v) : "₹0"}`).join(" · ") || "—", hideBelow: "md" },
+  ];
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-text-muted">Components marked as flexible benefits in Settings → Payroll → Salary components. People choose amounts within each one&apos;s yearly limit; what they declare is exempt in the old regime and claimed later with bills.</p>
+      <DataTable rows={d.fbp} columns={cols} rowKey={(r) => r.employeeId} caption={`Flexible benefit declarations for FY ${d.fyLabel}`} empty={<EmptyState compact icon={<Sparkles />} title="Nobody to show" />} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- reimbursable claims
+function ClaimsDesk({ d }: { d: TaxDeskData }) {
+  const cols: Column<ClaimRow>[] = [
+    { key: "who", header: "Person", cell: (c) => <span className="flex flex-col"><span className="font-medium">{c.employee}</span><span className="text-sm text-text-muted">{c.component} · {new Date(c.claimMonth + "T00:00:00Z").toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" })}</span></span>, sortValue: (c) => c.employee },
+    { key: "amount", header: "Claimed", align: "right", cell: (c) => <Money paise={c.amountPaise} />, sortValue: (c) => c.amountPaise },
+    { key: "allowed", header: "Allowed", align: "right", cell: (c) => (c.allowedPaise != null ? <Money paise={c.allowedPaise} /> : "—"), hideBelow: "md" },
+    { key: "status", header: "Status", cell: (c) => <span className="flex flex-col gap-1"><ClaimStatusBadge status={c.status} />{c.waitingOn && <span className="text-sm text-text-muted">with {c.waitingOn}</span>}{c.payrollMonth && <span className="text-sm text-text-muted">{new Date(c.payrollMonth + "T00:00:00Z").toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" })} payroll</span>}</span> },
+    { key: "bills", header: "Bills", cell: (c) => <ul className="flex flex-wrap gap-2">{c.bills.map((b) => <li key={b.id}><a href={`/payroll/files/${b.id}`} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-sm text-accent-text underline-offset-4 hover:underline"><Paperclip aria-hidden className="size-3.5" />{b.name}</a></li>)}</ul>, hideBelow: "lg" },
+  ];
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-text-muted">Claims against reimbursable salary components, with bills. They&apos;re approved from the inbox (manager, then a payroll admin) and paid, tax-free up to the yearly limit, in the next open payroll.</p>
+      <DataTable rows={d.claims} columns={cols} rowKey={(c) => c.id} caption={`Reimbursable claims for FY ${d.fyLabel}`} empty={<EmptyState compact icon={<Inbox />} title="No claims this year" />} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- returns
+function Returns({ d }: { d: TaxDeskData }) {
+  const link = (kind: string, q?: number) => `/payroll/tax/export/${kind}?fy=${d.fyLabel}${q ? `&q=${q}` : ""}`;
+  return (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader title={`Form 24Q data for FY ${d.fyLabel}`} description="Quarterly TDS-on-salary return data in a TRACES-style column layout, for your return preparer. These are data exports, not the FVU file: challans, your TAN and the filing itself happen outside erp." />
+        <CardBody className="flex flex-col gap-3">
+          {!d.companyWide && <Banner tone="info">Only payroll admins for the whole company can export returns data.</Banner>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {QUARTERS.map((q) => (
+              <div key={q.q} className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2">
+                <span className="min-w-0 flex-1 text-base font-medium">{q.label}</span>
+                <Button size="sm" variant="secondary" asChild disabled={!d.companyWide}><a href={link("24q-annexure1", q.q)}><FileDown />Annexure I</a></Button>
+                {q.q === 4 && <Button size="sm" variant="secondary" asChild disabled={!d.companyWide}><a href={link("24q-annexure2")}><FileDown />Annexure II</a></Button>}
+              </div>
+            ))}
+          </div>
+          <p className="text-sm text-text-muted">Annexure I lists tax deducted per person and month from finalised payroll; Annexure II (with Q4) carries each person&apos;s salary, exemptions, deductions and tax for the year on rates a CA has not verified.</p>
+        </CardBody>
+      </Card>
+    </div>
   );
 }
