@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { BrandBackground, BrandMark, BrandStyle } from "@/features/saas/brand-style";
+import { LocaleProvider } from "@/i18n/provider-server";
 
 export default function AuthLayout({ children }: LayoutProps<"/">) {
   return (
@@ -9,7 +10,7 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
       <div className="mb-8">
         <Suspense fallback={<span aria-hidden className="flex size-9 rounded-md bg-surface-hover" />}><BrandMark /></Suspense>
       </div>
-      <div className="w-full max-w-md">{children}</div>
+      <div className="w-full max-w-md"><Suspense fallback={null}><LocaleProvider>{children}</LocaleProvider></Suspense></div>
     </div>
   );
 }

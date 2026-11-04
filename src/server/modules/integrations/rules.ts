@@ -10,6 +10,9 @@ export const API_SCOPES = [
   { key: "locations:read", label: "Read locations" },
   { key: "leave:read", label: "Read leave requests" },
   { key: "attendance:read", label: "Read attendance days" },
+  { key: "leave:write", label: "Apply for leave on someone's behalf (creates a normal request that goes for approval)" },
+  { key: "attendance:write", label: "Record clock-in / clock-out punches" },
+  { key: "hooks:write", label: "Subscribe to events (Zapier-style REST hooks)" },
 ] as const;
 export type ApiScope = (typeof API_SCOPES)[number]["key"];
 export const ALL_SCOPES: string[] = API_SCOPES.map((s) => s.key);
@@ -20,6 +23,7 @@ export const WEBHOOK_EVENTS = [
   { key: "employee.created", label: "A person was added" },
   { key: "employee.exited", label: "A person's exit was completed" },
   { key: "payroll.finalized", label: "A payroll run was finalised" },
+  { key: "leave.approved", label: "A leave request was approved" },
   { key: "test.ping", label: "Test event sent from Settings" },
 ] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number]["key"];
@@ -92,3 +96,44 @@ export function pageLimit(raw: string | null | undefined, fallback = 50, max = 1
 export const ACCOUNTING_FORMATS = { tally: "Tally (journal voucher CSV)", zoho: "Zoho Books (journal import CSV)" } as const;
 export type AccountingFormat = keyof typeof ACCOUNTING_FORMATS;
 export const isAccountingFormat = (v: unknown): v is AccountingFormat => v === "tally" || v === "zoho";
+
+// ---------------------------------------------------------------- OAuth2 client credentials (plat2)
+
+export const CLIENT_ID_PREFIX = "erp_ci_", CLIENT_SECRET_PREFIX = "erp_cs_";
+export const ACCESS_TOKEN_SECONDS = 3600;
+export const isClientId = (v: unknown): v is string => typeof v === "string" && /^erp_ci_[a-z0-9]{16}$/.test(v);
+
+const b64u = (b: Buffer | string) => Buffer.from(b).toString("base64url");
+
+export type AccessClaims = { iss: string; sub: string; tid: string; scope: string; iat: number; exp: number; jti: string };
+
+/** Compact HS256 JWT. One signing secret per server (ERP_JWT_SECRET, else derived from ERP_DATA_KEY). */
+export function signJwt(secret: string, claims: AccessClaims) {
+  const head = b64u(JSON.stringify({ alg: "HS256", typ: "JWT" })), body = b64u(JSON.stringify(claims));
+  return `${head}.${body}.${b64u(createHmac("sha256", secret).update(`${head}.${body}`).digest())}`;
+}
+
+export function verifyJwt(secret: string, token: string | null | undefined, nowSec: number): AccessClaims | null {
+  if (!token || token.length > 4000) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const head = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")) as { alg?: string };
+    if (head.alg !== "HS256") return null;
+    const expected = b64u(createHmac("sha256", secret).update(`${parts[0]}.${parts[1]}`).digest());
+    if (expected.length !== parts[2].length || !timingSafeEqual(Buffer.from(expected), Buffer.from(parts[2]))) return null;
+    const c = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as AccessClaims;
+    if (typeof c.exp !== "number" || c.exp <= nowSec || typeof c.tid !== "string" || typeof c.sub !== "string" || typeof c.scope !== "string") return null;
+    return c;
+  } catch { return null; }
+}
+
+export const looksLikeJwt = (raw: string | null | undefined) => !!raw && raw.split(".").length === 3 && raw.startsWith("eyJ");
+
+/** Requested scope ⊆ granted scope (space separated). Empty request = everything granted. */
+export function grantScopes(requested: string | null | undefined, granted: string[]): { ok: true; scopes: string[] } | { ok: false; bad: string } {
+  const req = (requested ?? "").split(/[\s,]+/).filter(Boolean);
+  if (!req.length) return { ok: true, scopes: granted };
+  const bad = req.find((s) => !granted.includes(s));
+  return bad ? { ok: false, bad } : { ok: true, scopes: [...new Set(req)] };
+}

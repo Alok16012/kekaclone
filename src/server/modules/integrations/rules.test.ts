@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodePageCursor, encodePageCursor, endpointUrlProblem, nextRetryMinutes, pageLimit, parseToken, rateLimitTick, signWebhook, verifyWebhookSignature } from "./rules";
+import { decodePageCursor, encodePageCursor, endpointUrlProblem, grantScopes, isClientId, looksLikeJwt, nextRetryMinutes, pageLimit, parseToken, rateLimitTick, signJwt, signWebhook, verifyJwt, verifyWebhookSignature } from "./rules";
 
 describe("api keys and webhooks", () => {
   it("parses only well-formed tokens", () => {
@@ -40,5 +40,25 @@ describe("api keys and webhooks", () => {
     expect(decodePageCursor("zzz")).toBe(0);
     expect(pageLimit("500")).toBe(100);
     expect(pageLimit("x")).toBe(50);
+  });
+});
+
+describe("oauth2 client credentials (plat2)", () => {
+  it("signs and verifies HS256 access tokens, refusing tampering and expiry", () => {
+    const claims = { iss: "acme", sub: "erp_ci_abcdefghijklmnop", tid: "t", scope: "employees:read", iat: 100, exp: 4100, jti: "j" };
+    const tok = signJwt("s", claims);
+    expect(looksLikeJwt(tok)).toBe(true);
+    expect(verifyJwt("s", tok, 200)).toEqual(claims);
+    expect(verifyJwt("x", tok, 200)).toBeNull();
+    expect(verifyJwt("s", tok, 5000)).toBeNull();
+    expect(verifyJwt("s", tok.replace(/.$/, "A"), 200)).toBeNull();
+    expect(verifyJwt("s", "erp_live_abc", 200)).toBeNull();
+  });
+  it("scopes: subset of the client's grant, or all of it when none requested", () => {
+    expect(grantScopes("", ["a", "b"])).toEqual({ ok: true, scopes: ["a", "b"] });
+    expect(grantScopes("a a", ["a", "b"])).toEqual({ ok: true, scopes: ["a"] });
+    expect(grantScopes("a c", ["a", "b"])).toEqual({ ok: false, bad: "c" });
+    expect(isClientId("erp_ci_abcdefghijklmnop")).toBe(true);
+    expect(isClientId("erp_ci_short")).toBe(false);
   });
 });

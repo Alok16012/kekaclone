@@ -1,4 +1,5 @@
 import "server-only";
+import { emitEvent } from "@/server/modules/automations/service";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
@@ -276,6 +277,7 @@ export async function relieve(tx: Tx, exitId: string, actorUserId: string | null
   if (x.process_id) await tx`update lifecycle_processes set status = 'completed' where id = ${x.process_id} and status = 'in_progress'`;
   await withdrawOpenRequests(tx, x.employee_id, x.last_working_date);
   await emitWebhook(tx, x.tenant_id, "employee.exited", { employee_id: x.employee_id, exit_id: exitId, last_working_date: x.last_working_date });
+  await emitEvent(tx, x.tenant_id, "employee.exited", { employeeId: x.employee_id, occurrence: exitId, vars: { "exit.last_working_date": x.last_working_date } });
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${x.tenant_id}, ${x.employee_id}, 'exited', ${x.last_working_date}, ${tx.json({ exit_id: exitId })}, ${actorUserId})`;
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)

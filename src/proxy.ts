@@ -25,6 +25,7 @@ export function proxy(req: NextRequest) {
     || path === "/careers" || path.startsWith("/careers/") || path.startsWith("/p/")   // hiring: public careers page and candidate / interviewer token links
     || path.startsWith("/sign/")   // erp Sign: signer token links (tenant from the subdomain, token checked inside)
     || path === "/brand/background"
+    || path === "/developers"   // plat2: API / OAuth2 / webhooks guide (no tenant data)
     || (process.env.NODE_ENV !== "production" && path.startsWith("/dev/"));
   if (sub && !isPublic && !req.cookies.has(process.env.SESSION_COOKIE ?? "erp_session")) {
     const url = new URL("/login", req.url);

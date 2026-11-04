@@ -52,6 +52,7 @@ export const PERMISSIONS = [
     { key: "settings.billing", label: "See the plan and invoices, change or cancel the subscription" },
     { key: "settings.integrations", label: "Manage API keys, webhooks and Slack / Teams / calendar integrations" },
     { key: "settings.notifications", label: "Choose which events send in-app notifications and emails" },
+    { key: "automations.manage", label: "Build workflow automations (triggers, conditions, actions) and see their run log" },
   ] },
   { group: "Projects & timesheets", items: [
     { key: "psa.admin", label: "Set up clients, projects, project teams and timesheet policies" },

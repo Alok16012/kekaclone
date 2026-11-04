@@ -7,6 +7,8 @@ import { newToken, sha256 } from "./password";
 import type { Scope } from "./catalog";
 import { ipAllowed, readAuthSettings, type AuthSettings } from "./network-rules";
 import type { Plan } from "@/server/modules/saas/plans";
+import { isLocale, LOCALE_COOKIE } from "@/i18n";
+import { LOCALE_COOKIE_OPTIONS } from "@/i18n/server";
 
 const COOKIE = process.env.SESSION_COOKIE ?? "erp_session";
 
@@ -56,7 +58,11 @@ export async function createSession(tenantId: string, userId: string) {
   await withTenant(tenantId, (tx) => tx`
     insert into sessions (tenant_id, user_id, token_hash, expires_at, ip, user_agent)
     values (${tenantId}, ${userId}, ${sha256(token)}, ${expires}, ${h.get("x-forwarded-for")?.split(",")[0] ?? null}, ${h.get("user-agent")})`);
-  (await cookies()).set(COOKIE, token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", expires });
+  const jar = await cookies();
+  jar.set(COOKIE, token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", expires });
+  // the person's saved language travels with the session (plat2: Me → Calendar & devices)
+  const [u] = await withTenant(tenantId, (tx) => tx<{ locale: string }[]>`select locale from users where id = ${userId}`);
+  if (u && isLocale(u.locale)) jar.set(LOCALE_COOKIE, u.locale, LOCALE_COOKIE_OPTIONS);
 }
 
 export async function destroySession() {

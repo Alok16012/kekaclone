@@ -1,5 +1,6 @@
 import "server-only";
 import { emitWebhook, notifyChat } from "@/server/modules/integrations/service";
+import { notifyChatApproval } from "@/server/modules/integrations/chat";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { onCompOffDecided, onLeaveDecided } from "@/server/modules/leave/effects";
@@ -142,6 +143,7 @@ export async function startApproval(tx: Tx, a: { tenantId: string; entityType: E
              values (${a.tenantId}, ${req.id}, ${i + 1}, ${approver}, ${i === 0 ? "pending" : "waiting"})`;
   }
   if (approvers[0]) await notifyEmployee(tx, a.tenantId, approvers[0], "approval.pending", "New request to review", a.summary, "/inbox");
+  if (approvers[0]) await chatPing(tx, a.tenantId, req.id, 1, a.summary);   // Slack / Teams approve/decline buttons (plat2)
   return { requestId: req.id, status };
 }
 
@@ -164,6 +166,7 @@ export async function decide(tx: Tx, actor: Actor, stepId: string, decision: "ap
     if (next) {
       await tx`update approval_requests set current_level = ${step.level + 1} where id = ${step.request_id}`;
       await notifyEmployee(tx, actor.tenant.id, next.approver_employee_id, "approval.pending", "New request to review", req.summary, "/inbox");
+      await chatPing(tx, actor.tenant.id, step.request_id, step.level + 1, req.summary);
     } else final = "approved";
   }
   if (final) {
@@ -232,4 +235,13 @@ export async function timeline(tx: Tx, entityType: EntityType, entityId: string)
 /** In-app and/or email, per the tenant's notification settings (Settings → Notifications). */
 export async function notifyEmployee(tx: Tx, tenantId: string, employeeId: string, kind: string, title: string, body: string, link: string) {
   await notify(tx, tenantId, [employeeId], kind, title, body, link);
+}
+
+/** The pending step at this level, with names, to Slack / Teams (best effort, plat2). */
+async function chatPing(tx: Tx, tenantId: string, requestId: string, level: number, summary: string) {
+  const [row] = await tx<{ step_id: string; approver_id: string; approver: string; requester: string }[]>`
+    select s.id as step_id, s.approver_employee_id as approver_id, a.display_name as approver, q.display_name as requester
+    from approval_steps s join approval_requests r on r.id = s.request_id join employees a on a.id = s.approver_employee_id join employees q on q.id = r.requester_employee_id
+    where s.request_id = ${requestId} and s.level = ${level}`;
+  if (row) await notifyChatApproval(tx, tenantId, { stepId: row.step_id, approverId: row.approver_id, approverName: row.approver, requesterName: row.requester, summary }).catch(() => 0);
 }

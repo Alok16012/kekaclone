@@ -12,6 +12,8 @@ import { DataTable } from "@/ui/table";
 import { toast } from "@/ui/toast";
 import { API_SCOPES, WEBHOOK_EVENTS } from "@/server/modules/integrations/rules";
 import type { ApiKeyRow, DeliveryRow, EndpointRow } from "@/server/modules/integrations/service";
+import { OAuthClientsCard } from "@/features/plat2/oauth-clients-ui";
+import type { OAuthClientRow } from "@/server/modules/integrations/oauth";
 import { createApiKeyAction, createEndpointAction, deleteEndpointAction, listDeliveriesAction, retryDeliveryAction, revokeApiKeyAction, sendTestEventAction, setEndpointActiveAction } from "@/app/(app)/settings/api/actions";
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—");
@@ -29,10 +31,11 @@ function Secret({ value, label }: { value: string; label: string }) {
 }
 
 /** Settings → API & webhooks: keys (shown once), scoped and revocable; endpoints with secrets, test events and a delivery log. */
-export function ApiSettingsPage({ keys, endpoints, apiAllowed, webhooksAllowed, host }: { keys: ApiKeyRow[]; endpoints: EndpointRow[]; apiAllowed: boolean; webhooksAllowed: boolean; host: string }) {
+export function ApiSettingsPage({ keys, clients = [], endpoints, apiAllowed, webhooksAllowed, host }: { keys: ApiKeyRow[]; clients?: OAuthClientRow[]; endpoints: EndpointRow[]; apiAllowed: boolean; webhooksAllowed: boolean; host: string }) {
   return (
     <div className="flex flex-col gap-4">
       <KeysCard keys={keys} allowed={apiAllowed} host={host} />
+      <OAuthClientsCard clients={clients} allowed={apiAllowed} host={host} />
       <EndpointsCard endpoints={endpoints} allowed={webhooksAllowed} />
     </div>
   );

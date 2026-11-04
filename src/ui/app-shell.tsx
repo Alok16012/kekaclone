@@ -18,6 +18,8 @@ import { Avatar } from "./avatar";
 import { IconButton } from "./button";
 import { Menu } from "./overlay";
 import { ThemeToggle } from "./theme";
+import { useT } from "@/i18n/client";
+import type { MessageKey } from "@/i18n";
 
 export type ShellData = {
   tenant: string; user: { name: string; title: string }; isAdmin: boolean; areas?: string[]; inboxCount: number; unread: number;
@@ -25,81 +27,84 @@ export type ShellData = {
   features?: string[];
 };
 
-export type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number };
-export type NavGroup = { label?: string; items: NavItem[] };
+export type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; /** i18n key (plat2): translated at render when present */ key?: MessageKey };
+export type NavGroup = { label?: string; key?: MessageKey; items: NavItem[] };
 
 export const DEFAULT_NAV: NavGroup[] = [
   { items: [
-    { href: "/home", label: "Home", icon: Home },
-    { href: "/inbox", label: "Inbox", icon: Inbox },
+    { href: "/home", label: "Home", icon: Home, key: "nav.home" },
+    { href: "/inbox", label: "Inbox", icon: Inbox, key: "nav.inbox" },
   ] },
-  { label: "Me", items: [
-    { href: "/me/attendance", label: "Attendance", icon: Clock },
-    { href: "/me/leave", label: "Leave", icon: CalendarDays },
-    { href: "/me/pay", label: "My finances", icon: Wallet },
-    { href: "/me/tax", label: "Income tax", icon: Landmark },
-    { href: "/me/loans", label: "Loans", icon: HandCoins },
-    { href: "/me/expenses", label: "Expenses", icon: Receipt },
-    { href: "/me/performance", label: "Performance", icon: Target },
-    { href: "/me/helpdesk", label: "Helpdesk", icon: LifeBuoy },
-    { href: "/me/assets", label: "My assets", icon: Laptop },
-    { href: "/me/tasks", label: "My tasks", icon: ListChecks },
-    { href: "/me/surveys", label: "Surveys", icon: ClipboardList },
-    { href: "/me/jobs", label: "Jobs & referrals", icon: BriefcaseBusiness },
-    { href: "/me/timesheet", label: "Timesheet", icon: Timer },
-    { href: "/me/learn", label: "Learning", icon: GraduationCap },
+  { label: "Me", key: "nav.me", items: [
+    { href: "/me/attendance", label: "Attendance", icon: Clock, key: "nav.attendance" },
+    { href: "/me/leave", label: "Leave", icon: CalendarDays, key: "nav.leave" },
+    { href: "/me/pay", label: "My finances", icon: Wallet, key: "nav.finances" },
+    { href: "/me/tax", label: "Income tax", icon: Landmark, key: "nav.tax" },
+    { href: "/me/loans", label: "Loans", icon: HandCoins, key: "nav.loans" },
+    { href: "/me/expenses", label: "Expenses", icon: Receipt, key: "nav.expenses" },
+    { href: "/me/performance", label: "Performance", icon: Target, key: "nav.performance" },
+    { href: "/me/helpdesk", label: "Helpdesk", icon: LifeBuoy, key: "nav.helpdesk" },
+    { href: "/me/assets", label: "My assets", icon: Laptop, key: "nav.assets" },
+    { href: "/me/tasks", label: "My tasks", icon: ListChecks, key: "nav.tasks" },
+    { href: "/me/surveys", label: "Surveys", icon: ClipboardList, key: "nav.surveys" },
+    { href: "/me/jobs", label: "Jobs & referrals", icon: BriefcaseBusiness, key: "nav.jobs" },
+    { href: "/me/timesheet", label: "Timesheet", icon: Timer, key: "nav.timesheet" },
+    { href: "/me/learn", label: "Learning", icon: GraduationCap, key: "nav.learn" },
   ] },
-  { label: "Organisation", items: [
-    { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/team", label: "My team", icon: Users },
-    { href: "/org/employees", label: "People", icon: LayoutGrid },
-    { href: "/org/tree", label: "Org chart", icon: Network },
-    { href: "/org/documents", label: "Documents", icon: FileText },
-    { href: "/org/onboarding", label: "Onboarding", icon: Rocket },
-    { href: "/org/exits", label: "Exits", icon: DoorOpen },
-    { href: "/org/analytics", label: "Analytics", icon: ChartColumn },
-    { href: "/payroll", label: "Payroll", icon: Landmark },
-    { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee },
-    { href: "/payroll/tax", label: "Tax desk", icon: Landmark },
-    { href: "/payroll/loans", label: "Loans desk", icon: HandCoins },
-    { href: "/org/assets", label: "Assets", icon: Package },
-    { href: "/helpdesk", label: "Helpdesk queue", icon: Headset },
-    { href: "/performance", label: "Review cycles", icon: Gauge },
-    { href: "/compensation", label: "Compensation", icon: IndianRupee },
-    { href: "/psa/projects", label: "Projects", icon: FolderKanban },
-    { href: "/learn/admin", label: "Learn admin", icon: GraduationCap },
-    { href: "/reports", label: "Reports", icon: ChartColumn },
-    { href: "/hire/jobs", label: "Hiring", icon: BriefcaseBusiness },
-    { href: "/engage/announcements", label: "Announcements", icon: Megaphone },
-    { href: "/settings", label: "Settings", icon: Settings },
+  { label: "Organisation", key: "nav.organisation", items: [
+    { href: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard, key: "nav.dashboard" },
+    { href: "/team", label: "My team", icon: Users, key: "nav.team" },
+    { href: "/org/employees", label: "People", icon: LayoutGrid, key: "nav.people" },
+    { href: "/org/tree", label: "Org chart", icon: Network, key: "nav.orgchart" },
+    { href: "/org/documents", label: "Documents", icon: FileText, key: "nav.documents" },
+    { href: "/org/onboarding", label: "Onboarding", icon: Rocket, key: "nav.onboarding" },
+    { href: "/org/exits", label: "Exits", icon: DoorOpen, key: "nav.exits" },
+    { href: "/org/analytics", label: "Analytics", icon: ChartColumn, key: "nav.analytics" },
+    { href: "/payroll", label: "Payroll", icon: Landmark, key: "nav.payroll" },
+    { href: "/expenses/approvals", label: "Expense desk", icon: ReceiptIndianRupee, key: "nav.expense_desk" },
+    { href: "/payroll/tax", label: "Tax desk", icon: Landmark, key: "nav.tax_desk" },
+    { href: "/payroll/loans", label: "Loans desk", icon: HandCoins, key: "nav.loans_desk" },
+    { href: "/org/assets", label: "Assets", icon: Package, key: "nav.assets_admin" },
+    { href: "/helpdesk", label: "Helpdesk queue", icon: Headset, key: "nav.helpdesk_queue" },
+    { href: "/performance", label: "Review cycles", icon: Gauge, key: "nav.reviews" },
+    { href: "/compensation", label: "Compensation", icon: IndianRupee, key: "nav.compensation" },
+    { href: "/psa/projects", label: "Projects", icon: FolderKanban, key: "nav.projects" },
+    { href: "/learn/admin", label: "Learn admin", icon: GraduationCap, key: "nav.learn_admin" },
+    { href: "/reports", label: "Reports", icon: ChartColumn, key: "nav.reports" },
+    { href: "/hire/jobs", label: "Hiring", icon: BriefcaseBusiness, key: "nav.hiring" },
+    { href: "/engage/announcements", label: "Announcements", icon: Megaphone, key: "nav.announcements" },
+    { href: "/settings", label: "Settings", icon: Settings, key: "nav.settings" },
   ] },
 ];
 
 const MOBILE_NAV: NavItem[] = [
-  { href: "/home", label: "Home", icon: Home },
-  { href: "/me/attendance", label: "Attendance", icon: Clock },
-  { href: "/inbox", label: "Inbox", icon: Inbox },
-  { href: "/me/leave", label: "Leave", icon: CalendarDays },
-  { href: "/me", label: "Me", icon: User },
+  { href: "/home", label: "Home", icon: Home, key: "nav.home" },
+  { href: "/me/attendance", label: "Attendance", icon: Clock, key: "nav.attendance" },
+  { href: "/inbox", label: "Inbox", icon: Inbox, key: "nav.inbox" },
+  { href: "/me/leave", label: "Leave", icon: CalendarDays, key: "nav.leave" },
+  { href: "/me", label: "Me", icon: User, key: "nav.me" },
 ];
 
 function NavLink({ item, collapsed, onNavigate }: { item: NavItem; collapsed?: boolean; onNavigate?: () => void }) {
   const path = usePathname();
+  const { t } = useT();
+  const label = item.key ? t(item.key) : item.label;
   const active = path === item.href || path.startsWith(item.href + "/");
   const Icon = item.icon;
   return (
-    <Link href={item.href} onClick={onNavigate} aria-current={active ? "page" : undefined} title={collapsed ? item.label : undefined}
+    <Link href={item.href} onClick={onNavigate} aria-current={active ? "page" : undefined} title={collapsed ? label : undefined}
       className={cn("group flex h-9 items-center gap-3 rounded-md px-3 text-base font-medium text-text-muted transition-colors duration-fast hover:bg-surface-hover hover:text-text",
         active && "bg-sidebar-active text-sidebar-active-text hover:bg-sidebar-active hover:text-sidebar-active-text", collapsed && "justify-center px-0")}>
       <Icon className="size-[18px] shrink-0" />
-      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+      {!collapsed && <span className="flex-1 truncate">{label}</span>}
       {!collapsed && item.badge ? <span className="rounded-pill bg-accent px-1.5 text-xs font-semibold tabular text-on-accent">{item.badge}</span> : null}
-      {collapsed && item.badge ? <span className="sr-only">, {item.badge} pending</span> : null}
+      {collapsed && item.badge ? <span className="sr-only">, {item.badge} {t("shell.pending")}</span> : null}
     </Link>
   );
 }
 
 function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[]; collapsed?: boolean; onNavigate?: () => void; tenant: string }) {
+  const { t } = useT();
   return (
     <>
       <div className={cn("flex h-(--size-topbar) shrink-0 items-center gap-2.5 border-b border-border px-4", collapsed && "justify-center px-0")}>
@@ -109,7 +114,7 @@ function SidebarContent({ nav, collapsed, onNavigate, tenant }: { nav: NavGroup[
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-3">
         {nav.map((g, i) => (
           <div key={i} className={cn(i > 0 && "mt-5")}>
-            {g.label && !collapsed && <p className="mb-1 px-3 text-xs font-medium uppercase tracking-wide text-text-muted">{g.label}</p>}
+            {g.label && !collapsed && <p className="mb-1 px-3 text-xs font-medium uppercase tracking-wide text-text-muted">{g.key ? t(g.key) : g.label}</p>}
             {g.label && collapsed && <div className="mx-3 mb-2 h-px bg-border" />}
             <ul className="flex flex-col gap-0.5">{g.items.map((it) => <li key={it.href}><NavLink item={it} collapsed={collapsed} onNavigate={onNavigate} /></li>)}</ul>
           </div>
@@ -157,39 +162,40 @@ export function AppShell({ children, data, logout, bell, search }: {
 }) {
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const { t } = useT();
   return (
     <div className="min-h-dvh bg-canvas">
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-80 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:shadow-pop">Skip to content</a>
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-80 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:shadow-pop">{t("shell.skip")}</a>
 
       <aside className={cn("fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-border bg-sidebar transition-[width] duration-base lg:flex",
         collapsed ? "w-(--size-sidebar-collapsed)" : "w-(--size-sidebar)")}>
         <React.Suspense fallback={<SidebarContent nav={navFor(null)} collapsed={collapsed} tenant="" />}><ShellSidebar data={data} collapsed={collapsed} /></React.Suspense>
         <div className="border-t border-border p-3">
-          <button type="button" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          <button type="button" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed} aria-label={collapsed ? t("shell.expand_sidebar") : t("shell.collapse_sidebar")}
             className={cn("flex h-9 w-full items-center gap-3 rounded-md px-3 text-base text-text-muted hover:bg-surface-hover hover:text-text", collapsed && "justify-center px-0")}>
             <ChevronsLeft className={cn("size-[18px] transition-transform duration-base", collapsed && "rotate-180")} />
-            {!collapsed && "Collapse"}
+            {!collapsed && t("shell.collapse")}
           </button>
         </div>
       </aside>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal aria-label="Navigation">
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal aria-label={t("shell.open_nav")}>
           <div className="absolute inset-0 bg-overlay/45 animate-fade-in" onClick={() => setMobileOpen(false)} />
           <aside className="absolute inset-y-0 left-0 flex w-(--size-sidebar) flex-col bg-sidebar shadow-modal animate-pop-in">
             <React.Suspense fallback={<SidebarContent nav={navFor(null)} tenant="" />}><ShellSidebar data={data} onNavigate={() => setMobileOpen(false)} /></React.Suspense>
-            <IconButton label="Close navigation" className="absolute right-2 top-3" onClick={() => setMobileOpen(false)}><X /></IconButton>
+            <IconButton label={t("shell.close_nav")} className="absolute right-2 top-3" onClick={() => setMobileOpen(false)}><X /></IconButton>
           </aside>
         </div>
       )}
 
       <div className={cn("transition-[padding] duration-base", collapsed ? "lg:pl-(--size-sidebar-collapsed)" : "lg:pl-(--size-sidebar)")}>
         <header className="sticky top-0 z-20 flex h-(--size-topbar) items-center gap-2 border-b border-border bg-surface/85 px-4 backdrop-blur-md sm:px-6">
-          <IconButton label="Open navigation" className="hidden md:inline-flex lg:hidden" onClick={() => setMobileOpen(true)}><MenuIcon /></IconButton>
+          <IconButton label={t("shell.open_nav")} className="hidden md:inline-flex lg:hidden" onClick={() => setMobileOpen(true)}><MenuIcon /></IconButton>
           {search ? <React.Suspense fallback={<SearchPlaceholder />}>{search}</React.Suspense> : <SearchPlaceholder />}
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
-            <React.Suspense fallback={<IconButton label="Notifications"><Bell /></IconButton>}>{bell ?? <NotificationsButton data={data} />}</React.Suspense>
+            <React.Suspense fallback={<IconButton label={t("shell.notifications")}><Bell /></IconButton>}>{bell ?? <NotificationsButton data={data} />}</React.Suspense>
             <React.Suspense fallback={<span className="ml-1 size-8 rounded-pill bg-surface-hover" aria-hidden />}><AccountMenu data={data} logout={logout} /></React.Suspense>
           </div>
         </header>
@@ -206,14 +212,15 @@ export function AppShell({ children, data, logout, bell, search }: {
 
 function BottomLink({ item }: { item: NavItem }) {
   const path = usePathname();
+  const { t } = useT();
   const active = path === item.href || path.startsWith(item.href + "/");
   const Icon = item.icon;
   return (
     <Link href={item.href} aria-current={active ? "page" : undefined}
       className={cn("relative flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium", active ? "text-accent-text" : "text-text-muted")}>
       <Icon className="size-5" />
-      {item.label}
-      {item.badge ? <span className="absolute left-1/2 top-2 ml-1.5 rounded-pill bg-danger px-1 text-[10px] font-semibold tabular text-on-accent" aria-label={`${item.badge} pending`}>{item.badge}</span> : null}
+      {item.key ? t(item.key) : item.label}
+      {item.badge ? <span className="absolute left-1/2 top-2 ml-1.5 rounded-pill bg-danger px-1 text-[10px] font-semibold tabular text-on-accent" aria-label={`${item.badge} ${t("shell.pending")}`}>{item.badge}</span> : null}
     </Link>
   );
 }
@@ -254,8 +261,9 @@ function ShellSidebar({ data, collapsed, onNavigate }: { data: Promise<ShellData
 
 function NotificationsButton({ data }: { data: Promise<ShellData | null> | ShellData | null | undefined }) {
   const unread = useShell(data)?.unread ?? 0;
+  const { t } = useT();
   return (
-    <IconButton label={unread ? `Notifications, ${unread} unread` : "Notifications"} className="relative">
+    <IconButton label={unread ? `${t("shell.notifications")}, ${unread}` : t("shell.notifications")} className="relative">
       <Bell />{unread > 0 && <span aria-hidden className="absolute right-2 top-2 size-2 rounded-pill bg-danger ring-2 ring-surface" />}
     </IconButton>
   );
@@ -264,17 +272,19 @@ function NotificationsButton({ data }: { data: Promise<ShellData | null> | Shell
 function AccountMenu({ data, logout }: { data: Promise<ShellData | null> | ShellData | null | undefined; logout?: () => Promise<{ redirectTo: string }> }) {
   const user = useShell(data)?.user ?? { name: "", title: "" };
   const router = useRouter();
+  const { t } = useT();
   return (
     <Menu trigger={
-      <button type="button" aria-label={`Account menu for ${user.name}`} className="ml-1 flex items-center gap-2 rounded-pill p-0.5 pr-2 hover:bg-surface-hover">
+      <button type="button" aria-label={t("shell.account_menu", { name: user.name })} className="ml-1 flex items-center gap-2 rounded-pill p-0.5 pr-2 hover:bg-surface-hover">
         <Avatar name={user.name || "?"} size="sm" />
         <span className="hidden text-left leading-tight md:block"><span className="block text-sm font-medium">{user.name}</span><span className="block text-xs text-text-muted">{user.title}</span></span>
       </button>
     } items={[
-      { label: "My profile", icon: <User />, onSelect: () => router.push("/me") },
-      { label: "Settings", icon: <Settings />, onSelect: () => router.push("/settings") },
+      { label: t("shell.my_profile"), icon: <User />, onSelect: () => router.push("/me") },
+      { label: t("shell.connections"), icon: <CalendarDays />, onSelect: () => router.push("/me/connections") },
+      { label: t("nav.settings"), icon: <Settings />, onSelect: () => router.push("/settings") },
       "separator",
-      { label: "Sign out", danger: true, onSelect: () => { void logout?.().then((r) => window.location.assign(r.redirectTo)); } },
+      { label: t("shell.sign_out"), danger: true, onSelect: () => { void logout?.().then((r) => window.location.assign(r.redirectTo)); } },
     ]} />
   );
 }
@@ -285,10 +295,11 @@ function BottomLinks({ data }: { data: Promise<ShellData | null> | ShellData | n
 }
 
 function SearchPlaceholder() {
+  const { t } = useT();
   return (
     <button type="button" className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 text-base text-text-placeholder hover:border-border-strong sm:max-w-md">
       <Search className="size-4 shrink-0" aria-hidden />
-      <span className="truncate">Search people, pages, actions</span>
+      <span className="truncate">{t("shell.search")}</span>
       <kbd className="ml-auto hidden rounded-xs border border-border bg-surface px-1.5 text-xs text-text-muted sm:inline">⌘K</kbd>
     </button>
   );

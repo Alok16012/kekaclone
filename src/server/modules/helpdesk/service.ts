@@ -1,4 +1,5 @@
 import "server-only";
+import { emitEvent } from "@/server/modules/automations/service";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
@@ -402,6 +403,9 @@ export async function escalateBreaches(tx: Tx, tenantId: string, now = new Date(
     for (const p of people) {
       await notifyEmployee(tx, tenantId, p, "helpdesk.sla_breach", `${ticketRef(t.number)} missed its ${what}`, `${t.category} · ${t.requester}: ${t.title}`, `/helpdesk?ticket=${t.id}`);
     }
+    const [tp] = await tx<{ priority: string }[]>`select priority from tickets where id = ${t.id}`;
+    await emitEvent(tx, tenantId, "ticket.breached", { employeeId: t.raised_by_employee_id, occurrence: `${t.id}:${due.join("+")}`, link: `/helpdesk?ticket=${t.id}`,
+      facts: { "ticket.priority": tp?.priority ?? null, "ticket.category": t.category }, vars: { "ticket.number": ticketRef(t.number), "ticket.title": t.title, "ticket.category": t.category } });
     sent += 1;
   }
   return sent;

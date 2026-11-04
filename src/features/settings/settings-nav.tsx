@@ -34,7 +34,8 @@ const ITEMS = [
     { href: "/settings/time/overtime", label: "Overtime & allowances" },
     { href: "/settings/time/devices", label: "Devices" },
   ] },
-  { group: "Notifications", links: [{ href: "/settings/notifications", label: "Events & emails" }] },
+  { group: "Notifications", links: [{ href: "/settings/notifications", label: "Events & emails" }, { href: "/settings/notifications/templates", label: "Email templates" }] },
+  { group: "Automations", links: [{ href: "/settings/automations", label: "Workflow automations" }] },
   { group: "Payroll", links: [
     { href: "/settings/payroll/components", label: "Salary components" },
     { href: "/settings/payroll/pay-groups", label: "Pay groups" },
@@ -52,6 +53,7 @@ const ITEMS = [
     { href: "/settings/branding", label: "Branding" },
     { href: "/settings/integrations", label: "Integrations" },
     { href: "/settings/api", label: "API & webhooks" },
+    { href: "/developers", label: "Developer guide" },
   ] },
   { group: "Hiring", links: [{ href: "/settings/hire", label: "Hiring" }] },
   { group: "Performance", links: [{ href: "/performance/settings", label: "Performance" }, { href: "/performance/settings/skills", label: "Skills library" }] },

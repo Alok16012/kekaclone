@@ -25,6 +25,9 @@ import { settleOvertime, settleShiftAllowance } from "@/server/modules/attendanc
 import { sendExpiryReminders } from "@/server/modules/documents/expiry";
 import { processPendingBatches } from "@/server/modules/documents/bulk";
 import { autoTickExitTasks } from "@/server/modules/exits/checklist";
+import { runDaily as runAutomations } from "@/server/modules/automations/service";
+import { deliverPush } from "@/server/modules/push/service";
+import { syncCalendars } from "@/server/modules/calendar/service";
 
 export type StepContext = { tenantId: string; today: string; now: Date };
 /**
@@ -77,6 +80,9 @@ export const STEPS: Step[] = [
   { key: "letter_batches", label: "Finish bulk letter batches", daily: false, own: (c) => processPendingBatches(c.tenantId) },
   { key: "exit_tasks", label: "Tick exit checklist tasks the system can prove", daily: false, tx: (tx) => autoTickExitTasks(tx) },
   { key: "fx_rates", label: "Fetch today's exchange rates for expenses (when a provider is configured)", daily: true, tx: (tx, c) => fetchDailyRates(tx, c.tenantId, c.today) },
+  { key: "automations", label: "Run birthday, anniversary and date-based automations", daily: true, tx: (tx, c) => runAutomations(tx, c.tenantId, c.today) },
+  { key: "push", label: "Send queued push notifications", daily: false, own: async (c) => deliverPush(c.tenantId) },
+  { key: "calendar", label: "Sync calendar events (Google / Microsoft)", daily: false, own: async (c) => syncCalendars(c.tenantId, c.now) },
 ];
 
 async function tenantRow(tx: Tx, tenantId: string) {

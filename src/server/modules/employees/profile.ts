@@ -1,4 +1,5 @@
 import "server-only";
+import { emitEvent } from "@/server/modules/automations/service";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
@@ -165,6 +166,7 @@ export async function applyJobChange(tx: Tx, jobChangeId: string, actorUserId: s
            values (${jc.tenant_id}, ${jc.employee_id}, ${jc.kind}, ${jc.effective_date}, ${tx.json({ before, after: fields, note } as never)}, ${actorUserId})`;
   await audit(tx, { tenantId: jc.tenant_id, userId: actorUserId }, { entityType: "employee", entityId: jc.employee_id, action: "job_change",
     diff: { before, after: fields, kind: jc.kind, effectiveDate: jc.effective_date, note: note ?? null } });
+  await emitEvent(tx, jc.tenant_id, "employee.transferred", { employeeId: jc.employee_id, occurrence: jobChangeId, facts: { "change.kind": jc.kind }, vars: { "change.kind": jc.kind, "change.effective_date": jc.effective_date } });
 }
 
 export async function cancelJobChange(tx: Tx, actor: Actor, id: string) {

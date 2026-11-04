@@ -7,6 +7,8 @@ import { Skeleton } from "@/ui/feedback";
 import { currentSubdomain, getActor, resolveTenant } from "@/server/auth/session";
 import { ssoButtons } from "@/server/modules/auth/oidc";
 import { LoginForm } from "./login-form";
+import { getT } from "@/i18n/server";
+import { LanguageSwitch } from "@/features/plat2/language-switch";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -27,12 +29,16 @@ async function LoginCard({ searchParams }: { searchParams: PageProps<"/login">["
   const a = tenant.authSettings;
   const sso = ssoButtons(tenant);
   const passwordOn = !(a?.sso_only && sso.length);
+  const { t, locale } = await getT();
   return (
-    <Card className="p-6 sm:p-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Sign in to {tenant.name}</h1>
-      <p className="mt-1 mb-6 text-base text-text-muted">{tenant.branding?.login_note || (passwordOn ? "Use your work email." : "Use your company account.")}</p>
-      <LoginForm next={typeof next === "string" ? next : undefined} sso={sso} password={passwordOn} mobileOtp={!!a?.mobile_otp} ssoError={typeof ssoError === "string" ? ssoError : undefined} />
-    </Card>
+    <>
+      <Card className="p-6 sm:p-8">
+        <h1 className="text-2xl font-semibold tracking-tight">{t("login.title", { company: tenant.name })}</h1>
+        <p className="mt-1 mb-6 text-base text-text-muted">{tenant.branding?.login_note || (passwordOn ? t("login.email_hint") : "Use your company account.")}</p>
+        <LoginForm next={typeof next === "string" ? next : undefined} sso={sso} password={passwordOn} mobileOtp={!!a?.mobile_otp} ssoError={typeof ssoError === "string" ? ssoError : undefined} />
+      </Card>
+      <LanguageSwitch locale={locale} />
+    </>
   );
 }
 
