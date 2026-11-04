@@ -1,7 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { AppError, withTenant, type Tx } from "@/server/db";
-import { sql } from "@/server/db";
 import type { Tenant } from "@/server/auth/session";
 import { actorForEmployee } from "@/server/auth/system-actor";
 import { appUrl, deliverQueued } from "@/server/email";
@@ -68,7 +67,8 @@ export type ChatActResult = { ok: true; message: string; decision: "approved" | 
 export async function actOnChatToken(token: string | null, comment: string, now = new Date()): Promise<ChatActResult> {
   const a = verifyAction(actionSecret(), token, Math.floor(now.getTime() / 1000));
   if (!a) return { ok: false, message: "This approval link is invalid or has expired. Open your Inbox in erp instead." };
-  const [t] = await sql<{ id: string; name: string; status: string; subdomain: string; plan: Tenant["plan"] }[]>`select id, name, status, subdomain::text, plan from tenants where id = ${a.t}`;
+  // the tenant row is read inside its own RLS scope (the app role sees nothing outside app.tenant_id)
+  const [t] = await withTenant(a.t, (tx) => tx<{ id: string; name: string; status: string; subdomain: string; plan: Tenant["plan"] }[]>`select id, name, status, subdomain::text, plan from tenants where id = ${a.t}`);
   if (!t) return { ok: false, message: "This workspace no longer exists." };
   const tenant: Tenant = { id: t.id, name: t.name, status: t.status, subdomain: t.subdomain, plan: t.plan };
   try {

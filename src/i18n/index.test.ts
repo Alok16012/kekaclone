@@ -16,7 +16,7 @@ describe("i18n", () => {
     expect(t("hi", "zzz.missing" as never)).toBe("zzz.missing");
   });
   it("formats dates and numbers in the locale", () => {
-    expect(formatDate("en", "2026-11-03")).toBe("Monday, 3 November");
+    expect(formatDate("en", "2026-11-03")).toBe("Tuesday, 3 November");
     expect(formatDate("hi", "2026-11-03")).toContain("नवंबर");
     expect(formatNumber("en", 12345.5)).toBe("12,345.5");
     expect(formatNumber("hi", 2)).toBe("2");

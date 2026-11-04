@@ -127,7 +127,7 @@ async function main() {
     try {
       await withTenant(tenant.id, (tx) => integ.emitWebhook(tx, tenant.id, "approval.decided", { entity_type: "leave", decision: "approved" }));
       const seen: { url: string; body: string; headers: Record<string, string> }[] = [];
-      const now = new Date("2026-11-03T06:00:00Z");
+      const now = new Date(Math.ceil(Date.now() / 1000) * 1000 + 1000);   // just after the queued row; whole seconds for the signature
       let r = await integ.deliverWebhooks(tenant.id, async (url, body, headers) => { seen.push({ url, body, headers }); return { status: 500 }; }, now);
       assert.deepEqual(r, { sent: 0, failed: 1 });
       assert.equal(seen[0].url, "https://hooks.example.com/erp-smoke");

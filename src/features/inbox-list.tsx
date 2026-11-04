@@ -23,6 +23,7 @@ import { Checkbox } from "@/ui/choice";
 import { OfferInboxDetail, RequisitionInboxDetail } from "@/features/hire/inbox-detail";
 import { ProposalDetail } from "@/features/performance/proposal-detail";
 import { TimesheetRequestDetail } from "@/features/psa/timesheet-detail";
+import { useT } from "@/i18n/client";
 
 export type InboxRow = { stepId: string; entityType: string; entityId: string; summary: string; requester: string; requesterTitle: string | null; createdAt: string; ago: string };
 type Detail = Awaited<ReturnType<typeof leaveRequestDetailAction>>;
@@ -41,6 +42,7 @@ export function InboxList({ items }: { items: InboxRow[] }) {
   const [comment, setComment] = React.useState("");
   const [busy, start] = React.useTransition();
   const visible = items.filter((i) => !hidden.has(i.stepId));
+  const { t } = useT();
   const bulk = useBulkSelection(visible.map((v) => v.stepId));
 
   const decide = (row: InboxRow, decision: "approved" | "rejected") => {
@@ -80,15 +82,15 @@ export function InboxList({ items }: { items: InboxRow[] }) {
                 </span>
               </button>
               <div className="flex shrink-0 gap-2 sm:ml-auto">
-                <Button variant="secondary" size="sm" onClick={() => decide(row, "rejected")} disabled={busy} aria-label={`Decline: ${row.summary}`}><X />Decline</Button>
-                <Button size="sm" onClick={() => decide(row, "approved")} disabled={busy} aria-label={`Approve: ${row.summary}`}><Check />Approve</Button>
+                <Button variant="secondary" size="sm" onClick={() => decide(row, "rejected")} disabled={busy} aria-label={`${t("inbox.decline")}: ${row.summary}`}><X />{t("inbox.decline")}</Button>
+                <Button size="sm" onClick={() => decide(row, "approved")} disabled={busy} aria-label={`${t("inbox.approve")}: ${row.summary}`}><Check />{t("inbox.approve")}</Button>
               </div>
             </li>
           ))}
         </ul>
       </Card>
       <Drawer open={!!open} onOpenChange={(o) => !o && setOpen(null)} title={open?.requester ?? ""} description={open?.summary.split(" · ").slice(1).join(" · ")}
-        footer={open && <><Button variant="danger" onClick={() => decide(open, "rejected")}>Decline</Button><Button onClick={() => decide(open, "approved")}>Approve</Button></>}>
+        footer={open && <><Button variant="danger" onClick={() => decide(open, "rejected")}>{t("inbox.decline")}</Button><Button onClick={() => decide(open, "approved")}>{t("inbox.approve")}</Button></>}>
         {open?.entityType === "expense_claim" || open?.entityType === "expense_advance" ? (
           <ExpenseReviewDetail key={open.entityId} entityType={open.entityType} entityId={open.entityId} comment={comment} setComment={setComment} />
         ) : open?.entityType === "exit" ? (

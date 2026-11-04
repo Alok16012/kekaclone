@@ -48,10 +48,12 @@ export async function createLeaveRequest(tx: Tx, tenant: Tenant, body: Record<st
   } else if (!UUID.test(typeId)) throw new ApiProblem(400, "invalid_request", "leave_type_id must be a uuid.");
   const part = (v: unknown): "full" | "first" | "second" => (v === "first_half" || v === "first" ? "first" : v === "second_half" || v === "second" ? "second" : "full");
   try {
-    const r = await applyLeave(tx, actor, { leaveTypeId: typeId, from, to, fromPart: part(body.from_part), toPart: part(body.to_part), note: str(body.note).slice(0, 1000) || undefined });
+    // a savepoint: a database constraint (overlapping dates) must not poison the request's transaction
+    const r = await tx.savepoint((sp) => applyLeave(sp as unknown as Tx, actor, { leaveTypeId: typeId, from, to, fromPart: part(body.from_part), toPart: part(body.to_part), note: str(body.note).slice(0, 1000) || undefined }));
     return { id: r.id, status: r.status, days: r.days, employee_id: employeeId };
   } catch (e) {
     if (e instanceof AppError) throw new ApiProblem(e.code === "invalid" ? 422 : 409, e.code, e.message);
+    if ((e as { code?: string }).code === "23P01" || /overlap|exclusion/i.test(String((e as Error).message))) throw new ApiProblem(409, "overlap", "This person already has leave on those dates.");
     throw e;
   }
 }

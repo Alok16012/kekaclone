@@ -47,7 +47,7 @@ const en = {
   "inbox.empty_title": "Nothing waiting for you", "inbox.empty": "Requests that need your decision.", "inbox.handover": "Going away? Hand over",
   "inbox.approve": "Approve", "inbox.decline": "Decline", "inbox.comment": "Comment (optional)",
   // profile
-  "profile.title": "My profile", "profile.about": "About", "profile.job": "Job", "profile.contact": "Contact",
+  "profile.title": "Profile", "profile.about": "About", "profile.job": "Job", "profile.contact": "Contact details", "profile.personal": "Personal details", "profile.addresses": "Addresses", "profile.team": "Team",
   // login
   "login.title": "Sign in to {company}", "login.email_hint": "Use your work email.", "login.email": "Work email", "login.password": "Password", "login.submit": "Sign in",
   "login.forgot": "Forgot password?", "login.or": "or", "login.mobile": "Sign in with mobile OTP", "login.language": "Language",
@@ -87,7 +87,7 @@ const hi: Partial<Record<MessageKey, string>> = {
   "inbox.title": "इनबॉक्स", "inbox.waiting": "{count, plural, one {# अनुरोध आपके निर्णय का इंतज़ार कर रहा है।} other {# अनुरोध आपके निर्णय का इंतज़ार कर रहे हैं।}}",
   "inbox.empty_title": "आपके लिए कुछ लंबित नहीं", "inbox.empty": "ऐसे अनुरोध जिन पर आपका निर्णय चाहिए।", "inbox.handover": "बाहर जा रहे हैं? ज़िम्मेदारी सौंपें",
   "inbox.approve": "मंज़ूर करें", "inbox.decline": "अस्वीकार करें", "inbox.comment": "टिप्पणी (वैकल्पिक)",
-  "profile.title": "मेरी प्रोफ़ाइल", "profile.about": "परिचय", "profile.job": "नौकरी", "profile.contact": "संपर्क",
+  "profile.title": "प्रोफ़ाइल", "profile.about": "परिचय", "profile.job": "नौकरी", "profile.contact": "संपर्क विवरण", "profile.personal": "व्यक्तिगत विवरण", "profile.addresses": "पते", "profile.team": "टीम",
   "login.title": "{company} में साइन इन करें", "login.email_hint": "अपना कार्य ईमेल इस्तेमाल करें।", "login.email": "कार्य ईमेल", "login.password": "पासवर्ड", "login.submit": "साइन इन",
   "login.forgot": "पासवर्ड भूल गए?", "login.or": "या", "login.mobile": "मोबाइल OTP से साइन इन", "login.language": "भाषा",
   "common.save": "सहेजें", "common.cancel": "रद्द करें", "common.close": "बंद करें", "common.loading": "लोड हो रहा है…", "common.error": "कुछ गड़बड़ हो गई। कृपया फिर कोशिश करें।",

@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { useT } from "@/i18n/client";
 import Link from "next/link";
 import { ArrowRightLeft, Send, BadgeCheck, Briefcase, CalendarDays, Clock3, Hash, Mail, MapPin, Pencil, Phone, UserRound } from "lucide-react";
 import { Avatar } from "@/ui/avatar";
@@ -65,6 +66,7 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
   /** open on this tab (from ?tab=), when it exists */
   initialTab?: string;
 }) {
+  const { t } = useT();
   const e = p.employee;
   const self = p.access === "self", admin = p.access === "admin";
   const canEdit = self || admin;
@@ -132,12 +134,12 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
       {banner}
 
       <Tabs defaultValue={initialTab && ["profile", "job", "timeline", ...extraTabs.map((t) => t.value)].includes(initialTab) ? initialTab : "about"}>
-        <TabsList items={[{ value: "about", label: "About" }, ...(p.employee.personal ? [{ value: "profile", label: "Profile" }] : []), { value: "job", label: "Job" }, ...(p.timeline.length ? [{ value: "timeline", label: "Timeline" }] : []), ...extraTabs.map((t) => ({ value: t.value, label: t.label }))]} />
+        <TabsList items={[{ value: "about", label: t("profile.about") }, ...(p.employee.personal ? [{ value: "profile", label: t("profile.title") }] : []), { value: "job", label: t("profile.job") }, ...(p.timeline.length ? [{ value: "timeline", label: "Timeline" }] : []), ...extraTabs.map((t) => ({ value: t.value, label: t.label }))]} />
 
         <TabsContent value="about">
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-2">
-              <CardHeader title="About" action={editBtn("about")} />
+              <CardHeader title={t("profile.about")} action={editBtn("about")} />
               <CardBody className="flex flex-col gap-4">
                 {!e.bio.summary && !e.bio.loveAboutJob && !e.bio.hobbies ? (
                   <EmptyState compact title={self ? "Tell your colleagues about yourself" : "Nothing here yet"} description={self ? "A few lines about your work and interests help new teammates get to know you." : undefined} />
@@ -151,7 +153,7 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
               </CardBody>
             </Card>
             <Card>
-              <CardHeader title="Team" />
+              <CardHeader title={t("profile.team")} />
               <CardBody className="flex flex-col gap-4">
                 <div><p className="mb-1.5 text-sm text-text-muted">Reports to</p><PersonLink p={p.manager} label="No manager" /></div>
                 {p.reportees.length > 0 && <div><p className="mb-1.5 text-sm text-text-muted">Direct reports · {p.reportees.length}</p><ul className="flex flex-col gap-1.5">{p.reportees.map((r) => <li key={r.id}><PersonLink p={r} /></li>)}</ul></div>}
@@ -165,19 +167,19 @@ export function ProfileView({ p, lookups, today, currentManagerId, actions, bann
         {e.personal && (
           <TabsContent value="profile">
             <div className="grid gap-4 lg:grid-cols-2">
-              <SectionCard title="Personal details" edit={editBtn("personal")}>
+              <SectionCard title={t("profile.personal")} edit={editBtn("personal")}>
                 <Row label="Date of birth" value={fmtDate(e.personal.dob)} />
                 <Row label="Gender" value={e.personal.gender ? LABEL[e.personal.gender] : null} />
                 <Row label="Marital status" value={e.personal.marital_status ? LABEL[e.personal.marital_status] : null} />
                 <Row label="Blood group" value={e.personal.blood_group} />
                 <Row label="Nationality" value={e.personal.nationality} />
               </SectionCard>
-              <SectionCard title="Contact details" edit={editBtn("contact")}>
+              <SectionCard title={t("profile.contact")} edit={editBtn("contact")}>
                 <Row label="Work email" value={e.work_email} />
                 <Row label="Personal email" value={e.contact?.personal_email} />
                 <Row label="Mobile" value={e.contact?.mobile} />
               </SectionCard>
-              <SectionCard title="Addresses" edit={editBtn("addresses")}>
+              <SectionCard title={t("profile.addresses")} edit={editBtn("addresses")}>
                 <Row label="Current" value={addr("current")} />
                 <Row label="Permanent" value={addr("permanent")} />
               </SectionCard>
