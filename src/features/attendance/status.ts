@@ -32,5 +32,5 @@ export const PENALTY_RULE: Record<string, string> = { late_arrival: "Late arriva
 
 export const hm = (m: number) => (m ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : "—");
 export const clock = (iso: string | null, tz = "Asia/Kolkata") => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: tz }) : "—");
-export const dayLabel = (d: string, opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short" }) =>
-  new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { ...opts, timeZone: "UTC" });
+export const dayLabel = (d: string, opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short" }, tag = "en-IN") =>
+  new Date(d + "T00:00:00Z").toLocaleDateString(tag, { ...opts, timeZone: "UTC" });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { format, formatDate, formatNumber, t } from "./index";
 import { coverage, MESSAGES } from "./messages";
+import { DAY_STATUS, REQUEST_KIND } from "@/features/attendance/status";
 
 describe("i18n", () => {
   it("substitutes variables and plural forms per locale", () => {
@@ -25,5 +26,12 @@ describe("i18n", () => {
     const missing = Object.keys(MESSAGES.en).filter((k) => !(k in MESSAGES.hi));
     expect(missing).toEqual([]);
     expect(coverage("hi").percent).toBe(100);
+  });
+  it("every attendance day status and request kind has a catalogue entry", () => {
+    for (const k of Object.keys(DAY_STATUS)) expect(MESSAGES.en).toHaveProperty([`att.status.${k}`]);
+    for (const k of Object.keys(REQUEST_KIND)) expect(MESSAGES.en).toHaveProperty([`att.kind.${k}`]);
+    expect(t("hi", "leave.days", { count: 2 })).toBe("2 दिन");
+    expect(t("en", "leave.days", { count: 1 })).toBe("1 day");
+    expect(t("en", "att.withdraw_desc", { title: "Regularize", detail: "3 Nov" })).toBe("Regularize, 3 Nov. Your manager won't need to review it anymore.");
   });
 });
