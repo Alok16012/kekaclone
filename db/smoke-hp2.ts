@@ -398,6 +398,34 @@ async function main() {
   });
   ok("joiner portal: the offer letter is signed with the typed full name and an emailed code; wrong codes counted; signed copy saved to their documents; once only");
 
+  // ---------- integration: joiner portal ↔ erp Sign, letter.signed automation ----------
+  await rollback(tenant.id, async (tx) => {
+    const [k] = await tx<{ id: string; display_name: string }[]>`select id, display_name from employees where first_name = 'Kavya'`;
+    const token = "joiner-token-for-smoke-hp2-0002";
+    await tx`update lifecycle_processes set portal_token_hash = ${sha256(token)}, portal_expires_at = now() + interval '7 days' where employee_id = ${k.id} and kind = 'onboarding'`;
+    const [g] = await tx<{ id: string }[]>`
+      select g.id from generated_letters g join letter_templates t on t.id = g.template_id where g.employee_id = ${k.id} and t.kind = 'offer' order by g.created_at desc limit 1`;
+    // HR sent it out through erp Sign: the portal points at the emailed link and won't sign it itself
+    const [sr] = await tx<{ id: string }[]>`insert into signature_requests (tenant_id, letter_id, signer_employee_id, signer_email, signer_name, sign_order, status)
+      values (${tenant.id}, ${g.id}, ${k.id}, 'kavya@example.com', ${k.display_name}, 1, 'pending') returning id`;
+    assert.equal((await offerSign.joinerOffer(tx, token))!.viaErpSign, true);
+    await assert.rejects(() => offerSign.requestJoinerSignCode(tx, tenant, token), /signing link/);
+    await tx`delete from signature_requests where id = ${sr.id}`;
+    // otherwise the portal signs it, with erp Sign's audit page (document hash), and fires the letter.signed automation
+    const [auto] = await tx<{ id: string }[]>`insert into automations (tenant_id, name, trigger, conditions, actions, is_active)
+      values (${tenant.id}, 'Signed letter note', 'letter.signed', '[]', ${tx.json([{ type: "notify", to: ["employee"], title: "Signed: {{letter.title}}", body: "Thanks" }])}, true) returning id`;
+    assert.equal((await offerSign.joinerOffer(tx, token))!.viaErpSign, false);
+    await offerSign.requestJoinerSignCode(tx, tenant, token);
+    await tx`update generated_letters set sign_otp_hash = ${sha256(`${g.id}:654321`)} where id = ${g.id}`;
+    assert.deepEqual(await offerSign.signJoinerOffer(tx, tenant, token, { typedName: k.display_name, code: "654321", ip: "10.0.0.2" }), { ok: true });
+    const [log] = await tx<{ diff: { hash: string | null } }[]>`select diff from audit_logs where entity_id = ${g.id} and action = 'letter.signed' order by created_at desc limit 1`;
+    assert.match(String(log.diff.hash), /^[0-9a-f]{64}$/, "the audit trail keeps the SHA-256 of the letter she saw");
+    const [f] = await tx<{ storage_key: string }[]>`select f.storage_key from generated_letters g join files f on f.id = g.file_id where g.id = ${g.id}`;
+    blobs.push(f.storage_key);
+    assert.ok((await tx`select 1 from automation_runs where automation_id = ${auto.id}`).length, "letter.signed ran the automation");
+  });
+  ok("integration: an offer sent through erp Sign is signed only via its link; portal signatures carry erp Sign's audit page and fire letter.signed automations");
+
   setLlmForTesting(undefined);
   for (const k of blobs) await storage().remove(k).catch(() => {});
   console.log(`\n${passed} hp2 checks passed.`);

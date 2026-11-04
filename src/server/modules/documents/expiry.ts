@@ -6,6 +6,7 @@ import { todayIn, type ISODate } from "@/lib/dates";
 import { appUrl, queueEmail } from "@/server/email";
 import { simpleEmail } from "@/server/email/simple";
 import { notifyEmployee } from "@/server/modules/approvals/service";
+import { emitEvent } from "@/server/modules/automations/service";
 import { DOCS, hrFor } from "./service";
 import { bucket, dueReminder, reminderText, type ExpiryBucket, type ReminderKey } from "./expiry-rules";
 
@@ -46,6 +47,7 @@ export async function sendExpiryReminders(tx: Tx, tenant: { id: string; name: st
       await queueEmail(tx, tenant.id, { kind: "document.expiry", to: p.work_email, ...mail });
     }
     for (const hr of await hrFor(tx, r.employee_id)) await notifyEmployee(tx, tenant.id, hr, "document.expiry", `${r.name}: ${text}`, "Check the expiring documents list.", "/org/documents/expiring");
+    await emitEvent(tx, tenant.id, "document.expiring", { employeeId: r.employee_id, occurrence: `${r.source}:${r.id}:${key}`, link, facts: { "document.days_left": key }, vars: { "document.type": r.doc_type, "document.expiry_date": r.expiry_date } });   // Settings → Automations
     const patch = { [key]: new Date().toISOString() };
     if (r.source === "document") await tx`update employee_documents set expiry_reminders = expiry_reminders || ${tx.json(patch)} where id = ${r.id}`;
     else await tx`update employee_identities set expiry_reminders = expiry_reminders || ${tx.json(patch)} where id = ${r.id}`;

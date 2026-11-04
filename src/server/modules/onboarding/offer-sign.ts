@@ -1,10 +1,11 @@
 import "server-only";
-import { randomInt } from "node:crypto";
-import { PDFDocument } from "pdf-lib";
+import { createHash, randomInt } from "node:crypto";
 import { AppError, type Tx } from "@/server/db";
 import { sha256 } from "@/server/auth/password";
 import { queueEmail } from "@/server/email";
-import { renderLetterPdf } from "@/server/modules/documents/pdf";
+import { appendSignaturePage, renderLetterPdf } from "@/server/modules/documents/pdf";
+import { auditLine, maskEmail } from "@/server/modules/documents/esign-rules";
+import { emitEvent } from "@/server/modules/automations/service";
 import { letterDate, safeFileName } from "@/server/modules/documents/rules";
 import { saveFile, storage } from "@/server/storage";
 
@@ -14,8 +15,12 @@ import { saveFile, storage } from "@/server/storage";
  * portal uses. The signed copy is the original PDF with an acceptance page added; it lands in their documents.
  * A letter already signed in the hiring portal just shows as signed, with a download. Letters issued to them as a
  * candidate (before they were converted to an employee) count too.
+ * Integration with erp Sign: the acceptance is stamped with the same signature page erp Sign uses (method, time, IP
+ * and the SHA-256 of the document the joiner saw), and a letter HR has already sent out through erp Sign is signed
+ * through that link only, so one letter never has two competing signing flows.
  */
 const OTP_MINUTES = 10, OTP_TRIES = 5;
+const ERP_SIGN_MSG = "This letter was sent to you for signing by email. Use the signing link in that email.";
 
 type Letter = { id: string; title: string; status: string; file_id: string | null; signed_name: string | null; signed_at: Date | null; sign_otp_hash: string | null; sign_otp_expires_at: Date | null; sign_otp_attempts: number; created_at: Date };
 type Joiner = { id: string; first_name: string; display_name: string; personal_email: string | null };
@@ -38,9 +43,15 @@ async function letterFor(tx: Tx, employeeId: string, lock = false): Promise<Lett
   return g ?? null;
 }
 
-const mask = (e: string) => e.replace(/^(.{1,2})[^@]*(@.*)$/, "$1•••$2");
+const mask = maskEmail;
 
-export type JoinerOffer = { title: string; signed: boolean; signed_name: string | null; signed_at: string | null; codeSent: boolean; sendTo: string | null; fullName: string };
+/** True when HR sent this letter out through erp Sign and that request is still open. */
+async function inErpSign(tx: Tx, letterId: string) {
+  const [r] = await tx<{ n: number }[]>`select count(*)::int as n from signature_requests where letter_id = ${letterId} and status in ('pending','waiting')`;
+  return (r?.n ?? 0) > 0;
+}
+
+export type JoinerOffer = { title: string; signed: boolean; viaErpSign: boolean; signed_name: string | null; signed_at: string | null; codeSent: boolean; sendTo: string | null; fullName: string };
 
 export async function joinerOffer(tx: Tx, token: string): Promise<JoinerOffer | null> {
   const j = await joinerFor(tx, token);
@@ -48,7 +59,7 @@ export async function joinerOffer(tx: Tx, token: string): Promise<JoinerOffer | 
   const g = await letterFor(tx, j.id);
   if (!g) return null;
   return {
-    title: g.title, signed: g.status === "signed", signed_name: g.signed_name, signed_at: g.signed_at ? new Date(g.signed_at).toISOString() : null,
+    title: g.title, signed: g.status === "signed", viaErpSign: g.status !== "signed" && await inErpSign(tx, g.id), signed_name: g.signed_name, signed_at: g.signed_at ? new Date(g.signed_at).toISOString() : null,
     codeSent: !!g.sign_otp_expires_at && g.sign_otp_expires_at > new Date(), sendTo: j.personal_email ? mask(j.personal_email) : null, fullName: j.display_name,
   };
 }
@@ -58,6 +69,7 @@ export async function requestJoinerSignCode(tx: Tx, tenant: { id: string; name: 
   if (!j) throw new AppError("invalid", "This link doesn't work anymore. Ask HR for a fresh one.");
   const g = await letterFor(tx, j.id, true);
   if (!g || g.status === "signed") throw new AppError("conflict", "There's no letter waiting for your signature.");
+  if (await inErpSign(tx, g.id)) throw new AppError("conflict", ERP_SIGN_MSG);
   if (!j.personal_email) throw new AppError("invalid", "We need your personal email to send the code. Ask HR to add it.");
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   await tx`update generated_letters set sign_otp_hash = ${sha256(`${g.id}:${code}`)}, sign_otp_expires_at = now() + make_interval(mins => ${OTP_MINUTES}), sign_otp_attempts = 0 where id = ${g.id}`;
@@ -72,19 +84,16 @@ export async function requestJoinerSignCode(tx: Tx, tenant: { id: string; name: 
 
 const norm = (s: string) => s.normalize("NFKD").replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ").trim().toLowerCase();
 
-/** Original letter + an acceptance page, as one PDF. */
-async function signedPdf(original: Uint8Array, a: { company: string; name: string; email: string; stamp: string; title: string }) {
-  const page = await renderLetterPdf({
-    html: `<h3>Acceptance</h3><p>I have read this letter and I accept the offer.</p><p><strong>${a.name.replace(/[<>&"]/g, "")}</strong></p><p>Signed electronically on ${a.stamp} IST after confirming a one-time code sent to ${a.email.replace(/[<>&"]/g, "")}.</p>`,
-    title: a.title, company: a.company, footer: `${a.title} · signed ${a.stamp} IST`,
-  });
+/** Original letter + the erp Sign signature page (typed signature, audit line, document hash), as one PDF. */
+async function signedPdf(original: Uint8Array, a: { company: string; name: string; email: string; ip: string | null; at: Date; title: string; hash: string }) {
+  const block = { name: a.name, title: "Offer accepted", method: "typed" as const, typedName: a.name, png: null, hash: a.hash,
+    audit: auditLine({ signedAt: a.at, ip: a.ip, method: "typed", email: maskEmail(a.email) }) };
   try {
-    const doc = await PDFDocument.load(original, { updateMetadata: false });
-    const extra = await PDFDocument.load(page);
-    for (const p of await doc.copyPages(extra, extra.getPageIndices())) doc.addPage(p);
-    return await doc.save();
+    return await appendSignaturePage(original, [block], { company: a.company, title: a.title });
   } catch {
-    return page;   // an unreadable original: keep the acceptance on its own (the original stays in their documents)
+    // an unreadable original: keep the acceptance on its own (the original stays in their documents)
+    const stamp = a.at.toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Kolkata" });
+    return renderLetterPdf({ html: `<h3>Acceptance</h3><p>I have read this letter and I accept the offer.</p><p><strong>${a.name.replace(/[<>&"]/g, "")}</strong></p><p>${block.audit.replace(/[<>&"]/g, "")}</p>`, title: a.title, company: a.company, footer: `${a.title} · signed ${stamp} IST` });
   }
 }
 
@@ -94,6 +103,7 @@ export async function signJoinerOffer(tx: Tx, tenant: { id: string; name: string
   if (!j) return { ok: false, error: "This link doesn't work anymore. Ask HR for a fresh one." };
   const g = await letterFor(tx, j.id, true);
   if (!g || g.status === "signed") return { ok: false, error: "There's no letter waiting for your signature." };
+  if (await inErpSign(tx, g.id)) return { ok: false, error: ERP_SIGN_MSG };
   if (norm(input.typedName) !== norm(j.display_name)) return { ok: false, error: `Type your full name exactly as shown: ${j.display_name}.`, field: "typedName" };
   if (!g.sign_otp_hash || !g.sign_otp_expires_at || g.sign_otp_expires_at <= new Date() || g.sign_otp_attempts >= OTP_TRIES) return { ok: false, error: "Ask for a new code first.", field: "code" };
   if (!/^\d{6}$/.test(input.code.trim()) || sha256(`${g.id}:${input.code.trim()}`) !== g.sign_otp_hash) {
@@ -104,8 +114,10 @@ export async function signJoinerOffer(tx: Tx, tenant: { id: string; name: string
   const [f] = await tx<{ storage_key: string }[]>`select storage_key from files where id = ${g.file_id}`;
   const original = f ? await storage().get(f.storage_key) : null;
   const name = input.typedName.trim().slice(0, 120);
-  const stamp = new Date().toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Kolkata" });
-  const bytes = original ? await signedPdf(original, { company: tenant.name, name, email: j.personal_email ?? "", stamp, title: `${g.title} · ${j.display_name}` })
+  const at = new Date();
+  const stamp = at.toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Kolkata" });
+  const hash = original ? createHash("sha256").update(original).digest("hex") : null;
+  const bytes = original ? await signedPdf(original, { company: tenant.name, name, email: j.personal_email ?? "", ip: input.ip, at, title: `${g.title} · ${j.display_name}`, hash: hash! })
     : await renderLetterPdf({ html: `<h3>Acceptance</h3><p>I accept the offer in ${g.title}.</p><p><strong>${name.replace(/[<>&"]/g, "")}</strong></p><p>Signed ${stamp} IST.</p>`, title: g.title, company: tenant.name, footer: `${g.title} · signed ${stamp} IST` });
   const fileId = await saveFile(tx, { tenantId: tenant.id, userId: null, name: safeFileName(`${g.title} - ${j.display_name} (signed).pdf`), mime: "application/pdf", bytes, ext: "pdf" });
   const [done] = await tx<{ id: string }[]>`
@@ -117,7 +129,8 @@ export async function signJoinerOffer(tx: Tx, tenant: { id: string; name: string
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${tenant.id}, ${j.id}, 'letter_signed', current_date, ${tx.json({ letter_id: g.id, title: g.title })}, null)`;
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
-           values (${tenant.id}, null, 'generated_letter', ${g.id}, 'letter.signed', ${tx.json({ via: "joiner_portal", signed_name: name, ip: input.ip ?? null })})`;
+           values (${tenant.id}, null, 'generated_letter', ${g.id}, 'letter.signed', ${tx.json({ via: "joiner_portal", signed_name: name, ip: input.ip ?? null, hash })})`;
+  await emitEvent(tx, tenant.id, "letter.signed", { employeeId: j.id, occurrence: g.id, link: `/people/${j.id}?tab=documents`, vars: { "letter.title": g.title } });   // Settings → Automations
   return { ok: true };
 }
 

@@ -8,7 +8,7 @@ import { Field, Input } from "@/ui/field";
 import { Banner } from "@/ui/feedback";
 import { joinerSignAction, joinerSignCodeAction } from "@/app/join/offer-actions";
 
-export type JoinerOfferDTO = { title: string; signed: boolean; signed_name: string | null; signed_at: string | null; codeSent: boolean; sendTo: string | null; fullName: string };
+export type JoinerOfferDTO = { title: string; signed: boolean; viaErpSign?: boolean; signed_name: string | null; signed_at: string | null; codeSent: boolean; sendTo: string | null; fullName: string };
 
 /** Joiner portal: read the offer letter, then sign it with your typed full name and a code emailed to you. */
 export function JoinerOfferSign({ token, offer }: { token: string; offer: JoinerOfferDTO }) {
@@ -25,6 +25,18 @@ export function JoinerOfferSign({ token, offer }: { token: string; offer: Joiner
         <CardHeader title={<span className="inline-flex items-center gap-2"><CheckCircle2 aria-hidden className="size-4 text-success" />{offer.title}</span>}
           description={`Signed${offer.signed_name ? ` by ${offer.signed_name}` : ""}${offer.signed_at ? ` on ${new Date(offer.signed_at).toLocaleDateString("en-IN", { dateStyle: "long", timeZone: "Asia/Kolkata" })}` : ""}.`} />
         <CardBody><Button asChild variant="secondary" size="sm"><a href={href} target="_blank" rel="noreferrer"><FileText />Download signed copy</a></Button></CardBody>
+      </Card>
+    );
+  }
+  if (offer.viaErpSign) {
+    return (
+      <Card>
+        <CardHeader title={<span className="inline-flex items-center gap-2"><FileSignature aria-hidden className="size-4" />{offer.title}</span>}
+          description="HR sent this letter to you for signing by email." />
+        <CardBody className="flex flex-col gap-3">
+          <p className="text-sm text-text-muted">Open the signing link in that email to sign it. Once everyone has signed, the signed copy appears here and in your documents.</p>
+          <div><Button asChild variant="secondary" size="sm"><a href={href} target="_blank" rel="noreferrer"><FileText />Read the letter</a></Button></div>
+        </CardBody>
       </Card>
     );
   }

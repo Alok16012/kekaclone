@@ -169,6 +169,8 @@ async function runAction(tx: Tx, c: Ctx, a: Action): Promise<Record<string, unkn
       const [author] = await tx<{ id: string }[]>`select ra.employee_id as id from role_assignments ra join roles ro on ro.id = ra.role_id join employees e on e.id = ra.employee_id and e.status <> 'relieved' where ro.key = 'global_admin' order by ra.created_at limit 1`;
       if (!author) return { announcement: "no admin to post as" };
       const [post] = await tx<{ id: string }[]>`insert into posts (tenant_id, author_employee_id, kind, title, body) values (${c.tenantId}, ${author.id}, 'announcement', ${render(a.title, c.vars)}, ${render(a.body, c.vars)}) returning id`;
+      // tell the audience now, the same way a posted announcement does (otherwise it waits for the next publish run)
+      await (await import("@/server/modules/engage/service")).publishDue(tx, c.tenantId);
       return { announcement: post.id };
     }
     case "webhook": {

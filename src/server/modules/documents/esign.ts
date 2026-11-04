@@ -7,6 +7,7 @@ import { newToken, sha256 } from "@/server/auth/password";
 import { appUrl, queueEmail } from "@/server/email";
 import { simpleEmail } from "@/server/email/simple";
 import { notifyEmployee } from "@/server/modules/approvals/service";
+import { emitEvent } from "@/server/modules/automations/service";
 import { saveFile, storage } from "@/server/storage";
 import { safeFileName } from "./rules";
 import { DOCS, canManageDocs } from "./service";
@@ -249,6 +250,7 @@ export async function sign(tx: Tx, tenant: Tenant, token: string, input: SignInp
     await notifyEmployee(tx, tenant.id, l.employee_id, "letter.issued", "A signed letter was added to your documents", l.doc_type, `/people/${l.employee_id}`);
     const [req] = await tx<{ employee_id: string | null }[]>`select e.id as employee_id from signature_requests s join employees e on e.user_id = s.requested_by where s.letter_id = ${l.id} order by s.created_at desc limit 1`;
     if (req?.employee_id && req.employee_id !== l.employee_id) await notifyEmployee(tx, tenant.id, req.employee_id, "esign.completed", "Everyone has signed", `${l.doc_type} · ${l.employee}`, `/people/${l.employee_id}?tab=documents`);
+    await emitEvent(tx, tenant.id, "letter.signed", { employeeId: l.employee_id, occurrence: l.id, link: `/people/${l.employee_id}?tab=documents`, vars: { "letter.title": l.doc_type } });   // Settings → Automations
   }
   return { ok: true, done: true };
 }

@@ -13,6 +13,8 @@ export const TRIGGERS = [
   { key: "employee.transferred", label: "Someone is transferred", hint: "A department, location, manager or designation change takes effect", kind: "event" },
   { key: "leave.approved", label: "Leave is approved", hint: "A leave request gets its final approval", kind: "event" },
   { key: "ticket.breached", label: "A helpdesk ticket breaches its SLA", hint: "First response or resolution target missed", kind: "event" },
+  { key: "letter.signed", label: "A letter is signed", hint: "Everyone has signed a letter sent through erp Sign, or a joiner signed their offer", kind: "event" },
+  { key: "document.expiring", label: "A document is about to expire", hint: "30 and 7 days before a document's expiry date", kind: "event" },
   { key: "review.published", label: "Review results are published", hint: "A person's rating and feedback are released", kind: "event" },
   { key: "birthday", label: "Birthday", hint: "Runs each morning for everyone whose birthday is today", kind: "daily" },
   { key: "work_anniversary", label: "Work anniversary", hint: "Runs each morning on the anniversary of the joining date", kind: "daily" },
@@ -86,7 +88,7 @@ export type AutomationInput = { name: string; trigger: Trigger; trigger_config: 
 
 export const PLACEHOLDERS = [
   "employee.name", "employee.first_name", "employee.email", "employee.number", "employee.department", "employee.designation", "employee.location", "employee.joining_date",
-  "manager.name", "company", "date", "years", "leave.type", "leave.from", "leave.to", "leave.days", "ticket.number", "ticket.title", "review.cycle",
+  "manager.name", "company", "date", "years", "leave.type", "leave.from", "leave.to", "leave.days", "ticket.number", "ticket.title", "review.cycle", "letter.title", "document.type", "document.expiry_date",
 ] as const;
 
 /** {{placeholder}} → value; unknown placeholders become empty, braces are never left behind. */

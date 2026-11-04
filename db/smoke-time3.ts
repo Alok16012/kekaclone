@@ -301,7 +301,8 @@ async function main() {
     const st3 = await attendance.today(tx, P.Divya.id);
     const step3 = await stepFor(tx, st3.pendingClockIn!.requestId!, priya);
     await approvals.decide(tx, priya, step3!.step_id, "rejected", "Not your phone");
-    const [p3] = await tx<{ status: string }[]>`select status from punches where employee_id = ${P.Divya.id} order by at desc limit 1`;
+    // the punch is read through its request: punches in one transaction share the same `at`, so "latest" isn't a stable order
+    const [p3] = await tx<{ status: string }[]>`select p.status from attendance_requests r join punches p on p.id = (r.payload->>'punchId')::uuid where r.id = ${st3.pendingClockIn!.requestId!}`;
     assert.equal(p3.status, "rejected", "a declined first clock-in never counts");
     assert.equal((await tx`select 1 from clock_in_trust where employee_id = ${P.Divya.id}`).length, 1, "no trust for the declined device");
     // the person's Time tab lists these clock-ins with the selfie for HR; policy editing is company-wide only
