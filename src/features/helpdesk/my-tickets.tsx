@@ -18,9 +18,10 @@ import { formatMinutes, MAX_ATTACHMENTS } from "@/server/modules/helpdesk/rules"
 import type { CategoryOption, TicketRowDTO } from "./types";
 import { TicketDrawer } from "./ticket-drawer";
 import { SlaFlag, TicketStatusBadge } from "./bits";
+import { PolicySuggest, type HelpdeskAssistInfo } from "./assist";
 
 /** The employee's helpdesk: raise a ticket, follow its status and conversation. */
-export function MyTickets({ tickets, categories, isAgent, initialTicket, startNew }: { tickets: TicketRowDTO[]; categories: CategoryOption[]; isAgent: boolean; initialTicket: string | null; startNew: boolean }) {
+export function MyTickets({ tickets, categories, isAgent, initialTicket, startNew, assist }: { tickets: TicketRowDTO[]; categories: CategoryOption[]; isAgent: boolean; initialTicket: string | null; startNew: boolean; assist?: HelpdeskAssistInfo }) {
   const [open, setOpen] = React.useState<string | null>(initialTicket);
   const [raising, setRaising] = React.useState(startNew);
   const [tab, setTab] = React.useState("active");
@@ -69,13 +70,13 @@ export function MyTickets({ tickets, categories, isAgent, initialTicket, startNe
           <TabsContent value="closed">{list(closed, <Card><EmptyState compact icon={<LifeBuoy />} title="No closed tickets" /></Card>)}</TabsContent>
         </Tabs>
       )}
-      <NewTicket open={raising} onOpenChange={setRaising} categories={categories} onRaised={(id) => { setRaising(false); setOpen(id); }} />
+      <NewTicket open={raising} onOpenChange={setRaising} categories={categories} assist={assist} onRaised={(id) => { setRaising(false); setOpen(id); }} />
       <TicketDrawer ticketId={open} onClose={close} />
     </>
   );
 }
 
-function NewTicket({ open, onOpenChange, categories, onRaised }: { open: boolean; onOpenChange: (o: boolean) => void; categories: CategoryOption[]; onRaised: (id: string) => void }) {
+function NewTicket({ open, onOpenChange, categories, onRaised, assist }: { open: boolean; onOpenChange: (o: boolean) => void; categories: CategoryOption[]; onRaised: (id: string) => void; assist?: HelpdeskAssistInfo }) {
   const [categoryId, setCategoryId] = React.useState("");
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -120,6 +121,7 @@ function NewTicket({ open, onOpenChange, categories, onRaised }: { open: boolean
         </Field>
         <Field label="Subject" required error={errors.title}><Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={160} placeholder="e.g. Laptop won't connect to Wi-Fi" /></Field>
         <Field label="Details" required error={errors.description}><Textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={5000} rows={5} placeholder="What happened, what you tried, and anything that would help." /></Field>
+        {assist && <PolicySuggest key={open ? "open" : "closed"} info={assist} question={`${title}\n${description}`.trim()} onResolved={() => { reset(); onOpenChange(false); }} />}
         <Field label="Attachments" help={files.length ? files.map((f) => f.name).join(", ") : `Optional. Up to ${MAX_ATTACHMENTS} files: ${ACCEPT_LABEL}.`} error={errors.files}>
           <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md border border-border-input px-3 py-1.5 text-sm hover:bg-surface-hover focus-within:outline-2 focus-within:outline-focus">
             <Paperclip className="size-4" aria-hidden />Choose files

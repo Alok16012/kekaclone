@@ -11,6 +11,7 @@ import { Segmented } from "@/ui/choice";
 import { Banner, Skeleton } from "@/ui/feedback";
 import { toast } from "@/ui/toast";
 import { cn } from "@/lib/cn";
+import { DraftReplyButton } from "./assist";
 import { assignTicketAction, replyTicketAction, ticketDetailAction, ticketStatusAction } from "@/app/(app)/helpdesk/actions";
 import { ACCEPT, ACCEPT_LABEL, MAX_UPLOAD_BYTES } from "@/server/modules/documents/rules";
 import { MAX_ATTACHMENTS, type TicketAction } from "@/server/modules/helpdesk/rules";
@@ -165,6 +166,7 @@ function Composer({ ticketId, canInternal, onSent }: { ticketId: string; canInte
   return (
     <form onSubmit={send} className="flex flex-col gap-3 border-t border-border pt-4">
       {canInternal && <Segmented label="Message type" value={mode} onChange={setMode} options={[{ value: "reply", label: "Reply to requester" }, { value: "note", label: "Internal note" }]} />}
+      {canInternal && mode === "reply" && <DraftReplyButton ticketId={ticketId} onDraft={(t) => setBody((b) => (b.trim() ? `${b.trim()}\n\n${t}` : t))} />}
       <Field label={mode === "note" ? "Internal note" : "Your message"} help={mode === "note" ? "Only agents see internal notes." : undefined} error={error ?? undefined}>
         <Textarea value={body} onChange={(e) => setBody(e.target.value)} maxLength={5000} rows={4} placeholder={mode === "note" ? "Notes for other agents" : "Write a reply"} />
       </Field>
