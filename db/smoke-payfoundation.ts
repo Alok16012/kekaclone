@@ -58,7 +58,7 @@ async function main() {
     const before = await count();
     await ensurePayrollDefaults(tx, tenant.id); await ensurePayrollDefaults(tx, tenant.id);
     assert.equal(await count(), before, "defaults are idempotent");
-    assert.equal(before, "9/1/1/4");
+    assert.equal(before, "11/1/2/5");   // 9 default components + FUEL/TELEPHONE, Standard + Daily wage structures (seed-pay2)
     const people = await tx<{ n: number; with: number }[]>`select count(*)::int as n, count(*) filter (where exists (select 1 from employee_salaries s where s.employee_id = e.id))::int as with from employees e where status <> 'relieved'`;
     assert.equal(people[0].with, people[0].n, "every active employee has a CTC");
     const a = await salary.getActiveSalary(tx, arjun.employeeId, today);
@@ -153,7 +153,7 @@ async function main() {
     assert.equal(mine.current!.ctcPaise, 13_80_000_00);
     assert.deepEqual(mine.upcoming, [{ effectiveFrom: addDaysISO(today, 30), ctcPaise: 15_00_000_00 }]);
     const theirs = await salary.financesFor(tx, karan, arjun.employeeId);
-    assert.ok(theirs?.canEdit && theirs.structures.length === 1);
+    assert.ok(theirs?.canEdit && theirs.structures.length === 2);   // Standard + Daily wage (seed-pay2)
     const own = await salary.financesFor(tx, karan, karan.employeeId);
     assert.ok(own && !own.canEdit, "payroll admin sees but can't edit their own");
     // notification
