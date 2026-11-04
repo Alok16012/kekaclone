@@ -13,7 +13,7 @@ export type NewEmployee = {
   // the add-employee wizard's job and work-policy steps (all optional; defaults apply when left out)
   middleName?: string | null; personalEmail?: string | null; dob?: string | null;
   legalEntityId?: string | null; businessUnitId?: string | null; bandId?: string | null; l2ManagerId?: string | null; dottedManagerId?: string | null;
-  workerType?: "permanent" | "contract" | "intern" | "consultant"; timeType?: "full_time" | "part_time";
+  workerType?: "permanent" | "contract" | "intern" | "consultant" | "daily" | "piece"; timeType?: "full_time" | "part_time";
   probationPolicyId?: string | null; noticePolicyId?: string | null;
   leavePlanId?: string | null; holidayListId?: string | null; shiftId?: string | null; weeklyOffId?: string | null;
   capturePolicyId?: string | null; penalizationPolicyId?: string | null; payGroupId?: string | null;

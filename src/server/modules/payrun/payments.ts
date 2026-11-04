@@ -1,4 +1,5 @@
 import "server-only";
+import { markComponentClaimsPaid } from "@/server/modules/payroll/claims";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { audit } from "@/server/modules/audit/service";
@@ -90,5 +91,6 @@ export async function settleIfPaid(tx: Tx, runId: string) {
   await tx`update payroll_runs set status = 'paid', lock_version = lock_version + 1, updated_at = now() where id = ${runId}`;
   await markPayrollExpensesPaid(tx, run.pay_group_id, run.period_month, { runId });
   await markLoanEmisDeducted(tx, run.pay_group_id, run.period_month, { runId });
+  await markComponentClaimsPaid(tx, run.pay_group_id, run.period_month, { runId });
   return true;
 }

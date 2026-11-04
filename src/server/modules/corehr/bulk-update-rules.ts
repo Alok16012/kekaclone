@@ -42,7 +42,7 @@ export type UpdateRow = {
 };
 
 const GENDERS: Record<string, string> = { male: "male", m: "male", female: "female", f: "female", "non-binary": "non_binary", "non binary": "non_binary", nonbinary: "non_binary", "prefer not to say": "undisclosed", undisclosed: "undisclosed" };
-const WORKERS: Record<string, string> = { permanent: "permanent", contract: "contract", intern: "intern", consultant: "consultant" };
+const WORKERS: Record<string, string> = { permanent: "permanent", contract: "contract", intern: "intern", consultant: "consultant", daily: "daily", "daily wage": "daily", piece: "piece", "piece rate": "piece" };
 
 export function diffUpdateRows(raw: UpdateRaw[], lk: UpdateLookups, names: { departments: Map<string, string>; designations: Map<string, string>; locations: Map<string, string>; people: Map<string, string> }) {
   const rows = raw.filter((r) => Object.values(r.values).some((v) => cellText(v) !== "") || Object.values(r.custom).some((v) => cellText(v) !== ""));

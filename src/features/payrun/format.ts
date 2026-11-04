@@ -11,6 +11,7 @@ export const INPUT_LABEL: Record<string, string> = {
   lop_adjust: "Loss of pay added", lop_reversal: "Loss of pay reversed", bonus: "Bonus", adhoc_earning: "One-time payment", adhoc_deduction: "One-time deduction",
   arrear: "Arrears", overtime: "Overtime", shift_allowance: "Shift allowance", component_claim: "Reimbursement claim", expense: "Expense claim", loan_emi: "Loan repayment",
   leave_encashment: "Leave encashment", statutory_override: "Statutory override", pay_action: "Pay action", processing_hold: "Hold processing", payout_hold: "Hold payout",
+  payable_units: "Payable units (daily wage / piece rate)",
 };
 export const ACTION_LABEL: Record<string, string> = {
   process: "Process", hold_processing: "Hold processing", hold_payout: "Hold payout", void: "Don't pay", paid_outside: "Paid outside erp",

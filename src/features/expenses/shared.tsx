@@ -74,7 +74,8 @@ export function ExpenseLine({ x, actions, leading }: { x: ExpenseRow; actions?: 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3">
           <p className="text-base font-medium">{x.category}<span className="ml-2 text-sm font-normal text-text-muted">{shortDate(x.spent_on)}</span></p>
-          <Money paise={x.amount_paise} className="text-base font-medium" />
+          <span className="flex flex-col items-end"><Money paise={x.amount_paise} className="text-base font-medium" />
+            {x.foreign_amount_paise != null && <span className="text-xs text-text-muted tabular">{x.currency} {(x.foreign_amount_paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{x.fx_rate ? ` at ${Number(x.fx_rate).toLocaleString("en-IN", { maximumFractionDigits: 6 })}` : ""}</span>}</span>
         </div>
         {(lineDetail(x) || x.description) && <p className="text-sm text-text-muted">{[lineDetail(x), x.description].filter(Boolean).join(" — ")}</p>}
         <Receipts files={x.receipts} />

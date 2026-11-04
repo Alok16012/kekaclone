@@ -6,6 +6,7 @@ import { storage } from "@/server/storage";
 import * as exp from "@/server/modules/expenses/service";
 import { MAX_RECEIPTS, parseHalfDays, parseKm, parseRupees } from "@/server/modules/expenses/rules";
 import { MAX_UPLOAD_BYTES } from "@/server/modules/documents/rules";
+import { OCR_IMAGE_MIMES, readReceipt } from "@/server/ocr";
 
 const uuid = z.uuid();
 const bad = (error: string, field?: string) => ({ ok: false as const, error, field });
@@ -30,10 +31,12 @@ function inputFrom(form: FormData): exp.ExpenseInput | { error: string; field: s
   const days = kind === "per_diem" ? parseHalfDays(str(form, "days")) : null;
   if (kind === "per_diem" && days == null) return { error: "Enter days in whole or half days, for example 1.5.", field: "days" };
   const claimId = str(form, "claimId");
+  const currency = str(form, "currency").trim().toUpperCase() || "INR";
+  if (!/^[A-Z]{3}$/.test(currency)) return { error: "Pick a currency.", field: "currency" };
   return {
     categoryId, spentOn: str(form, "spentOn"), amountPaise: amount, kmHundredths: km, halfDays: days,
     merchant: str(form, "merchant") || null, description: str(form, "description") || null,
-    claimId: uuid.safeParse(claimId).success ? claimId : null,
+    claimId: uuid.safeParse(claimId).success ? claimId : null, currency,
   };
 }
 
@@ -128,4 +131,15 @@ export async function requestAdvanceAction(input: { amount: string; purpose: str
 export async function cancelAdvanceAction(id: string) {
   if (!uuid.safeParse(id).success) return bad("Advance not found.");
   return runAction((tx, actor) => exp.cancelAdvance(tx, actor, id));
+}
+
+/** Read a receipt image with the self-hosted OCR: a guess at amount, date and merchant with confidence. Never required: the form works without it. */
+export async function readReceiptAction(form: FormData) {
+  const f = form.get("receipt");
+  if (!(f instanceof File) || f.size === 0) return bad("Pick a receipt image first.", "receipts");
+  if (f.size > MAX_UPLOAD_BYTES) return bad("The receipt must be 5 MB or smaller.", "receipts");
+  if (!OCR_IMAGE_MIMES.has(f.type)) return bad("Only PNG and JPG receipts can be read. For a PDF, type the amount in.", "receipts");
+  const r = await readReceipt(new Uint8Array(await f.arrayBuffer()), f.type);
+  if (!r.ok) return bad(r.reason, "receipts");
+  return { ok: true as const, data: { guess: r.guess, engineConfidence: r.engineConfidence } };
 }

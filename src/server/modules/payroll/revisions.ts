@@ -7,7 +7,7 @@ import { audit } from "@/server/modules/audit/service";
 import { todayIn } from "@/lib/dates";
 import { canPayrollFor, hasAnyPayrollAdmin } from "./access";
 import { arrearsFromMonth, cellToISODate, cellToPaise, computeBreakup, REVISION_REASONS } from "./rules";
-import { getActiveSalary, saveSalary } from "./salary";
+import { getActiveSalary, revisionsNeedApproval, saveSalary } from "./salary";
 import { listStructures, toDef } from "./setup";
 
 const HEADERS = ["Employee number", "Name", "Current annual CTC", "New annual CTC", "Effective from", "Reason", "Structure"] as const;
@@ -55,7 +55,7 @@ export async function buildRevisionTemplate(tx: Tx, actor: Actor) {
 
 export type RevisionRow = {
   rowNumber: number; employee: string; name: string | null; currentPaise: number | null; newPaise: number | null; effectiveFrom: string | null;
-  reason: string; structure: string | null; arrearsFromMonth: string | null; unchanged: boolean; errors: string[];
+  reason: string; structure: string | null; arrearsFromMonth: string | null; unchanged: boolean; errors: string[]; needsApproval: boolean;
 };
 
 async function check(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
@@ -89,6 +89,7 @@ async function check(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
   ]);
   const locked = new Map<string, string[]>();
   const seen = new Set<string>();
+  const approval = await revisionsNeedApproval(tx);
   const results: (RevisionRow & { employeeId?: string; structureId?: string })[] = [];
   for (const r of raw) {
     const errors: string[] = [];
@@ -132,12 +133,12 @@ async function check(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
       }
     }
     results.push({ rowNumber: r.rowNumber, employee: r.employee, name: any?.name ?? null, currentPaise: current?.ctcPaise ?? null, newPaise, effectiveFrom: date, reason,
-      structure: st?.name ?? (r.structure || null), arrearsFromMonth: unchanged ? null : arrears, unchanged, errors, employeeId: emp?.id, structureId: st?.id });
+      structure: st?.name ?? (r.structure || null), arrearsFromMonth: unchanged ? null : arrears, unchanged, errors, needsApproval: approval && !!current, employeeId: emp?.id, structureId: st?.id });
   }
   return { results, valid: results.every((r) => !r.errors.length) };
 }
 
-const strip = (r: RevisionRow & { employeeId?: string; structureId?: string }): RevisionRow => ({ rowNumber: r.rowNumber, employee: r.employee, name: r.name, currentPaise: r.currentPaise, newPaise: r.newPaise, effectiveFrom: r.effectiveFrom, reason: r.reason, structure: r.structure, arrearsFromMonth: r.arrearsFromMonth, unchanged: r.unchanged, errors: r.errors });
+const strip = (r: RevisionRow & { employeeId?: string; structureId?: string }): RevisionRow => ({ rowNumber: r.rowNumber, employee: r.employee, name: r.name, currentPaise: r.currentPaise, newPaise: r.newPaise, effectiveFrom: r.effectiveFrom, reason: r.reason, structure: r.structure, arrearsFromMonth: r.arrearsFromMonth, unchanged: r.unchanged, errors: r.errors, needsApproval: r.needsApproval });
 
 export async function previewRevisionImport(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
   const { results, valid } = await check(tx, actor, bytes);
@@ -148,22 +149,23 @@ export async function previewRevisionImport(tx: Tx, actor: Actor, bytes: ArrayBu
 export async function commitRevisionImport(tx: Tx, actor: Actor, bytes: ArrayBuffer) {
   const { results, valid } = await check(tx, actor, bytes);
   if (!valid) throw new AppError("invalid", "Some rows have problems. Fix them and upload the file again.");
-  let changed = 0;
+  let changed = 0, pending = 0;
   for (const r of results) {
     if (r.unchanged) continue;
     const s = await saveSalary(tx, actor, { employeeId: r.employeeId, structureId: r.structureId, ctcPaise: r.newPaise, effectiveFrom: r.effectiveFrom, reason: r.reason });
     if (!s.unchanged) changed++;
+    if (s.pendingApproval) pending++;
   }
-  await audit(tx, actor, { entityType: "employee_salary", entityId: null, action: "salary.import", diff: { rows: results.length, changed } });
-  return { changed, rows: results.length };
+  await audit(tx, actor, { entityType: "employee_salary", entityId: null, action: "salary.import", diff: { rows: results.length, changed, pending } });
+  return { changed, rows: results.length, pending };
 }
 
 /** Latest salary changes across the people the admin manages, for the revisions screen. */
 export async function recentRevisions(tx: Tx, actor: Actor, limit = 50) {
   const ids = (await myPeople(tx, actor)).map((p) => p.id);
-  return tx<{ id: string; employee_id: string; name: string; number: string; ctc_paise: bigint; effective_from: string; reason: string; arrears_from_month: string | null; structure: string; created_at: Date; by: string | null }[]>`
+  return tx<{ id: string; employee_id: string; name: string; number: string; ctc_paise: bigint; effective_from: string; reason: string; arrears_from_month: string | null; structure: string; created_at: Date; by: string | null; status: string }[]>`
     select s.id, s.employee_id, e.display_name as name, e.employee_number as number, s.ctc_paise, s.effective_from::text, s.reason, s.arrears_from_month::text,
-      st.name as structure, s.created_at, (select display_name from employees b where b.user_id = s.created_by) as by
+      st.name as structure, s.created_at, (select display_name from employees b where b.user_id = s.created_by) as by, s.status
     from employee_salaries s join employees e on e.id = s.employee_id join salary_structures st on st.id = s.structure_id
     where s.employee_id = any(${ids}::uuid[]) order by s.created_at desc limit ${limit}`;
 }

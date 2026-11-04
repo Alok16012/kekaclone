@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Download, FileCheck2, FileText, ReceiptText } from "lucide-react";
 import { load } from "@/server/page-data";
 import { myPay } from "@/server/modules/payrun/payslips";
+import { myClaims } from "@/server/modules/payroll/claims";
+import { fyStartFromLabel, fyStartOf } from "@/server/modules/tax/rules";
+import { todayIn } from "@/lib/dates";
+import { MyClaims } from "@/features/payroll/claims-ui";
 import { PageHeader } from "@/ui/app-shell";
 import { Card, CardHeader, StatTile } from "@/ui/card";
 import { Banner, EmptyState } from "@/ui/feedback";
@@ -12,8 +16,14 @@ import { fmtDate, money } from "@/features/payrun/format";
 
 export const metadata: Metadata = { title: "My finances" };
 
-export default async function MyPayPage() {
-  const d = await load(async (tx, actor) => ({ ...(await myPay(tx, actor)), employeeId: actor.employeeId }));
+export default async function MyPayPage(props: PageProps<"/me/pay">) {
+  const sp = await props.searchParams;
+  const d = await load(async (tx, actor) => {
+    const today = todayIn();
+    const fy = (typeof sp.fy === "string" && fyStartFromLabel(sp.fy)) || fyStartOf(today);
+    return { ...(await myPay(tx, actor)), employeeId: actor.employeeId, claims: await myClaims(tx, actor, fy, today) };
+  });
+  const tab = typeof sp.tab === "string" && ["payslips", "salary", "claims"].includes(sp.tab) ? sp.tab : "payslips";
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title="My finances" description="Your payslips, year-to-date pay and salary breakup." />
@@ -23,8 +33,23 @@ export default async function MyPayPage() {
           Net settlement {money(d.fnf.net)}, finalised on {fmtDate(d.fnf.at.slice(0, 10))}.
         </Banner>
       )}
-      <Tabs defaultValue="payslips">
-        <TabsList items={[{ value: "payslips", label: "Payslips", count: d.slips.length }, { value: "salary", label: "Salary" }]} />
+      {d.fnfParts.length > 0 && (
+        <Card>
+          <CardHeader title="Final settlement, paid in parts" />
+          <ul className="divide-y divide-border border-t border-border">
+            {d.fnfParts.map((p) => (
+              <li key={p.partNo} className="flex flex-wrap items-center gap-3 px-5 py-3">
+                <FileCheck2 className="size-4 shrink-0 text-text-muted" aria-hidden />
+                <div className="min-w-0 flex-1"><p className="text-base font-medium">Part {p.partNo} · {p.label}</p><p className="text-sm text-text-muted">{p.at ? `Finalised ${fmtDate(p.at.slice(0, 10))}` : ""}</p></div>
+                <span className="text-base font-semibold tabular">{money(p.net)}</span>
+                {p.fileId && <IconButton asChild size="icon-sm" label={`Download the statement for part ${p.partNo}`}><a href={`/payroll/files/${p.fileId}?download=1`}><Download /></a></IconButton>}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      <Tabs defaultValue={tab}>
+        <TabsList items={[{ value: "payslips", label: "Payslips", count: d.slips.length }, { value: "salary", label: "Salary" }, { value: "claims", label: "Claims", count: d.claims.claims.filter((c) => c.status === "submitted").length || undefined }]} />
         <TabsContent value="payslips" className="flex flex-col gap-6">
           {d.ytd && (
             <section aria-label="Year to date" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -65,6 +90,7 @@ export default async function MyPayPage() {
             <Card><EmptyState icon={<ReceiptText />} title="No salary details yet" description="Your salary breakup appears here once payroll adds it." /></Card>
           )}
         </TabsContent>
+        <TabsContent value="claims"><MyClaims d={d.claims} /></TabsContent>
       </Tabs>
     </div>
   );

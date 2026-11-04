@@ -94,8 +94,12 @@ export async function myPay(tx: Tx, actor: Actor) {
     where p.employee_id = ${actor.employeeId} and p.released_at is not null order by p.period_month desc`;
   const [fnf] = await tx<{ statement_file_id: string | null; net_paise: bigint | null; updated_at: Date }[]>`
     select statement_file_id, net_paise, updated_at from fnf_settlements where employee_id = ${actor.employeeId} and status = 'finalized' order by updated_at desc limit 1`;
+  const parts = await tx<{ part_no: number; settlement_month: string; statement_file_id: string | null; net_paise: bigint | null; finalized_at: Date | null }[]>`
+    select p.part_no, p.settlement_month::text, p.statement_file_id, p.net_paise, p.finalized_at from fnf_settlement_parts p join fnf_settlements s on s.id = p.settlement_id
+    where s.employee_id = ${actor.employeeId} and p.status = 'finalized' order by p.part_no`;
   const latest = slips[0];
   return {
+    fnfParts: parts.map((p) => ({ partNo: p.part_no, month: p.settlement_month, label: monthLabel(p.settlement_month), fileId: p.statement_file_id, net: N(p.net_paise), at: p.finalized_at?.toISOString() ?? null })),
     slips: slips.map((s) => ({ id: s.id, month: s.period_month, label: monthLabel(s.period_month), fileId: s.file_id, releasedAt: s.released_at.toISOString(),
       net: N(s.net_paise), gross: N(s.gross_paise), deductions: N(s.total_deductions_paise), payableDays: Number(s.payable_days), periodDays: Number(s.period_days) })),
     ytd: latest ? { ...(await ytdFor(tx, actor.employeeId, latest.period_month)), fy: fyOf(latest.period_month) } : null,
@@ -112,7 +116,8 @@ export async function payrollFileFor(tx: Tx, actor: Actor, fileId: string) {
   const [f] = await tx<{ id: string; storage_key: string; name: string; mime: string; slip_owner: string | null; slip_released: boolean | null; fnf_owner: string | null; fnf_final: boolean | null; batch: boolean }[]>`
     select f.id, f.storage_key, f.name, f.mime,
       (select p.employee_id from payslips p where p.file_id = f.id limit 1) as slip_owner, (select p.released_at is not null from payslips p where p.file_id = f.id limit 1) as slip_released,
-      (select s.employee_id from fnf_settlements s where s.statement_file_id = f.id limit 1) as fnf_owner, (select s.status = 'finalized' from fnf_settlements s where s.statement_file_id = f.id limit 1) as fnf_final,
+      coalesce((select s.employee_id from fnf_settlements s where s.statement_file_id = f.id limit 1), (select s.employee_id from fnf_settlement_parts p join fnf_settlements s on s.id = p.settlement_id where p.statement_file_id = f.id limit 1)) as fnf_owner,
+      coalesce((select s.status = 'finalized' from fnf_settlements s where s.statement_file_id = f.id limit 1), (select p.status = 'finalized' from fnf_settlement_parts p where p.statement_file_id = f.id limit 1)) as fnf_final,
       exists (select 1 from payment_batches b where b.file_id = f.id) as batch
     from files f where f.id = ${fileId}`;
   if (!f) return null;

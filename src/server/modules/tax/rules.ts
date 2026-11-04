@@ -113,8 +113,10 @@ export type TaxSettings = {
   proofWindow: { opens: string; closes: string } | null;
   /** people who joined recently may declare for this many days, whatever the windows say */
   lateJoinerDays: number;
+  /** "MM-DD" window in which people choose their flexible benefits (null: any time in the year) */
+  fbpWindow: { opens: string; closes: string } | null;
 };
-export const DEFAULT_TAX_SETTINGS: TaxSettings = { editWindow: { mode: "always" }, declarationCutoff: "01-15", proofWindow: { opens: "01-01", closes: "02-28" }, lateJoinerDays: 30 };
+export const DEFAULT_TAX_SETTINGS: TaxSettings = { editWindow: { mode: "always" }, declarationCutoff: "01-15", proofWindow: { opens: "01-01", closes: "02-28" }, lateJoinerDays: 30, fbpWindow: null };
 
 const int = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi ? v : null);
 /** Reads pay_groups.tax_settings, falling back to defaults field by field (bad or missing values never throw). */
@@ -125,7 +127,10 @@ export function parseTaxSettings(raw: unknown): TaxSettings {
   const editWindow: TaxSettings["editWindow"] = ew.mode === "monthly" && from && to && to >= from ? { mode: "monthly", fromDay: from, toDay: to } : ew.mode === "always" ? { mode: "always" } : DEFAULT_TAX_SETTINGS.editWindow;
   const pw = r.proofWindow as Record<string, unknown> | null | undefined;
   const proofWindow = pw === null ? null : pw && isMd(pw.opens) && isMd(pw.closes) ? { opens: pw.opens, closes: pw.closes } : DEFAULT_TAX_SETTINGS.proofWindow;
+  const fw = r.fbpWindow as Record<string, unknown> | null | undefined;
+  const fbpWindow = fw && isMd(fw.opens) && isMd(fw.closes) ? { opens: fw.opens, closes: fw.closes } : null;
   return {
+    fbpWindow,
     editWindow,
     declarationCutoff: r.declarationCutoff === null ? null : isMd(r.declarationCutoff) ? r.declarationCutoff : DEFAULT_TAX_SETTINGS.declarationCutoff,
     proofWindow,

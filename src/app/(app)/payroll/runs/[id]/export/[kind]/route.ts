@@ -3,8 +3,11 @@ import { AppError, withTenant } from "@/server/db";
 import { getActor } from "@/server/auth/session";
 import { canRunPayroll } from "@/server/modules/payrun/access";
 import * as reports from "@/server/modules/payrun/reports";
+import { buildInputTemplate } from "@/server/modules/payrun/import";
+import { assertFeature } from "@/server/modules/saas/gate";
 
-const KINDS = ["register", "pf-ecr", "esi", "pt", "journal"] as const;
+const KINDS = ["register", "pf-ecr", "esi", "pt", "journal", "labour-code", "tally", "zoho", "inputs-template"] as const;
+const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const headers = (mime: string, name: string) => ({
   "content-type": mime, "content-disposition": `attachment; filename="${name}"`, "cache-control": "private, no-store", "x-content-type-options": "nosniff",
 });
@@ -18,8 +21,15 @@ export async function GET(_req: Request, ctx: RouteContext<"/payroll/runs/[id]/e
   if (!z.uuid().safeParse(id).success || !(KINDS as readonly string[]).includes(kind)) return new Response("Not found.", { status: 404 });
   try {
     return await withTenant(actor.tenant.id, async (tx) => {
-      if (kind === "register") { const r = await reports.registerXlsx(tx, actor, id); return new Response(new Uint8Array(r.bytes), { headers: headers("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", r.name) }); }
-      const r = kind === "pf-ecr" ? await reports.pfEcr(tx, actor, id) : kind === "esi" ? await reports.esiFile(tx, actor, id) : kind === "pt" ? await reports.ptSummary(tx, actor, id) : await reports.journal(tx, actor, id);
+      if (kind === "register") { const r = await reports.registerXlsx(tx, actor, id); return new Response(new Uint8Array(r.bytes), { headers: headers(XLSX, r.name) }); }
+      if (kind === "inputs-template") { const r = await buildInputTemplate(tx, actor, id); return new Response(new Uint8Array(r.bytes), { headers: headers(XLSX, r.name) }); }
+      if (kind === "tally" || kind === "zoho") {
+        assertFeature(actor, "accounting_export");   // plan gate: Plus and above
+        const r = kind === "tally" ? await reports.tallyExport(tx, actor, id) : await reports.zohoExport(tx, actor, id);
+        return new Response((kind === "zoho" ? "\ufeff" : "") + r.text, { headers: headers(kind === "tally" ? "application/xml; charset=utf-8" : "text/csv; charset=utf-8", r.name) });
+      }
+      const r = kind === "pf-ecr" ? await reports.pfEcr(tx, actor, id) : kind === "esi" ? await reports.esiFile(tx, actor, id) : kind === "pt" ? await reports.ptSummary(tx, actor, id)
+        : kind === "labour-code" ? await reports.labourCodeReport(tx, actor, id) : await reports.journal(tx, actor, id);
       return new Response((kind === "pf-ecr" ? "" : "\ufeff") + r.text, { headers: headers(kind === "pf-ecr" ? "text/plain; charset=utf-8" : "text/csv; charset=utf-8", r.name) });
     });
   } catch (e) {

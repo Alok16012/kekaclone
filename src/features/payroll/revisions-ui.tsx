@@ -46,7 +46,7 @@ export function RevisionsAdmin({ recent }: { recent: RecentRevision[] }) {
   );
 }
 
-type Preview = { valid: boolean; total: number; changes: number; results: { rowNumber: number; employee: string; name: string | null; currentPaise: number | null; newPaise: number | null; effectiveFrom: string | null; reason: string; structure: string | null; arrearsFromMonth: string | null; unchanged: boolean; errors: string[] }[] };
+type Preview = { valid: boolean; total: number; changes: number; results: { rowNumber: number; employee: string; name: string | null; currentPaise: number | null; newPaise: number | null; effectiveFrom: string | null; reason: string; structure: string | null; arrearsFromMonth: string | null; unchanged: boolean; errors: string[]; needsApproval: boolean }[] };
 
 function ImportDialog({ onClose }: { onClose: () => void }) {
   const [file, setFile] = React.useState<File | null>(null);
@@ -67,7 +67,8 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
     const fd = new FormData(); fd.set("file", file!);
     const r = await commitRevisionsAction(fd);
     if (!r.ok) { setError(r.error); return; }
-    toast.success(r.data!.changed ? `${r.data!.changed} ${r.data!.changed === 1 ? "salary" : "salaries"} revised` : "Nothing to change", { description: r.data!.changed ? "Each person has been notified." : "Every row was already recorded." });
+    toast.success(r.data!.changed ? (r.data!.pending ? `${r.data!.pending} ${r.data!.pending === 1 ? "revision" : "revisions"} sent for approval` : `${r.data!.changed} ${r.data!.changed === 1 ? "salary" : "salaries"} revised`) : "Nothing to change",
+      { description: r.data!.pending ? "Each one applies once approved." : r.data!.changed ? "Each person has been notified." : "Every row was already recorded." });
     onClose();
   });
   const bad = preview?.results.filter((r) => r.errors.length) ?? [];
@@ -110,6 +111,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
                         {r.currentPaise != null ? `${money(r.currentPaise)} → ` : ""}<span className="font-medium">{money(r.newPaise!)}</span> from {fmtDate(r.effectiveFrom)}
                         {r.unchanged && <Badge>Already saved</Badge>}
                         {r.arrearsFromMonth && <Badge tone="warning">Arrears from {fmtMonth(r.arrearsFromMonth)}</Badge>}
+                        {r.needsApproval && !r.unchanged && <Badge tone="accent">Needs approval</Badge>}
                       </span>
                     )}</td>
                   </tr>

@@ -1,4 +1,5 @@
 import "server-only";
+import { fetchDailyRates } from "@/server/modules/expenses/fx";
 import { withTenant, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor } from "@/server/auth/permissions";
@@ -75,6 +76,7 @@ export const STEPS: Step[] = [
   { key: "document_expiry", label: "Remind people and HR about expiring documents", daily: true, tx: async (tx, c) => sendExpiryReminders(tx, await tenantRow(tx, c.tenantId), c.today) },
   { key: "letter_batches", label: "Finish bulk letter batches", daily: false, own: (c) => processPendingBatches(c.tenantId) },
   { key: "exit_tasks", label: "Tick exit checklist tasks the system can prove", daily: false, tx: (tx) => autoTickExitTasks(tx) },
+  { key: "fx_rates", label: "Fetch today's exchange rates for expenses (when a provider is configured)", daily: true, tx: (tx, c) => fetchDailyRates(tx, c.tenantId, c.today) },
 ];
 
 async function tenantRow(tx: Tx, tenantId: string) {

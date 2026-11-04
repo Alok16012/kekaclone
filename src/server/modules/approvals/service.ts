@@ -15,9 +15,10 @@ import { notify } from "@/server/modules/notifications/service";
 import { onOfferDecided, onRequisitionDecided } from "@/server/modules/hire/effects";
 import { onCompProposalDecided } from "@/server/modules/performance/effects";
 import { onTimesheetDecided } from "@/server/modules/psa/effects";
+import { onComponentClaimDecided, onSalaryRevisionDecided } from "@/server/modules/payroll/effects";
 
 export type Level = { approver: "manager" | "l2_manager" | "role" | "employee"; role?: string; id?: string };
-export type EntityType = "leave" | "attendance_request" | "profile_change" | "comp_off" | "exit" | "expense_claim" | "expense_advance" | "asset_request" | "loan" | "requisition" | "offer" | "comp_proposal" | "timesheet";
+export type EntityType = "leave" | "attendance_request" | "profile_change" | "comp_off" | "exit" | "expense_claim" | "expense_advance" | "asset_request" | "loan" | "requisition" | "offer" | "comp_proposal" | "timesheet" | "salary_revision" | "component_claim";
 
 /** Used when a tenant has no workflow configured for the entity type. */
 export const DEFAULT_LEVELS: Record<EntityType, Level[]> = {
@@ -34,6 +35,8 @@ export const DEFAULT_LEVELS: Record<EntityType, Level[]> = {
   offer: [{ approver: "role", role: "hr_admin" }],
   comp_proposal: [{ approver: "role", role: "global_admin" }],   // compensation passes its own approvers (never the person or the recommender)
   timesheet: [{ approver: "manager" }],
+  salary_revision: [{ approver: "role", role: "payroll_admin" }],   // raised by a payroll admin about someone else; neither of them approves it
+  component_claim: [{ approver: "manager" }, { approver: "role", role: "payroll_admin" }],
 };
 
 /**
@@ -48,6 +51,10 @@ export async function subjectOf(tx: Tx, entityType: EntityType, entityId: string
   }
   if (entityType === "offer") {
     const [r] = await tx<{ employee_id: string | null }[]>`select c.employee_id from offers o join applications a on a.id = o.application_id join candidates c on c.id = a.candidate_id where o.id = ${entityId}`;
+    return r?.employee_id ?? null;
+  }
+  if (entityType === "salary_revision") {
+    const [r] = await tx<{ employee_id: string }[]>`select employee_id from employee_salaries where id = ${entityId}`;
     return r?.employee_id ?? null;
   }
   return null;
@@ -175,11 +182,14 @@ export async function decide(tx: Tx, actor: Actor, stepId: string, decision: "ap
     if (req.entity_type === "offer") await onOfferDecided(tx, actor, req.entity_id, final);
     if (req.entity_type === "comp_proposal") await onCompProposalDecided(tx, actor, req.entity_id, final);
     if (req.entity_type === "timesheet") await onTimesheetDecided(tx, actor, req.entity_id, final);
+    if (req.entity_type === "salary_revision") await onSalaryRevisionDecided(tx, actor, req.entity_id, final);
+    if (req.entity_type === "component_claim") await onComponentClaimDecided(tx, actor, req.entity_id, final);
     await notifyEmployee(tx, actor.tenant.id, req.requester_employee_id, `request.${final}`,
       final === "approved" ? "Your request was approved" : "Your request was declined", req.summary,
       req.entity_type === "leave" || req.entity_type === "comp_off" ? "/me/leave" : req.entity_type === "profile_change" || req.entity_type === "exit" ? "/me"
         : req.entity_type === "expense_claim" ? "/me/expenses" : req.entity_type === "expense_advance" ? "/me/expenses/advances" : req.entity_type === "asset_request" ? "/me/assets" : req.entity_type === "loan" ? "/me/loans"
-        : req.entity_type === "requisition" ? "/hire/requisitions" : req.entity_type === "offer" ? "/hire/offers" : req.entity_type === "comp_proposal" ? "/compensation" : req.entity_type === "timesheet" ? "/me/timesheet" : "/me/attendance");
+        : req.entity_type === "requisition" ? "/hire/requisitions" : req.entity_type === "offer" ? "/hire/offers" : req.entity_type === "comp_proposal" ? "/compensation" : req.entity_type === "timesheet" ? "/me/timesheet"
+        : req.entity_type === "salary_revision" ? "/settings/payroll/revisions" : req.entity_type === "component_claim" ? "/me/pay?tab=claims" : "/me/attendance");
   }
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
            values (${actor.tenant.id}, ${actor.userId}, ${req.entity_type}, ${req.entity_id}, ${"approval." + decision}, ${tx.json({ comment: comment ?? null })})`;

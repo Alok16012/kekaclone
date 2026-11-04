@@ -3,6 +3,7 @@ import { z } from "zod";
 import { runAction } from "@/server/action";
 import { storage } from "@/server/storage";
 import * as tax from "@/server/modules/tax/service";
+import { generatePartB } from "@/server/modules/tax/form16";
 
 const uuid = z.uuid();
 const fyStart = z.string().regex(/^\d{4}-04-01$/);
@@ -48,4 +49,14 @@ export async function deleteForm16Action(docId: string) {
   const r = await runAction((tx, actor) => tax.deleteForm16(tx, actor, docId));
   if (r.ok) await removeBlobs(r.data?.removedKeys);
   return r.ok ? { ok: true as const } : r;
+}
+
+/** Form 16 Part B PDFs from payroll and declarations (company-wide). Regenerating replaces the earlier file and un-shares it until published again. */
+export async function generatePartBAction(fy: string, employeeIds: string[] | "all") {
+  if (!fyStart.safeParse(fy).success) return bad("Pick a financial year.");
+  if (employeeIds !== "all" && !z.array(uuid).max(5000).safeParse(employeeIds).success) return bad("Pick who to generate for.");
+  const r = await runAction((tx, actor) => generatePartB(tx, actor, fy, employeeIds));
+  if (!r.ok) return r;
+  await removeBlobs(r.data?.removedKeys);
+  return { ok: true as const, data: { generated: r.data!.generated.length, skipped: r.data!.skipped } };
 }

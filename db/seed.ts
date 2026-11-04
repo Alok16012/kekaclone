@@ -120,6 +120,7 @@ async function main() {
   await (await import("./seed-workspace")).seedWorkspace(tenantId);
   await (await import("./seed-docs2")).seedDocs2(tenantId);
   await (await import("./seed-time3")).seedTime3(tenantId);
+  await (await import("./seed-pay2")).seedPay2(tenantId);
   console.log(`Seeded http://${DEMO_SUBDOMAIN}.${process.env.ROOT_DOMAIN} — ${Object.keys(ids).length} people. Password for every account is in db/demo.ts (DEMO_PASSWORD).`);
   await admin.end(); await sql.end();
 }

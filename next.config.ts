@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   // bulk import uploads .xlsx files (capped at 5 MB in the importer)
   experimental: { serverActions: { bodySizeLimit: "6mb" } },
   partialPrefetching: true,
+  // receipt OCR runs tesseract.js (WebAssembly + worker threads) in the Node process; keep it out of the bundler
+  serverExternalPackages: ["tesseract.js"],
   turbopack: {
     rules: {
       "*.css": {

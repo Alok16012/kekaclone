@@ -40,7 +40,9 @@ describe("windows", () => {
   it("reads settings defensively", () => {
     expect(parseTaxSettings({})).toEqual(DEFAULT_TAX_SETTINGS);
     expect(parseTaxSettings({ editWindow: { mode: "monthly", fromDay: 1, toDay: 10 }, declarationCutoff: null, proofWindow: null, lateJoinerDays: 0 }))
-      .toEqual({ editWindow: { mode: "monthly", fromDay: 1, toDay: 10 }, declarationCutoff: null, proofWindow: null, lateJoinerDays: 0 });
+      .toEqual({ editWindow: { mode: "monthly", fromDay: 1, toDay: 10 }, declarationCutoff: null, proofWindow: null, lateJoinerDays: 0, fbpWindow: null });
+    expect(parseTaxSettings({ fbpWindow: { opens: "04-01", closes: "04-30" } }).fbpWindow).toEqual({ opens: "04-01", closes: "04-30" });
+    expect(parseTaxSettings({ fbpWindow: { opens: "bad", closes: "04-30" } }).fbpWindow).toBeNull();
     expect(parseTaxSettings({ editWindow: { mode: "monthly", fromDay: 20, toDay: 10 }, lateJoinerDays: -1 }).editWindow).toEqual({ mode: "always" });
     expect(checkTaxSettings({ ...DEFAULT_TAX_SETTINGS, proofWindow: { opens: "03-01", closes: "01-31" } })).toMatchObject({ ok: false, field: "proofWindow" });
     expect(checkTaxSettings({ ...DEFAULT_TAX_SETTINGS, editWindow: { mode: "monthly", fromDay: 10, toDay: 5 } })).toMatchObject({ ok: false, field: "toDay" });
