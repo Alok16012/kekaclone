@@ -376,29 +376,45 @@ export function nearestFence(lat: number, lng: number, fences: Fence[]) {
 
 export type CapturePolicy = {
   web: { enabled: boolean; comment_required?: boolean; ip_ranges: string[] };
-  mobile: { enabled: boolean; geofence_ids: string[]; selfie?: boolean };
+  mobile: {
+    enabled: boolean; geofence_ids: string[];
+    /** take a selfie with every location clock-in (stored for HR to see; never matched against anything) */
+    selfie?: boolean;
+    /** the first location clock-in from a browser/device the person hasn't used before waits for the manager */
+    first_clock_in_approval?: boolean;
+    /** reject location fixes less precise than this many metres (null = no limit beyond the 50 m fence slack) */
+    accuracy_m?: number | null;
+  };
   remote: { wfh: boolean; od: boolean };
   limits: { regularization_per_month: number; regularization_past_days: number; partial_day_minutes_per_month: number };
 };
 
 export type PunchCheck =
-  | { ok: true; source: "web" | "mobile"; fence: string | null }
-  | { ok: false; code: "web_off" | "ip" | "location_needed" | "outside" | "comment"; message: string };
+  | { ok: true; source: "web" | "mobile"; fence: string | null; fenceId: string | null }
+  | { ok: false; code: "web_off" | "ip" | "location_needed" | "outside" | "comment" | "accuracy" | "stale" | "selfie"; message: string };
+
+/** A location fix older than this is a cached position, not where the phone is now. */
+export const MAX_FIX_AGE_MS = 60_000;
 
 /**
  * Server-side decision for a browser punch. A punch is accepted from an allowed network (web capture),
  * or from inside a geofence (location capture), or from anywhere on a day with approved WFH / on duty.
+ * Location clock-ins also need a fresh fix (no last-known position), one precise enough for the policy, and a selfie when the policy asks for one.
  */
-export function checkPunch(p: CapturePolicy, fences: Fence[], m: { ip: string | null; lat?: number | null; lng?: number | null; accuracy?: number | null; comment?: string | null; remoteToday: boolean }): PunchCheck {
+export function checkPunch(p: CapturePolicy, fences: Fence[], m: { ip: string | null; lat?: number | null; lng?: number | null; accuracy?: number | null; fixAgeMs?: number | null; hasSelfie?: boolean; comment?: string | null; remoteToday: boolean }): PunchCheck {
   if (p.web.comment_required && !m.comment?.trim()) return { ok: false, code: "comment", message: "Add a short comment to clock in or out." };
-  if (m.remoteToday) return { ok: true, source: "web", fence: null };
+  if (m.remoteToday) return { ok: true, source: "web", fence: null, fenceId: null };
   const webOk = p.web.enabled && ipAllowed(m.ip, p.web.ip_ranges ?? []);
   const geo = p.mobile.enabled && fences.length > 0;
-  if (webOk) return { ok: true, source: "web", fence: null };
+  if (webOk) return { ok: true, source: "web", fence: null, fenceId: null };
   if (geo) {
     if (m.lat == null || m.lng == null) return { ok: false, code: "location_needed", message: "Share your location to clock in from here." };
+    if (m.fixAgeMs != null && m.fixAgeMs > MAX_FIX_AGE_MS) return { ok: false, code: "stale", message: "That location is an old reading. Let the phone find where you are now and try again." };
+    const limit = p.mobile.accuracy_m ?? null;
+    if (limit != null && limit > 0 && m.accuracy != null && m.accuracy > limit) return { ok: false, code: "accuracy", message: `Your location is only accurate to about ${Math.round(m.accuracy)} m; this needs ${limit} m or better. Step outside or turn on GPS and try again.` };
+    if (p.mobile.selfie && !m.hasSelfie) return { ok: false, code: "selfie", message: "Take a selfie to clock in from here." };
     const hit = fenceFor(m.lat, m.lng, m.accuracy, fences);
-    if (hit) return { ok: true, source: "mobile", fence: hit.fence.name };
+    if (hit) return { ok: true, source: "mobile", fence: hit.fence.name, fenceId: hit.fence.id };
     const near = nearestFence(m.lat, m.lng, fences)!;
     const km = near.distance >= 1000 ? `${(near.distance / 1000).toFixed(1)} km` : `${Math.round(near.distance)} m`;
     return { ok: false, code: "outside", message: `You're ${km} from ${near.fence.name}. Move within ${near.fence.radius_m} m to clock in.` };
@@ -409,10 +425,10 @@ export function checkPunch(p: CapturePolicy, fences: Fence[], m: { ip: string | 
 
 // ---------------------------------------------------------------- employee requests
 
-export type RequestKind = "regularization" | "partial_day" | "wfh" | "on_duty" | "overtime" | "shift_change" | "weekly_off_change";
+export type RequestKind = "regularization" | "partial_day" | "wfh" | "on_duty" | "overtime" | "shift_change" | "weekly_off_change" | "remote_clock_in";
 export const REQUEST_LABELS: Record<RequestKind, string> = {
   regularization: "Regularize", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty",
-  overtime: "Overtime", shift_change: "Shift change", weekly_off_change: "Weekly off swap",
+  overtime: "Overtime", shift_change: "Shift change", weekly_off_change: "Weekly off swap", remote_clock_in: "New device clock-in",
 };
 
 export function validateRegularization(r: {

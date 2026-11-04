@@ -53,3 +53,20 @@ CRON_TZ=Asia/Kolkata
 Running it a second time in the day (e.g. every hour) is fine and makes escalations, hand-overs and queued email timely; the once-a-day steps are skipped. systemd timer, Kubernetes CronJob or a hosted scheduler all work the same way: call `pnpm jobs:daily` from the app directory with `.env.local` (or the same variables in the environment). The exit code is non-zero when any step failed; the failure is also recorded in `scheduler_runs`.
 
 The individual scripts (`pnpm jobs:attendance`, `jobs:leave`, `jobs:exits`, `jobs:helpdesk`, `jobs:statutory-rates`) still exist for one-off runs and debugging.
+
+### No cron? The in-app scheduler
+
+Where nothing can call `pnpm jobs:daily` on a schedule (a single container, a PaaS worker process), run the lightweight scheduler instead. It is the same code as `jobs:daily`, started from a small loop:
+
+```bash
+pnpm jobs:scheduler                                   # daily run at 00:15 IST, catching up if started later in the day
+SCHEDULER_TIME=01:30 pnpm jobs:scheduler              # another time of day (HH:MM)
+SCHEDULER_TZ=Asia/Dubai pnpm jobs:scheduler           # another zone for that time
+SCHEDULER_REPEAT_MINUTES=60 pnpm jobs:scheduler       # also re-run every hour after the daily run
+```
+
+It keeps one instance active with a session-level Postgres advisory lock: start a second one and it stands by, taking over if the first dies. The daily run has its own lock too, so the scheduler and a cron run never overlap, and a crashed run is retried on the next tick (every minute, `SCHEDULER_POLL_MS`). Run it under a supervisor that restarts it (systemd, a Procfile `worker:` line, a Kubernetes Deployment with one replica). Cron remains the recommended option when it is available: it needs no long-running process and the host's own logging and alerting apply.
+
+### Nightly attendance
+
+Yesterday's attendance is processed in the `attendance` step of the daily run (once a day per tenant; `--force` re-runs it). Every person's day is computed on its own so one bad record never stops the rest, and processing is idempotent: `pnpm jobs:daily -- --date 2026-11-02 --only attendance` recomputes a day that was changed by late punches, approvals or a policy change.

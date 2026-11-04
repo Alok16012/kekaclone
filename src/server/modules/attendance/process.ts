@@ -77,7 +77,7 @@ export async function calendarFor(tx: Tx, employeeId: string, from: ISODate, to:
 
 const CAPTURE_DEFAULTS: CapturePolicy = {
   web: { enabled: true, comment_required: false, ip_ranges: [] },
-  mobile: { enabled: true, geofence_ids: [], selfie: false },
+  mobile: { enabled: true, geofence_ids: [], selfie: false, first_clock_in_approval: false, accuracy_m: null },
   remote: { wfh: true, od: true },
   limits: { regularization_per_month: 3, regularization_past_days: 7, partial_day_minutes_per_month: 240 },
 };

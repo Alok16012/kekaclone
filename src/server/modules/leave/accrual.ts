@@ -3,7 +3,7 @@ import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { todayIn, type ISODate } from "@/lib/dates";
 import {
-  accrualPostings, accrualSchedule, addMonthsISO, compOffExpiries, cycleEnd, cycleStart, frequencyOf, previousCycle, round2, yearEndSplit,
+  accrualPostings, accrualSchedule, addMonthsISO, applyAccrualStops, compOffExpiries, cycleEnd, cycleStart, frequencyOf, previousCycle, round2, yearEndSplit,
   type AccrualRule, type YearEndRule,
 } from "./accrual-rules";
 import { assertLeaveAdmin } from "./access";
@@ -42,6 +42,12 @@ export async function runAccrual(tx: Tx, tenantId: string, asOf: ISODate, opts: 
   const accrued = new Map(sums.map((s) => [`${s.employee_id}|${s.leave_type_id}|${s.cycle_start}`, Number(s.accrued)]));
   const keys = new Set((await tx<{ k: string }[]>`
     select idempotency_key as k from leave_ledger where employee_id = any(${ids}::uuid[]) and kind = 'accrual' and cycle_start >= ${minCycle}`).map((r) => r.k));
+  // for the stop rules: balance (everything) and days taken (net of cancellations) per leave year
+  const totals = await tx<{ employee_id: string; leave_type_id: string; cycle_start: string; balance: string; taken: string }[]>`
+    select employee_id, leave_type_id, cycle_start::text, coalesce(sum(amount), 0) as balance,
+           coalesce(-sum(amount) filter (where kind in ('use','use_reversal')), 0) as taken
+    from leave_ledger where employee_id = any(${ids}::uuid[]) and cycle_start >= ${minCycle} group by 1, 2, 3`;
+  const totalOf = new Map(totals.map((t) => [`${t.employee_id}|${t.leave_type_id}|${t.cycle_start}`, { balance: Number(t.balance), taken: Number(t.taken) }]));
 
   let posted = 0, days = 0;
   for (const r of rows) {
@@ -54,7 +60,9 @@ export async function runAccrual(tx: Tx, tenantId: string, asOf: ISODate, opts: 
         person: { joining: r.joining_date, exit: r.exit_date, probationEnd: r.probation_end_date, probationStatus: r.probation_status },
       });
       const freq = frequencyOf(r.accrual);
-      for (const p of accrualPostings(schedule, accrued.get(`${r.employee_id}|${r.leave_type_id}|${c}`) ?? 0)) {
+      const tot = totalOf.get(`${r.employee_id}|${r.leave_type_id}|${c}`) ?? { balance: 0, taken: 0 };
+      const postings = accrualPostings(schedule, accrued.get(`${r.employee_id}|${r.leave_type_id}|${c}`) ?? 0);
+      for (const p of applyAccrualStops(postings, { balance: tot.balance, taken: tot.taken, cap: r.accrual?.cap_balance, stopAfterTaken: r.accrual?.stop_after_days_taken })) {
         const base = `accrual:${r.employee_id}:${r.leave_type_id}:${p.periodId}`;
         // a period already credited gets a top-up (e.g. after a quota increase) under a key fixed by the new running total
         const key = keys.has(base) ? `${base}+${schedule.find((s) => s.periodId === p.periodId)!.cumulative}` : base;
@@ -62,7 +70,17 @@ export async function runAccrual(tx: Tx, tenantId: string, asOf: ISODate, opts: 
           insert into leave_ledger (tenant_id, employee_id, leave_type_id, cycle_start, entry_date, kind, amount, note, idempotency_key, created_by)
           values (${tenantId}, ${r.employee_id}, ${r.leave_type_id}, ${c}, ${p.creditDate}, 'accrual', ${p.amount}, ${`${FREQ_NOTE[freq]} · ${p.periodId.slice(0, 7)}`}, ${key}, ${opts.actorUserId ?? null})
           on conflict (tenant_id, idempotency_key) do nothing returning id`;
-        if (ins.length) { posted++; days = round2(days + p.amount); keys.add(key); }
+        if (!ins.length) continue;
+        posted++; days = round2(days + p.credited); keys.add(key);
+        // the stop rule withholds part (or all) of it: it lapses the same day, so the ledger shows why the balance didn't move
+        if (p.withheld > 0) {
+          await tx`
+            insert into leave_ledger (tenant_id, employee_id, leave_type_id, cycle_start, entry_date, kind, amount, note, idempotency_key, created_by)
+            values (${tenantId}, ${r.employee_id}, ${r.leave_type_id}, ${c}, ${p.creditDate}, 'lapse', ${-p.withheld},
+                    ${p.reason === "cap" ? `Not accrued: balance is at the cap of ${r.accrual.cap_balance} days` : `Not accrued: ${r.accrual.stop_after_days_taken} days already taken this leave year`},
+                    ${`${key}:withheld`}, ${opts.actorUserId ?? null})
+            on conflict (tenant_id, idempotency_key) do nothing`;
+        }
       }
     }
   }
@@ -204,9 +222,11 @@ export async function processCompOffExpiry(tx: Tx, tenantId: string, asOf: ISODa
   return { expired, days };
 }
 
-/** The nightly leave job for one tenant: accruals, then comp-off expiry. */
+/** The nightly leave job for one tenant: accruals, comp-off expiry, then event-based grants past their window. */
 export async function runLeaveJobs(tx: Tx, tenantId: string, asOf: ISODate) {
   const accrual = await runAccrual(tx, tenantId, asOf);
   const expiry = await processCompOffExpiry(tx, tenantId, asOf);
-  return { accrual, expiry };
+  const { lapseExpiredGrants } = await import("./grants");
+  const grants = await lapseExpiredGrants(tx, tenantId, asOf);
+  return { accrual, expiry, grants };
 }

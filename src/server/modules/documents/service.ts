@@ -314,12 +314,18 @@ export async function deletePersonDocument(tx: Tx, actor: Actor, id: string) {
  * the person, HR in scope. Anything else (e.g. files from other modules) is refused here.
  */
 export async function fileFor(tx: Tx, actor: Actor, fileId: string) {
-  const [f] = await tx<{ id: string; storage_key: string; name: string; mime: string; org_doc: string | null; person: string | null }[]>`
+  const [f] = await tx<{ id: string; storage_key: string; name: string; mime: string; org_doc: string | null; person: string | null; selfie_of: string | null }[]>`
     select f.id, f.storage_key, f.name, f.mime,
       (select d.id from org_documents d where d.file_id = f.id limit 1) as org_doc,
-      coalesce((select d.employee_id from employee_documents d where d.file_id = f.id limit 1), (select g.employee_id from generated_letters g where g.file_id = f.id limit 1)) as person
+      coalesce((select d.employee_id from employee_documents d where d.file_id = f.id limit 1), (select g.employee_id from generated_letters g where g.file_id = f.id limit 1)) as person,
+      (select p.employee_id from punches p where p.selfie_file_id = f.id limit 1) as selfie_of
     from files f where f.id = ${fileId}`;
   if (!f) return null;
+  if (f.selfie_of) {
+    // a clock-in selfie: the person, their manager, and whoever may see their time (attendance / leave admins for them)
+    const { canSeeTime } = await import("@/server/modules/corehr/people");
+    return (await canSeeTime(tx, actor, f.selfie_of)) ? f : null;
+  }
   if (f.org_doc) {
     if (!(await visibleDoc(tx, actor, f.org_doc))) return null;
     await markViewed(tx, actor, f.org_doc);

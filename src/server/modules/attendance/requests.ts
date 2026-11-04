@@ -21,6 +21,8 @@ export type RequestInput =
 export type Payload = {
   inTime?: string; outTime?: string; half?: "first" | "second" | null; type?: "late_arrival" | "early_leave"; minutes?: number;
   shiftId?: string; shiftName?: string; offDate?: ISODate; workDate?: ISODate;
+  /** remote_clock_in: the punch waiting for approval and where it came from */
+  punchId?: string; deviceHash?: string | null; deviceLabel?: string | null; fenceId?: string | null; fence?: string | null; lat?: number | null; lng?: number | null; accuracy?: number | null; selfieFileId?: string | null; at?: string;
 };
 
 const monthBounds = (d: ISODate) => {
@@ -36,6 +38,7 @@ export function describe(kind: string, from: ISODate, to: ISODate, p: Payload) {
   if (kind === "overtime") return `${label} · ${when} · ${fmtHours(p.minutes ?? 0)}`;
   if (kind === "shift_change") return `${label} · ${when} · to ${p.shiftName ?? "another shift"}`;
   if (kind === "weekly_off_change") return `${label} · off ${fmtRange(p.offDate ?? from, p.offDate ?? from)}, work ${fmtRange(p.workDate ?? to, p.workDate ?? to)}`;
+  if (kind === "remote_clock_in") return `${label} · ${when}${p.fence ? ` · at ${p.fence}` : ""}${p.deviceLabel ? ` · ${p.deviceLabel}` : ""}`;
   return `${label} · ${when}${p.half ? ` · ${p.half} half` : ""}`;
 }
 
@@ -129,9 +132,10 @@ export async function createRequest(tx: Tx, actor: Actor, input: RequestInput) {
 
 /** The requester withdraws a request that hasn't been decided yet. */
 export async function cancelRequest(tx: Tx, actor: Actor, id: string) {
-  const [r] = await tx<{ id: string }[]>`
-    update attendance_requests set status = 'cancelled' where id = ${id} and employee_id = ${actor.employeeId} and status = 'pending' returning id`;
+  const [r] = await tx<{ id: string; kind: string; payload: Payload }[]>`
+    update attendance_requests set status = 'cancelled' where id = ${id} and employee_id = ${actor.employeeId} and status = 'pending' returning id, kind, payload`;
   if (!r) throw new AppError("conflict", "Only requests still waiting for approval can be withdrawn.");
+  if (r.kind === "remote_clock_in" && r.payload.punchId) await tx`update punches set status = 'rejected' where id = ${r.payload.punchId} and status = 'pending_approval'`;
   await cancelApproval(tx, "attendance_request", id);
 }
 
@@ -144,7 +148,12 @@ export async function onAttendanceRequestDecided(tx: Tx, actor: Actor | null, id
   const [r] = await tx<{ tenant_id: string; employee_id: string; kind: string; from_date: string; to_date: string; payload: Payload; reason: string | null }[]>`
     update attendance_requests set status = ${final} where id = ${id} and status = 'pending'
     returning tenant_id, employee_id, kind, from_date::text, to_date::text, payload, reason`;
-  if (!r || final !== "approved") return;
+  if (!r) return;
+  if (final !== "approved") {
+    // a declined first clock-in never counts
+    if (r.kind === "remote_clock_in" && r.payload.punchId) await tx`update punches set status = 'rejected' where id = ${r.payload.punchId} and status = 'pending_approval'`;
+    return;
+  }
   if (r.kind === "regularization" && r.payload.inTime && r.payload.outTime) {
     const person = await personFor(tx, r.employee_id);
     const tz = person?.tz ?? "Asia/Kolkata";
@@ -171,6 +180,15 @@ export async function onAttendanceRequestDecided(tx: Tx, actor: Actor | null, id
       }
     }
   }
+  if (r.kind === "remote_clock_in" && r.payload.punchId) {
+    // the punch starts counting, and this device is trusted for that location from now on
+    await tx`update punches set status = 'valid' where id = ${r.payload.punchId} and status = 'pending_approval'`;
+    if (r.payload.deviceHash) {
+      await tx`insert into clock_in_trust (tenant_id, employee_id, device_hash, geofence_id, label, approved_request_id)
+               values (${r.tenant_id}, ${r.employee_id}, ${r.payload.deviceHash}, ${r.payload.fenceId ?? null}, ${r.payload.deviceLabel ?? null}, ${id})
+               on conflict (employee_id, device_hash, geofence_id) do nothing`;
+    }
+  }
   if (r.kind === "weekly_off_change" && r.payload.offDate && r.payload.workDate) {
     // the person's regular shift on the day they now work; the roster entry marks that day as working
     const base = await shiftsFor(tx, r.employee_id, r.payload.workDate, r.payload.workDate);
@@ -188,7 +206,7 @@ export type MyRequest = { id: string; kind: string; from_date: string; to_date: 
 export async function myRequests(tx: Tx, employeeId: string) {
   return tx<MyRequest[]>`
     select id, kind, from_date::text, to_date::text, payload, reason, status, created_at from attendance_requests
-    where employee_id = ${employeeId} and kind in ('regularization','partial_day','wfh','on_duty','overtime','shift_change','weekly_off_change') order by created_at desc limit 200`;
+    where employee_id = ${employeeId} and kind in ('regularization','partial_day','wfh','on_duty','overtime','shift_change','weekly_off_change','remote_clock_in') order by created_at desc limit 200`;
 }
 
 /** Monthly usage so the request forms can show what's left, plus what the person may ask for (overtime, shift changes). */

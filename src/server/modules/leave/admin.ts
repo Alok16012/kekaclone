@@ -149,6 +149,8 @@ export const ruleInput = z.object({
     day: z.number().int().min(1).max(28),
     prorate_joining: z.boolean(),
     stop_in_probation: z.boolean(),
+    cap_balance: num(999).nullable().optional(),
+    stop_after_days_taken: num(999).nullable().optional(),
   }),
   application: z.object({
     allowHalfDay: z.boolean(),

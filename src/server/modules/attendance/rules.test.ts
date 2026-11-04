@@ -228,6 +228,17 @@ describe("capture rules", () => {
     expect(checkPunch(policy, fences, { ip: "1.2.3.4", lat: 13.0716, lng: 77.5946, remoteToday: false })).toMatchObject({ ok: false, code: "outside", message: expect.stringMatching(/11\.1 km from Head office/) });
     expect(checkPunch(policy, fences, { ip: "1.2.3.4", remoteToday: true })).toMatchObject({ ok: true });
   });
+  it("location clock-ins need a fresh, precise fix and a selfie when the policy asks", () => {
+    const strict: CapturePolicy = { ...policy, mobile: { ...policy.mobile, accuracy_m: 100, selfie: true } };
+    const here = { ip: "1.2.3.4", lat: 12.9717, lng: 77.5947, remoteToday: false };
+    expect(checkPunch(strict, fences, { ...here, fixAgeMs: 90_000, hasSelfie: true })).toMatchObject({ ok: false, code: "stale" });
+    expect(checkPunch(strict, fences, { ...here, accuracy: 350, hasSelfie: true })).toMatchObject({ ok: false, code: "accuracy", message: expect.stringMatching(/350 m/) });
+    expect(checkPunch(strict, fences, { ...here, accuracy: 20 })).toMatchObject({ ok: false, code: "selfie" });
+    expect(checkPunch(strict, fences, { ...here, accuracy: 20, fixAgeMs: 2000, hasSelfie: true })).toMatchObject({ ok: true, source: "mobile", fenceId: "a" });
+    // the office network and remote days never need any of it
+    expect(checkPunch(strict, fences, { ip: "10.2.3.4", remoteToday: false })).toMatchObject({ ok: true, source: "web" });
+    expect(checkPunch(strict, fences, { ip: "1.2.3.4", remoteToday: true })).toMatchObject({ ok: true });
+  });
   it("web off / no fences / comment required", () => {
     expect(checkPunch({ ...policy, mobile: { enabled: false, geofence_ids: [] } }, [], { ip: "1.2.3.4", remoteToday: false })).toMatchObject({ code: "ip" });
     expect(checkPunch({ ...policy, web: { enabled: false, ip_ranges: [] }, mobile: { enabled: false, geofence_ids: [] } }, [], { ip: "10.0.0.1", remoteToday: false })).toMatchObject({ code: "web_off" });

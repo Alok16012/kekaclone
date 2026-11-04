@@ -16,7 +16,9 @@ export const NOTIFICATION_EVENTS: EventGroup[] = [
   ] },
   { group: "Leave and attendance", events: [
     { key: "leave.fyi", label: "A colleague is going on leave (FYI)", defaults: ["in_app"] },
-    { key: "leave.adjusted", label: "Your leave balance was adjusted", defaults: ["in_app", "email"] },
+    { key: "leave.adjusted", label: "Your leave balance was adjusted or leave was granted for an event", defaults: ["in_app", "email"] },
+    { key: "leave.on_behalf", label: "Someone applied for leave on your behalf", defaults: ["in_app", "email"] },
+    { key: "attendance.clock_in_review", label: "Your first clock-in from a new device is waiting for approval", defaults: ["in_app"] },
     { key: "attendance.overtime", label: "Overtime settled into payroll or comp-off", defaults: ["in_app", "email"] },
     { key: "attendance.roster", label: "Your shift roster changed", defaults: ["in_app"] },
   ] },

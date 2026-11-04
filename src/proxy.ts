@@ -20,6 +20,7 @@ export function proxy(req: NextRequest) {
   const isPublic = path === "/login" || path === "/forgot-password" || path.startsWith("/auth/") || path.startsWith("/api/") || path.startsWith("/_next")
     || path.startsWith("/verify/id/")   // ID-card QR check: tenant from the subdomain, signed token, minimal answer
     || path === "/offline" || path === "/manifest.webmanifest" || path === "/sw.js" || path.startsWith("/icons/") || path.startsWith("/brand/")
+    || path.startsWith("/iclock/")   // ZKTeco / eSSL ADMS push: device identified by its registered serial, tenant from the subdomain
     || path.startsWith("/join/")   // joiner portal: token checked inside the subdomain's company
     || path === "/careers" || path.startsWith("/careers/") || path.startsWith("/p/")   // hiring: public careers page and candidate / interviewer token links
     || path.startsWith("/sign/")   // erp Sign: signer token links (tenant from the subdomain, token checked inside)

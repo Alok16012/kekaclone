@@ -43,11 +43,13 @@
     "jobs:hire": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-hire.ts",
     "smoke:performance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-performance.ts",
     "jobs:performance": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-performance.ts",
-    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links && pnpm smoke:corehr && pnpm smoke:saas && pnpm smoke:time2 && pnpm smoke:onboarding && pnpm smoke:hire && pnpm smoke:performance && pnpm smoke:workspace && pnpm smoke:docs2",
+    "smoke:all": "pnpm smoke && pnpm smoke:platform && pnpm smoke:leave && pnpm smoke:attendance && pnpm smoke:exitdocs && pnpm smoke:engage && pnpm smoke:payfoundation && pnpm smoke:statutory && pnpm smoke:expenses && pnpm smoke:servicedesk && pnpm smoke:payrun && pnpm smoke:taxloans && pnpm smoke:payroll-links && pnpm smoke:corehr && pnpm smoke:saas && pnpm smoke:time2 && pnpm smoke:onboarding && pnpm smoke:hire && pnpm smoke:performance && pnpm smoke:workspace && pnpm smoke:docs2 && pnpm smoke:time3",
     "smoke:workspace": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-workspace.ts",
     "smoke:docs2": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-docs2.ts",
     "jobs:learn": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-learn.ts",
-    "jobs:reports": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-reports.ts"
+    "jobs:reports": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-reports.ts",
+    "jobs:scheduler": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/jobs-scheduler.ts",
+    "smoke:time3": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-time3.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

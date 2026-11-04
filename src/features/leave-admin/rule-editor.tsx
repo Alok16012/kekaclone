@@ -61,6 +61,8 @@ export function RuleEditor({ rule, onClose }: { rule: RuleRow; onClose: () => vo
   const [day, setDay] = React.useState<number | undefined>(n(acc.day) ?? 1);
   const [prorate, setProrate] = React.useState(acc.prorate_joining !== false);
   const [stopProbation, setStopProbation] = React.useState(!!acc.stop_in_probation);
+  const [capBalance, setCapBalance] = React.useState<number | undefined>(typeof acc.cap_balance === "number" ? acc.cap_balance : undefined);
+  const [stopAfterTaken, setStopAfterTaken] = React.useState<number | undefined>(typeof acc.stop_after_days_taken === "number" ? acc.stop_after_days_taken : undefined);
   const [halfDay, setHalfDay] = React.useState(!!app.allowHalfDay);
   const [notice, setNotice] = React.useState(n(app.noticeDays));
   const [pastAllowed, setPastAllowed] = React.useState(app.backdateDays !== null);
@@ -85,7 +87,7 @@ export function RuleEditor({ rule, onClose }: { rule: RuleRow; onClose: () => vo
     setError(null);
     const r = await saveRuleAction(rule.id, {
       quota: isCompOff || unlimited ? null : quota ?? 0,
-      accrual: { frequency, day: day ?? 1, prorate_joining: prorate, stop_in_probation: stopProbation },
+      accrual: { frequency, day: day ?? 1, prorate_joining: prorate, stop_in_probation: stopProbation, cap_balance: capBalance ?? null, stop_after_days_taken: stopAfterTaken ?? null },
       application: {
         allowHalfDay: halfDay, noticeDays: notice, backdateDays: pastAllowed ? backdate ?? 0 : null, maxConsecutiveDays: maxDays, negativeLimit: negative,
         attachmentAfterDays: attach, sandwich: { enabled: sandwich, ignoreHalfDays: sandwich && ignoreHalf },
@@ -124,6 +126,10 @@ export function RuleEditor({ rule, onClose }: { rule: RuleRow; onClose: () => vo
                   {frequency !== "upfront" && <NumberField label="On day of the month" value={day} onChange={setDay} step={1} max={28} suffix="" help="1 to 28. Joining-date plans credit on each period's start instead." />}
                   <Switch label="Prorate for people who join mid-year" checked={prorate} onCheckedChange={setProrate} />
                   <Switch label="Pause accrual while on probation" checked={stopProbation} onCheckedChange={setStopProbation} />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <NumberField label="Stop accruing above" value={capBalance} onChange={setCapBalance} max={999} help="Balance cap in days. Credits that would push the balance over it lapse. Empty for no cap." />
+                    <NumberField label="Stop after taking" value={stopAfterTaken} onChange={setStopAfterTaken} max={999} help="Days taken in a leave year after which nothing more accrues that year. Empty for no limit." />
+                  </div>
                 </>
               )}
             </>

@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CalendarPlus } from "lucide-react";
+import { CalendarPlus, UserRoundPlus } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Modal } from "@/ui/overlay";
 import { Field, Textarea } from "@/ui/field";
@@ -12,7 +12,9 @@ import { Calendar, type DayMark, type Range } from "@/ui/calendar";
 import { EmployeePicker, type Person } from "@/ui/employee-picker";
 import { toast } from "@/ui/toast";
 import { applyLeaveAction, previewLeaveAction } from "@/app/(app)/actions";
+import { applyLeaveForAction, leaveFormForAction, previewLeaveForAction } from "@/app/(app)/me/leave/actions";
 import type { DayPart } from "@/server/modules/leave/rules";
+import type { OnBehalfCandidate } from "@/server/modules/leave/service";
 
 export type LeaveTypeOption = { id: string; name: string; available: number | null; allowHalfDay: boolean };
 type Preview = { days: number; violations: { code: string; message: string; blocking: boolean }[]; breakdown: { date: string; why: string }[]; available: number | null };
@@ -20,7 +22,11 @@ type Preview = { days: number; violations: { code: string; message: string; bloc
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const fmtDays = (n: number) => `${Number.isInteger(n) ? n : n.toFixed(1)} ${n === 1 ? "day" : "days"}`;
 
-export function ApplyLeave({ types, marks, people, trigger, defaultOpen = false }: { types: LeaveTypeOption[]; marks: Record<string, DayMark>; people: Person[]; trigger?: React.ReactNode; defaultOpen?: boolean }) {
+export function ApplyLeave({ types, marks, people, trigger, defaultOpen = false, forPerson, onDone }: {
+  types: LeaveTypeOption[]; marks: Record<string, DayMark>; people: Person[]; trigger?: React.ReactNode; defaultOpen?: boolean;
+  /** HR / manager applying for someone else: a note is required and the person is told */
+  forPerson?: { id: string; name: string }; onDone?: () => void;
+}) {
   const [open, setOpen] = React.useState(defaultOpen);
   const router = useRouter();
   const [typeId, setTypeId] = React.useState<string | undefined>(types[0]?.id);
@@ -43,7 +49,7 @@ export function ApplyLeave({ types, marks, people, trigger, defaultOpen = false 
   React.useEffect(() => {
     if (!typeId || !from || !to) return;
     const t = setTimeout(() => startCheck(async () => {
-      const r = await previewLeaveAction({ leaveTypeId: typeId, from, to, ...parts });
+      const r = forPerson ? await previewLeaveForAction(forPerson.id, { leaveTypeId: typeId, from, to, ...parts }) : await previewLeaveAction({ leaveTypeId: typeId, from, to, ...parts });
       setPreview(r.ok ? (r.data as Preview) : null);
     }), 150);
     return () => clearTimeout(t);
@@ -54,17 +60,19 @@ export function ApplyLeave({ types, marks, people, trigger, defaultOpen = false 
   const blocking = preview?.violations.filter((v) => v.blocking) ?? [];
   const warnings = preview?.violations.filter((v) => !v.blocking) ?? [];
   const sandwich = preview?.breakdown.filter((d) => d.why === "sandwich").length ?? 0;
-  const canSubmit = !!typeId && !!from && !!preview && blocking.length === 0 && !checking;
+  const canSubmit = !!typeId && !!from && !!preview && blocking.length === 0 && !checking && (!forPerson || note.trim().length > 0);
 
   const submit = () => startSubmit(async () => {
-    const r = await applyLeaveAction({ leaveTypeId: typeId!, from: from!, to: to!, ...parts, note: note || undefined, notify });
+    const input = { leaveTypeId: typeId!, from: from!, to: to!, ...parts, note: note || undefined, notify };
+    const r = forPerson ? await applyLeaveForAction(forPerson.id, input) : await applyLeaveAction(input);
     if (!r.ok) { toast.error(r.error); return; }
-    toast.success(r.data!.status === "approved" ? "Leave approved" : "Leave requested", { description: r.data!.status === "approved" ? "No approver is set up for you, so it was approved right away." : "Your manager has been notified." });
-    setOpen(false); reset();
+    if (forPerson) toast.success(r.data!.status === "approved" ? `Leave applied and approved for ${forPerson.name}` : `Leave applied for ${forPerson.name}`, { description: r.data!.status === "approved" ? "They've been told." : "They've been told; the rest of the approval chain still reviews it." });
+    else toast.success(r.data!.status === "approved" ? "Leave approved" : "Leave requested", { description: r.data!.status === "approved" ? "No approver is set up for you, so it was approved right away." : "Your manager has been notified." });
+    setOpen(false); reset(); onDone?.();
   });
 
   return (
-    <Modal open={open} onOpenChange={(o) => { setOpen(o); if (!o) { reset(); if (defaultOpen) router.replace("/me/leave", { scroll: false }); } }} size="lg" title="Apply for leave"
+    <Modal open={open} onOpenChange={(o) => { setOpen(o); if (!o) { reset(); if (defaultOpen && !forPerson) router.replace("/me/leave", { scroll: false }); onDone?.(); } }} size="lg" title={forPerson ? `Apply for leave for ${forPerson.name}` : "Apply for leave"}
       description={type ? (type.available == null ? `${type.name} · no limit` : `${type.name} · ${fmtDays(type.available)} available`) : undefined}
       trigger={trigger ?? <Button><CalendarPlus />Apply leave</Button>}
       footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={submit} disabled={!canSubmit} loading={submitting}>Request {preview && from ? fmtDays(preview.days) : "leave"}</Button></>}>
@@ -96,10 +104,42 @@ export function ApplyLeave({ types, marks, people, trigger, defaultOpen = false 
               {warnings.map((v) => <Banner key={v.code} tone="warning">{v.message}</Banner>)}
             </div>
           )}
-          <Field label="Note for your manager"><Textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} placeholder="Optional" /></Field>
-          <Field label="Also let these people know" help="They get a notification. They don't need to approve."><EmployeePicker multiple people={people} value={notify} onChange={setNotify} /></Field>
+          {forPerson ? (
+            <Field label="Why you're applying for them" required help="Shown to them and to the approvers, and kept in the audit log."><Textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} placeholder="e.g. Called in sick this morning, asked me to apply" /></Field>
+          ) : (
+            <Field label="Note for your manager"><Textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} placeholder="Optional" /></Field>
+          )}
+          {!forPerson && <Field label="Also let these people know" help="They get a notification. They don't need to approve."><EmployeePicker multiple people={people} value={notify} onChange={setNotify} /></Field>}
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Manager / HR entry point: pick a person (direct reports, or anyone in the leave-admin scope), then the usual form for them. */
+export function ApplyLeaveFor({ candidates }: { candidates: OnBehalfCandidate[] }) {
+  const [picking, setPicking] = React.useState(false);
+  const [who, setWho] = React.useState<string[]>([]);
+  const [loaded, setLoaded] = React.useState<{ person: { id: string; name: string }; types: LeaveTypeOption[]; marks: Record<string, DayMark> } | null>(null);
+  const [loading, start] = React.useTransition();
+  const router = useRouter();
+  const people: Person[] = candidates.map((c) => ({ id: c.id, name: c.name, title: c.title, department: c.department }));
+  const next = () => start(async () => {
+    const id = who[0];
+    const r = await leaveFormForAction(id);
+    if (!r.ok) { toast.error(r.error); return; }
+    setPicking(false);
+    setLoaded({ person: { id, name: r.data!.name }, types: r.data!.types, marks: r.data!.marks });
+  });
+  if (!candidates.length) return null;
+  return (
+    <>
+      <Modal open={picking} onOpenChange={(o) => { setPicking(o); if (!o) setWho([]); }} title="Apply for leave on someone's behalf" description="For your reports, or anyone you administer leave for. They'll be told, and the approval chain still runs."
+        trigger={<Button variant="secondary"><UserRoundPlus />Apply for someone</Button>}
+        footer={<><Button variant="secondary" onClick={() => setPicking(false)}>Cancel</Button><Button onClick={next} disabled={!who.length} loading={loading}>Continue</Button></>}>
+        <Field label="Person" required><EmployeePicker people={people} value={who} onChange={(v) => setWho(v.slice(-1))} /></Field>
+      </Modal>
+      {loaded && <ApplyLeave key={loaded.person.id} types={loaded.types} marks={loaded.marks} people={[]} forPerson={loaded.person} defaultOpen trigger={<span hidden />} onDone={() => { setLoaded(null); router.refresh(); }} />}
+    </>
   );
 }

@@ -20,7 +20,25 @@ async function audit(tx: Tx, actor: Actor, id: string, action: string, diff: unk
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff) values (${actor.tenant.id}, ${actor.userId}, 'device', ${id}, ${action}, ${tx.json(diff as never)})`;
 }
 
-export type DeviceRow = { id: string; name: string; vendor: string; serial: string; location: string | null; location_id: string | null; last_seen_at: string | null; last_seen_ago: string; online: boolean; punches_today: number; punches_total: number; created_at: string };
+export type DeviceRow = {
+  id: string; name: string; vendor: string; serial: string; location: string | null; location_id: string | null; last_seen_at: string | null; last_seen_ago: string; online: boolean;
+  punches_today: number; punches_total: number; created_at: string;
+  /** 'json' = our push API with a key; 'adms' = ZKTeco / eSSL push (device identified by serial, local time in `timezone`, clock running `clock_offset_seconds` fast) */
+  protocol: "json" | "adms"; timezone: string; clock_offset_seconds: number; last_error: string | null;
+};
+
+export type DeviceInput = { name: string; serial: string; vendor: string; locationId: string | null; protocol?: "json" | "adms"; timezone?: string; clockOffsetSeconds?: number };
+
+const validTz = (tz: string) => { try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return true; } catch { return false; } };
+function settingsOf(input: DeviceInput) {
+  const protocol = input.protocol ?? "json";
+  if (protocol !== "json" && protocol !== "adms") throw new AppError("invalid", "Choose how the device pushes: our JSON API or ADMS.");
+  const timezone = (input.timezone ?? "Asia/Kolkata").trim();
+  if (!validTz(timezone)) throw new AppError("invalid", "That isn't a time zone erp knows, e.g. Asia/Kolkata.", "timezone");
+  const offset = input.clockOffsetSeconds ?? 0;
+  if (!Number.isInteger(offset) || Math.abs(offset) > 86400) throw new AppError("invalid", "The clock offset is in whole seconds, within a day either way.", "clockOffsetSeconds");
+  return { protocol, timezone, offset };
+}
 
 const ago = (d: Date, now: Date) => {
   const s = Math.round((now.getTime() - d.getTime()) / 1000);
@@ -29,7 +47,7 @@ const ago = (d: Date, now: Date) => {
 
 export async function listDevices(tx: Tx, today: ISODate): Promise<DeviceRow[]> {
   const rows = await tx<(Omit<DeviceRow, "last_seen_at" | "created_at" | "last_seen_ago" | "online"> & { last_seen_at: Date | null; created_at: Date })[]>`
-    select d.id, d.name, d.vendor, d.serial, l.name as location, d.location_id, d.last_seen_at, d.created_at,
+    select d.id, d.name, d.vendor, d.serial, l.name as location, d.location_id, d.last_seen_at, d.created_at, d.protocol, d.timezone, d.clock_offset_seconds, d.last_error,
       (select count(*)::int from punches p where p.device_id = d.id and p.at >= (${today}::date)::timestamp at time zone 'Asia/Kolkata') as punches_today,
       (select count(*)::int from punches p where p.device_id = d.id) as punches_total
     from devices d left join locations l on l.id = d.location_id order by d.created_at, d.id`;
@@ -43,10 +61,11 @@ export async function listDevices(tx: Tx, today: ISODate): Promise<DeviceRow[]> 
 const newSecret = () => randomBytes(32).toString("base64url");
 
 /** Adds a device and returns its key once. The key is never readable again; rotate it if it's lost. */
-export async function createDevice(tx: Tx, actor: Actor, input: { name: string; serial: string; vendor: string; locationId: string | null }) {
+export async function createDevice(tx: Tx, actor: Actor, input: DeviceInput) {
   assertPolicies(actor);
   const err = validateDevice(input);
   if (err) throw new AppError("invalid", err);
+  const { protocol, timezone, offset } = settingsOf(input);
   if (input.locationId) {
     const [l] = await tx`select 1 from locations where id = ${input.locationId}`;
     if (!l) throw new AppError("not_found", "That location no longer exists.");
@@ -55,27 +74,29 @@ export async function createDevice(tx: Tx, actor: Actor, input: { name: string; 
   let row: { id: string }[];
   try {
     row = await tx.savepoint((sp) => sp<{ id: string }[]>`
-      insert into devices (tenant_id, location_id, name, vendor, serial, api_key_hash) values (${actor.tenant.id}, ${input.locationId}, ${input.name.trim()}, ${input.vendor}, ${input.serial.trim()}, ${sha256(secret)}) returning id`) as { id: string }[];
+      insert into devices (tenant_id, location_id, name, vendor, serial, api_key_hash, protocol, timezone, clock_offset_seconds)
+      values (${actor.tenant.id}, ${input.locationId}, ${input.name.trim()}, ${input.vendor}, ${input.serial.trim()}, ${sha256(secret)}, ${protocol}, ${timezone}, ${offset}) returning id`) as { id: string }[];
   } catch (e) {
     if ((e as { code?: string }).code === "23505") throw new AppError("conflict", "A device with this serial number already exists.", "serial");
     throw e;
   }
-  await audit(tx, actor, row[0].id, "create", { name: input.name.trim(), serial: input.serial.trim(), vendor: input.vendor });
-  return { id: row[0].id, key: formatDeviceKey(row[0].id, secret) };
+  await audit(tx, actor, row[0].id, "create", { name: input.name.trim(), serial: input.serial.trim(), vendor: input.vendor, protocol, timezone, offset });
+  return { id: row[0].id, key: formatDeviceKey(row[0].id, secret) };   // ADMS devices never use it, but it's harmless to have one
 }
 
-export async function updateDevice(tx: Tx, actor: Actor, id: string, input: { name: string; vendor: string; locationId: string | null }) {
+export async function updateDevice(tx: Tx, actor: Actor, id: string, input: Omit<DeviceInput, "serial">) {
   assertPolicies(actor);
   const [d] = await tx<{ serial: string }[]>`select serial from devices where id = ${id}`;
   if (!d) throw new AppError("not_found", "This device no longer exists.");
   const err = validateDevice({ ...input, serial: d.serial });
   if (err) throw new AppError("invalid", err);
+  const { protocol, timezone, offset } = settingsOf({ ...input, serial: d.serial });
   if (input.locationId) {
     const [l] = await tx`select 1 from locations where id = ${input.locationId}`;
     if (!l) throw new AppError("not_found", "That location no longer exists.");
   }
-  await tx`update devices set name = ${input.name.trim()}, vendor = ${input.vendor}, location_id = ${input.locationId} where id = ${id}`;
-  await audit(tx, actor, id, "update", input);
+  await tx`update devices set name = ${input.name.trim()}, vendor = ${input.vendor}, location_id = ${input.locationId}, protocol = ${protocol}, timezone = ${timezone}, clock_offset_seconds = ${offset} where id = ${id}`;
+  await audit(tx, actor, id, "update", { ...input, protocol, timezone, offset });
 }
 
 /** New key for a device that lost or leaked its old one. The old key stops working at once. */
@@ -145,4 +166,22 @@ export async function ingestPunches(tx: Tx, device: AuthedDevice, items: PunchIt
   for (const [employeeId, dates] of affected) for (const d of dates) { await processAttendance(tx, device.tenant_id, employeeId, d, { now }); result.processedDays++; }
   await tx`update devices set last_seen_at = ${now} where id = ${device.id}`;
   return result;
+}
+
+// ---------------------------------------------------------------- ADMS (ZKTeco / eSSL push)
+
+export type AdmsDevice = AuthedDevice & { timezone: string; clock_offset_seconds: number };
+
+/**
+ * An ADMS device is known by its serial number alone (the protocol has no secret), so only serials an admin has added
+ * with protocol 'adms' are accepted, and only inside the tenant resolved from the host the device was pointed at.
+ */
+export async function deviceBySerial(tx: Tx, serial: string): Promise<AdmsDevice | null> {
+  const [d] = await tx<AdmsDevice[]>`select id, name, tenant_id, timezone, clock_offset_seconds from devices where serial = ${serial} and protocol = 'adms'`;
+  return d ?? null;
+}
+
+/** Marks the device as seen (handshake / poll) without any punches. */
+export async function touchDevice(tx: Tx, deviceId: string, now = new Date(), error: string | null = null) {
+  await tx`update devices set last_seen_at = ${now}, last_error = ${error} where id = ${deviceId}`;
 }
