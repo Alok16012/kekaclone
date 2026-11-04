@@ -61,7 +61,7 @@ const en = {
   "att.withdraw_title": "Withdraw this request?", "att.withdraw_desc": "{title}, {detail}. Your manager won't need to review it anymore.", "att.withdraw": "Withdraw", "att.withdrawn": "Request withdrawn",
   "att.status.present": "Present", "att.status.absent": "Absent", "att.status.leave": "On leave", "att.status.half_leave": "Half-day leave", "att.status.half_day": "Half day", "att.status.wfh": "Work from home",
   "att.status.on_duty": "On duty", "att.status.weekly_off": "Weekly off", "att.status.half_weekly_off": "Half weekly off", "att.status.holiday": "Holiday", "att.status.today": "Today", "att.status.upcoming": "Upcoming", "att.status.not_joined": "Not with us yet",
-  "att.kind.regularization": "Regularize", "att.kind.partial_day": "Partial day", "att.kind.wfh": "Work from home", "att.kind.on_duty": "On duty", "att.kind.overtime": "Overtime", "att.kind.shift_change": "Shift change", "att.kind.weekly_off_change": "Weekly off swap",
+  "att.kind.regularization": "Regularize", "att.kind.partial_day": "Partial day", "att.kind.wfh": "Work from home", "att.kind.on_duty": "On duty", "att.kind.overtime": "Overtime", "att.kind.shift_change": "Shift change", "att.kind.weekly_off_change": "Weekly off swap", "att.kind.remote_clock_in": "New device clock-in",
   // inbox
   "inbox.title": "Inbox", "inbox.waiting": "{count, plural, one {# request is waiting for your decision.} other {# requests are waiting for your decision.}}",
   "inbox.empty_title": "Nothing waiting for you", "inbox.empty": "Requests that need your decision.", "inbox.handover": "Going away? Hand over",
@@ -121,7 +121,7 @@ const hi: Partial<Record<MessageKey, string>> = {
   "att.withdraw_title": "यह अनुरोध वापस लें?", "att.withdraw_desc": "{title}, {detail}। आपके मैनेजर को अब इसकी समीक्षा नहीं करनी होगी।", "att.withdraw": "वापस लें", "att.withdrawn": "अनुरोध वापस लिया गया",
   "att.status.present": "उपस्थित", "att.status.absent": "अनुपस्थित", "att.status.leave": "छुट्टी पर", "att.status.half_leave": "आधे दिन की छुट्टी", "att.status.half_day": "आधा दिन", "att.status.wfh": "घर से काम",
   "att.status.on_duty": "ऑन ड्यूटी", "att.status.weekly_off": "साप्ताहिक अवकाश", "att.status.half_weekly_off": "आधा साप्ताहिक अवकाश", "att.status.holiday": "छुट्टी का दिन", "att.status.today": "आज", "att.status.upcoming": "आने वाला", "att.status.not_joined": "अभी जुड़े नहीं",
-  "att.kind.regularization": "नियमितीकरण", "att.kind.partial_day": "आंशिक दिन", "att.kind.wfh": "घर से काम", "att.kind.on_duty": "ऑन ड्यूटी", "att.kind.overtime": "ओवरटाइम", "att.kind.shift_change": "शिफ़्ट बदलाव", "att.kind.weekly_off_change": "साप्ताहिक अवकाश बदलाव",
+  "att.kind.regularization": "नियमितीकरण", "att.kind.partial_day": "आंशिक दिन", "att.kind.wfh": "घर से काम", "att.kind.on_duty": "ऑन ड्यूटी", "att.kind.overtime": "ओवरटाइम", "att.kind.shift_change": "शिफ़्ट बदलाव", "att.kind.weekly_off_change": "साप्ताहिक अवकाश बदलाव", "att.kind.remote_clock_in": "नए डिवाइस से क्लॉक-इन",
   "inbox.title": "इनबॉक्स", "inbox.waiting": "{count, plural, one {# अनुरोध आपके निर्णय का इंतज़ार कर रहा है।} other {# अनुरोध आपके निर्णय का इंतज़ार कर रहे हैं।}}",
   "inbox.empty_title": "आपके लिए कुछ लंबित नहीं", "inbox.empty": "ऐसे अनुरोध जिन पर आपका निर्णय चाहिए।", "inbox.handover": "बाहर जा रहे हैं? ज़िम्मेदारी सौंपें",
   "inbox.approve": "मंज़ूर करें", "inbox.decline": "अस्वीकार करें", "inbox.comment": "टिप्पणी (वैकल्पिक)",
