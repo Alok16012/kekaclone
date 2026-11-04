@@ -11,7 +11,7 @@ import { Segmented } from "@/ui/choice";
 import { Banner, EmptyState, Progress, Skeleton } from "@/ui/feedback";
 import { toast } from "@/ui/toast";
 import { batchDetailAction, bulkRecipientsAction, continueBatchAction, createBatchAction } from "@/app/(app)/org/documents/actions";
-import { MAX_BATCH } from "@/server/modules/documents/bulk";
+import { MAX_BATCH } from "@/server/modules/documents/rules";
 
 export type BatchListRow = { id: string; template_name: string; status: "queued" | "running" | "done" | "failed"; total: number; done: number; failed: number; zip_file_id: string | null; created_by_name: string | null; created_at: string; finished_at: string | null; error: string | null };
 type Option = { value: string; label: string };

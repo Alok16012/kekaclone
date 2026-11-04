@@ -71,6 +71,9 @@ export function safeFileName(name: string) {
   return clean.slice(0, 120 - ext.length) + ext;
 }
 
+/** Bulk letters: the most people one batch may cover (the UI and the server share the limit). */
+export const MAX_BATCH = 500;
+
 // ---------- letter templates ----------
 export const PLACEHOLDERS = [
   { key: "employee.name", label: "Full name", sample: "Ananya Sharma" },

@@ -3,7 +3,7 @@ import { AppError, withTenant, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
 import { saveFile, storage } from "@/server/storage";
-import { safeFileName } from "./rules";
+import { MAX_BATCH, safeFileName } from "./rules";
 import { DOCS } from "./service";
 import { issueLetter } from "./letters";
 import { buildZip } from "./zip";
@@ -13,8 +13,8 @@ import { buildZip } from "./zip";
  * each run in their own transaction, so a 500-person batch survives a timeout or a crash: whatever is left is
  * picked up by the next call (the action continues it, and the daily job finishes any batch still queued).
  */
+export { MAX_BATCH };
 export type BatchFilters = { departmentIds?: string[]; locationIds?: string[]; designationIds?: string[]; legalEntityIds?: string[]; status?: "active" | "notice" | "working"; employeeIds?: string[] };
-export const MAX_BATCH = 500;
 const CHUNK = 20;
 
 export function cleanFilters(raw: unknown): BatchFilters {
