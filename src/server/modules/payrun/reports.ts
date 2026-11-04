@@ -5,7 +5,8 @@ import type { Actor } from "@/server/auth/session";
 import { audit } from "@/server/modules/audit/service";
 import { assertRunPayroll } from "./access";
 import { getRun } from "./engine";
-import { csv, ecrLine, LINE_ACTION_LABEL, monthLabel, rupees, slipped, type LineAction, type PayItem, type StatutoryDetail } from "./rules";
+import { csv, ecrLine, LINE_ACTION_LABEL, monthEnd, monthLabel, rupees, slipped, type LineAction, type PayItem, type StatutoryDetail } from "./rules";
+import { journalLines, journalTotals, tallyJournalXml, zohoJournalCsv } from "./accounting";
 
 const N = (v: bigint | number | null | undefined) => (v == null ? 0 : Number(v));
 type Line = {
@@ -128,4 +129,42 @@ export async function journal(tx: Tx, actor: Actor, runId: string) {
     text: csv([["Account", "Debit (INR)", "Credit (INR)"], ...debits.map((r) => [r.account, rupees(r.paise), ""]), ...credits.map((r) => [r.account, "", rupees(r.paise)]), ["Total", rupees(td), rupees(tc)]]),
     name: `journal-${run.period_month.slice(0, 7)}.csv`,
   };
+}
+
+/** Labour Codes check for the month: wages (basic, DA, retaining allowance) against total remuneration per person. */
+export async function labourCodeReport(tx: Tx, actor: Actor, runId: string) {
+  const { run, rows } = await lines(tx, actor, runId);
+  const body = rows.filter((l) => slipped(l.action) && l.statutory?.labourCode).map((l) => {
+    const c = l.statutory.labourCode!;
+    return { number: l.number, name: l.name, department: l.department ?? "", wagesPaise: c.wagesPaise, remunerationPaise: c.remunerationPaise, pct: c.pct, shortfallPaise: c.shortfallPaise, ok: c.ok };
+  });
+  const text = csv([["Employee number", "Name", "Department", "Wages: basic + DA + retaining (INR)", "Total remuneration (INR)", "Wages %", "Shortfall to reach 50% (INR)", "Status"],
+    ...body.map((r) => [r.number, r.name, r.department, rupees(r.wagesPaise), rupees(r.remunerationPaise), r.pct ?? "", rupees(r.shortfallPaise), r.ok ? "OK" : "Below 50%"])]);
+  await audit(tx, actor, { entityType: "payroll_run", entityId: runId, action: "payroll.report", diff: { kind: "labour_code", people: body.length, below: body.filter((r) => !r.ok).length } });
+  return { rows: body, below: body.filter((r) => !r.ok).length, text, name: `labour-code-50pct-${run.period_month.slice(0, 7)}.csv` };
+}
+
+/** GL code per component code, for the accounting exports. */
+async function glMap(tx: Tx) {
+  return Object.fromEntries((await tx<{ code: string; gl_code: string | null }[]>`select code, gl_code from salary_components`).map((c) => [c.code, c.gl_code]));
+}
+const journalInput = (rows: Line[]) => rows.filter((l) => slipped(l.action)).map((l) => ({ earnings: l.earnings ?? [], deductions: l.deductions ?? [], employer: l.employer ?? [], netPaise: N(l.net_paise) }));
+
+/** Tally journal voucher (XML import) for the month, ledgers named by GL code. */
+export async function tallyExport(tx: Tx, actor: Actor, runId: string) {
+  const { run, rows } = await lines(tx, actor, runId);
+  const jl = journalLines(journalInput(rows), await glMap(tx));
+  const [t] = await tx<{ name: string }[]>`select name from tenants where id = ${actor.tenant.id}`;
+  const out = tallyJournalXml(jl, { company: run.legal_entity || t?.name || actor.tenant.name, month: run.period_month, voucherDate: monthEnd(run.period_month) });
+  await audit(tx, actor, { entityType: "payroll_run", entityId: runId, action: "payroll.report", diff: { kind: "tally", lines: jl.length, ...journalTotals(jl) } });
+  return out;
+}
+
+/** Zoho Books manual-journal CSV for the month. */
+export async function zohoExport(tx: Tx, actor: Actor, runId: string) {
+  const { run, rows } = await lines(tx, actor, runId);
+  const jl = journalLines(journalInput(rows), await glMap(tx));
+  const out = zohoJournalCsv(jl, { month: run.period_month, voucherDate: monthEnd(run.period_month), reference: `PAYROLL-${run.period_month.slice(0, 7)}` });
+  await audit(tx, actor, { entityType: "payroll_run", entityId: runId, action: "payroll.report", diff: { kind: "zoho", lines: jl.length, ...journalTotals(jl) } });
+  return out;
 }

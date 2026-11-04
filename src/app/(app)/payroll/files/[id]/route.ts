@@ -2,6 +2,7 @@ import { z } from "zod";
 import { withTenant } from "@/server/db";
 import { getActor } from "@/server/auth/session";
 import { payrollFileFor } from "@/server/modules/payrun/payslips";
+import { claimFileFor } from "@/server/modules/payroll/claims";
 import { storage } from "@/server/storage";
 
 /**
@@ -13,7 +14,7 @@ export async function GET(req: Request, ctx: RouteContext<"/payroll/files/[id]">
   const actor = await getActor();
   if (!actor) return new Response("Sign in first.", { status: 401 });
   if (!z.uuid().safeParse(id).success) return new Response("Not found.", { status: 404 });
-  const f = await withTenant(actor.tenant.id, (tx) => payrollFileFor(tx, actor, id));
+  const f = await withTenant(actor.tenant.id, async (tx) => (await payrollFileFor(tx, actor, id)) ?? (await claimFileFor(tx, actor, id)));
   if (!f) return new Response("Not found.", { status: 404 });
   const bytes = await storage().get(f.storage_key);
   if (!bytes) return new Response("This file is no longer available.", { status: 410 });

@@ -176,6 +176,8 @@ export type LineInput = {
   /** LOP days in this month's window plus manual adjustments (for display) */
   lopDays: number;
   extras: ExtraItem[];
+  /** daily-wage / piece-rate workers: the breakup holds rates per unit and pay is rate × units entered for the month (no attendance proration) */
+  units?: { count: number; kind: "daily" | "piece" } | null;
   st: {
     pfEnabled: boolean; pfOnFullWage: boolean; epsMember: boolean; esiEnabled: boolean;
     pf: PfConfig | null; esi: EsiConfig | null; pt: PtConfig | null; lwf: LwfConfig | null; tax: IncomeTaxConfig | null;
@@ -225,6 +227,8 @@ export type StatutoryDetail = {
   tds: { fy: string; regime: "old" | "new"; annualIncomePaise: number; annualTaxPaise: number; ytdTdsPaise: number; remainingMonths: number; monthlyPaise: number; standardDeductionOnly: boolean } | null;
   taxablePaise: number;
   overrides: StatutoryOverrides;
+  /** Labour Codes: wages (basic + DA + retaining allowance) must be at least half of total remuneration */
+  labourCode?: LabourCodeCheck;
 };
 export type LineResult = {
   earnings: PayItem[]; deductions: PayItem[]; employer: PayItem[]; statutory: StatutoryDetail;
@@ -242,9 +246,10 @@ export function computeLine(i: LineInput): LineResult {
   codes.sort(byRank(i.components));
   const earnings: PayItem[] = [], employer: PayItem[] = [], deductions: PayItem[] = [];
   let pfWage = 0, esiWage = 0, taxable = 0;
+  const unitRate = i.units ? unitRates(i.segments) : null;
   for (const code of codes) {
     const m = metaFor(i.components, code);
-    const paise = prorate(code, i.segments, i.periodDays, m.lopProrated);
+    const paise = unitRate ? unitPay(unitRate[code] ?? 0, i.units!.count) : prorate(code, i.segments, i.periodDays, m.lopProrated);
     if (m.kind === "employer_contribution") {
       // PF's employer share is worked out by the statutory engine below; other employer lines are paid as structured
       if (code !== "PF_EMPLOYER" && paise) employer.push({ code, label: m.name, paise, kind: "employer" });
@@ -266,7 +271,10 @@ export function computeLine(i: LineInput): LineResult {
   pfWage = nonneg(pfWage); esiWage = nonneg(esiWage); taxable = nonneg(taxable);
   const gross = sum(earnings);
   const ov = i.st.overrides;
-  const statutory: StatutoryDetail = { pf: null, esi: null, pt: null, lwf: null, tds: null, taxablePaise: taxable, overrides: ov };
+  const labourCode = labourCodeCheck(earnings);
+  const statutory: StatutoryDetail = { pf: null, esi: null, pt: null, lwf: null, tds: null, taxablePaise: taxable, overrides: ov, labourCode };
+  if (i.units && i.units.count <= 0) warnings.push(`No payable ${i.units.kind === "piece" ? "pieces" : "days"} were entered for this ${i.units.kind === "piece" ? "piece-rate" : "daily-wage"} worker, so nothing is paid this month.`);
+  if (!labourCode.ok) warnings.push(`Labour Codes check: wages (basic, DA, retaining allowance) are ${labourCode.pct}% of remuneration, below the 50% the Code on Wages expects. ${inr(labourCode.shortfallPaise)} more would need to be wages.`);
   const month = Number(i.month.slice(5, 7));
 
   // PF
@@ -331,8 +339,41 @@ export function computeLine(i: LineInput): LineResult {
   if (!i.hasBank && net > 0) warnings.push("No bank account on file, so this person can't be included in a bank transfer file.");
   return {
     earnings, deductions, employer, statutory, grossPaise: gross, totalDeductionsPaise: totalDeductions, netPaise: net,
-    payableDays: i.segments.reduce((t, s) => t + s.payableDays, 0), employedDays: i.segments.reduce((t, s) => t + s.employedDays, 0), warnings,
+    payableDays: i.units ? i.units.count : i.segments.reduce((t, s) => t + s.payableDays, 0), employedDays: i.units ? i.units.count : i.segments.reduce((t, s) => t + s.employedDays, 0), warnings,
   };
+}
+
+// ---------------------------------------------------------------- daily wages and piece rate
+
+export const UNIT_WORKER_TYPES = ["daily", "piece"] as const;
+export const isUnitWorker = (workerType: string | null | undefined): workerType is "daily" | "piece" => workerType === "daily" || workerType === "piece";
+/** The rates in force at the end of the month (the last segment's breakup): rate per day or per piece. */
+export function unitRates(segments: Segment[]): Record<string, number> {
+  return segments.length ? segments[segments.length - 1].breakup : {};
+}
+/** rate × units, rounded half-up to a rupee (units may carry halves or hundredths). */
+export const unitPay = (ratePaise: number, units: number) => toRupee(B(ratePaise) * D(units), D(1));
+
+// ---------------------------------------------------------------- Labour Codes: the 50% wages rule
+
+/** Codes that count as "wages" under the Code on Wages (basic, dearness allowance, retaining allowance). */
+export const WAGE_CODES = ["BASIC", "DA", "RETAINING_ALLOWANCE", "RETAINING"] as const;
+export type LabourCodeCheck = { wagesPaise: number; remunerationPaise: number; requiredPaise: number; shortfallPaise: number; pct: number | null; ok: boolean };
+/**
+ * The Code on Wages, 2019 counts the excluded allowances only up to half of total remuneration: if they are more, the
+ * excess is treated as wages. In practice: basic + DA + retaining allowance should be at least 50% of remuneration.
+ * Remuneration here is everything paid as salary this month (arrears and LOP adjustments included); reimbursements
+ * and employer contributions aren't remuneration. An advisory check only; erp doesn't change the pay.
+ */
+export function labourCodeCheck(earnings: PayItem[], wageCodes: readonly string[] = WAGE_CODES): LabourCodeCheck {
+  const base = (c: string) => c.replace(/^(ARR|LOP)_/, "");
+  const counted = earnings.filter((e) => e.kind !== "reimbursement");
+  const remunerationPaise = Math.max(0, sum(counted));
+  const wagesPaise = Math.max(0, sum(counted.filter((e) => wageCodes.includes(base(e.code)))));
+  const requiredPaise = Math.ceil(remunerationPaise / 2);
+  const shortfallPaise = Math.max(0, requiredPaise - wagesPaise);
+  const pct = remunerationPaise > 0 ? Math.round((wagesPaise * 1000) / remunerationPaise) / 10 : null;
+  return { wagesPaise, remunerationPaise, requiredPaise, shortfallPaise, pct, ok: remunerationPaise <= 0 || wagesPaise * 2 >= remunerationPaise };
 }
 
 // ---------------------------------------------------------------- statutory helpers
@@ -478,6 +519,8 @@ export function ecrLine(r: { uan: string; name: string; grossPaise: number; epfW
 export type FnfItem = {
   key: string; label: string; side: "earning" | "deduction"; paise: number;
   action: "pay" | "void" | "paid_outside"; auto: boolean; note?: string | null;
+  /** periodic settlements: which part (1…n) pays this item; null = not placed yet */
+  part?: number | null;
 };
 /** Net settlement: earnings to pay minus deductions to recover (void and paid-outside items don't count). */
 export function fnfNet(items: FnfItem[]) {

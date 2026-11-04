@@ -7,7 +7,7 @@ import { esiCoverageMonth, fyOf, fyRange, type Gender } from "@/server/modules/s
 import { loanEmisForMonth } from "@/server/modules/loans/service";
 import { taxInputsFor } from "./tax-inputs";
 import {
-  addMonths, ageBandFor, arrearsDue, attendanceWindows, buildSegments, computeLine, dayRate, eachDate, epsMember, halfYear, isLockedStatus, metaFor, monthEnd,
+  addMonths, ageBandFor, arrearsDue, attendanceWindows, buildSegments, computeLine, dayRate, eachDate, epsMember, halfYear, isLockedStatus, isUnitWorker, metaFor, monthEnd,
   periodDays, prorate, remainingMonths, valueDays, type Basis, type ComponentMeta, type ExtraItem, type LineAction, type LineResult, type PayItem, type StatutoryOverrides,
 } from "./rules";
 
@@ -48,14 +48,14 @@ export async function bumpVersion(tx: Tx, runId: string, expected: number | null
 // ---------------------------------------------------------------- loading
 
 export type RunPerson = {
-  id: string; number: string; name: string; joining_date: string; dob: string | null; gender: string | null; status: string;
+  id: string; number: string; name: string; joining_date: string; dob: string | null; gender: string | null; status: string; worker_type: string;
   last_day: string | null; exit_status: string | null; exit_id: string | null; has_bank: boolean; has_pan: boolean; designation: string | null; department: string | null;
 };
 
 /** People in the pay group who were employed for at least a day of the month. */
 export async function runPeople(tx: Tx, payGroupId: string, month: string): Promise<RunPerson[]> {
   const rows = await tx<RunPerson[]>`
-    select e.id, e.employee_number as number, e.display_name as name, e.joining_date::text, e.dob::text, e.gender, e.status,
+    select e.id, e.employee_number as number, e.display_name as name, e.joining_date::text, e.dob::text, e.gender, e.status, e.worker_type,
       coalesce(x.last_working_date, e.exit_date)::text as last_day, x.status as exit_status, x.id as exit_id,
       exists (select 1 from employee_bank_accounts b where b.employee_id = e.id and b.is_primary) as has_bank,
       exists (select 1 from employee_identities i where i.employee_id = e.id and i.kind = 'pan') as has_pan,
@@ -271,10 +271,12 @@ export async function draftLine(tx: Tx, run: RunRow, d: PersonData, shared: Shar
         taxable: m.taxable, pfWage: m.pfWage, esiWage: m.esiWage, days: -sign * days });
     }
   };
+  let units = 0;
   for (const i of d.inputs) {
     if (i.action !== "pay" && i.action !== "partial") continue;
     const days = Number(i.days ?? 0);
     switch (i.kind) {
+      case "payable_units": units += days; break;
       case "bonus": extras.push(extra(i, "earning", { code: "BONUS", label: "Bonus", taxable: true })); break;
       case "adhoc_earning": extras.push(extra(i, "earning", { code: "ADHOC_EARNING", label: "One-time payment", taxable: true })); break;
       case "arrear": extras.push(extra(i, "earning", { code: "ARREAR", label: "Arrears", taxable: true, kind: "arrear" })); break;
@@ -316,8 +318,10 @@ export async function draftLine(tx: Tx, run: RunRow, d: PersonData, shared: Shar
   const employed = segments.reduce((t, s) => t + s.employedDays, 0), payable = segments.reduce((t, s) => t + s.payableDays, 0);
   const lopDays = Math.round((employed - payable) * 100) / 100;
   const current = sal[sal.length - 1];
+  const unitWorker = isUnitWorker(p.worker_type);
   const context = { joining: p.joining_date, lastDay: p.last_day, exitStatus: p.exit_status, currentLop: d.currentLop, rolledLop: shared.prevLocked ? d.rolledLop : 0,
-    lateLop: d.lateLop, unpaidLeaveDays: d.unpaidLeaveDays, absentNoLop: d.absentNoLop, overtimeMinutes: d.overtimeMinutes, employedDays: employed, segments: segments.length };
+    lateLop: d.lateLop, unpaidLeaveDays: d.unpaidLeaveDays, absentNoLop: d.absentNoLop, overtimeMinutes: d.overtimeMinutes, employedDays: employed, segments: segments.length,
+    workerType: p.worker_type, units: unitWorker ? units : null };
 
   if (action === "hold_processing" || action === "void") {
     const empty: LineResult = { earnings: [], deductions: [], employer: [], grossPaise: 0, totalDeductionsPaise: 0, netPaise: 0, payableDays: payable, employedDays: employed,
@@ -339,6 +343,7 @@ export async function draftLine(tx: Tx, run: RunRow, d: PersonData, shared: Shar
   const hy = halfYear(M);
   const result = computeLine({
     month: M, periodDays: period, segments, components: shared.components, lopDays, extras, hasBank: p.has_bank,
+    units: unitWorker ? { count: Math.round(units * 100) / 100, kind: p.worker_type as "daily" | "piece" } : null,
     st: {
       pfEnabled: st.pf_enabled ?? true, pfOnFullWage: st.pf_on_full_wage ?? false, epsMember: epsMember(p.dob, M), esiEnabled: st.esi_enabled ?? true,
       pf: rates.pf.config, esi: rates.esi.config, pt: rates.pt?.config ?? null, lwf: lwfRates.lwf?.config ?? null, tax: rates.incomeTax[regime].config,
@@ -349,9 +354,10 @@ export async function draftLine(tx: Tx, run: RunRow, d: PersonData, shared: Shar
       taxDeductions: tax.deductions, taxExtra: tax.extra ? { ...tax.extra, ytdEmployeePfPaise: d.ytd.pf } : null, overrides,
     },
   });
-  if (d.absentNoLop) result.warnings.push(`${d.absentNoLop} absent ${d.absentNoLop === 1 ? "day isn't" : "days aren't"} marked as loss of pay. Check attendance before you finalise.`);
+  if (unitWorker) result.warnings = result.warnings.filter((w) => !/absent|loss of pay/i.test(w));   // attendance proration doesn't apply to unit workers
+  if (d.absentNoLop && !unitWorker) result.warnings.push(`${d.absentNoLop} absent ${d.absentNoLop === 1 ? "day isn't" : "days aren't"} marked as loss of pay. Check attendance before you finalise.`);
   if (p.exit_status && p.last_day && p.last_day <= end) result.warnings.push(`Last working day ${p.last_day}: settle the rest in their full and final settlement.`);
-  return { employeeId: p.id, salaryId: current.id, action, periodDays: period, payableDays: payable, lopDays, result, context };
+  return { employeeId: p.id, salaryId: current.id, action, periodDays: unitWorker ? result.payableDays : period, payableDays: unitWorker ? result.payableDays : payable, lopDays: unitWorker ? 0 : lopDays, result, context };
 }
 
 // ---------------------------------------------------------------- the run
@@ -371,9 +377,12 @@ export async function computeRun(tx: Tx, runId: string, opts: { expectedVersion?
   await loanEmisForMonth(tx, run.pay_group_id, run.period_month);
   const [{ tenant_id }] = await tx<{ tenant_id: string }[]>`select tenant_id from payroll_runs where id = ${runId}`;
   const [prev] = await tx<{ status: string }[]>`select status from payroll_runs where pay_group_id = ${run.pay_group_id} and period_month = ${addMonths(run.period_month, -1)} and status <> 'rolled_back'`;
+  // the last month's salary is paid in a finalised settlement (or a finalised part of a periodic one) for this month
   const settled = await tx<{ employee_id: string }[]>`
-    select employee_id from fnf_settlements where status = 'finalized' and settlement_month = ${run.period_month}
-      and exists (select 1 from jsonb_array_elements(items) i where i->>'key' = 'salary' and i->>'action' in ('pay','paid_outside'))`;
+    select s.employee_id from fnf_settlements s
+    where exists (select 1 from jsonb_array_elements(s.items) i where i->>'key' = 'salary' and i->>'action' in ('pay','paid_outside'))
+      and ((s.status = 'finalized' and s.mode = 'one_time' and s.settlement_month = ${run.period_month})
+        or exists (select 1 from fnf_settlement_parts p where p.settlement_id = s.id and p.status = 'finalized' and p.settlement_month = ${run.period_month} and 'salary' = any(p.item_keys)))`;
   const shared: Shared = { components: await components(tx), rates: new Map(), prevLocked: !!prev && isLockedStatus(prev.status), tenantId: tenant_id, settledInFnf: new Set(settled.map((r) => r.employee_id)) };
   const people = await runPeople(tx, run.pay_group_id, run.period_month);
   await tx`delete from payroll_lines where run_id = ${runId}`;

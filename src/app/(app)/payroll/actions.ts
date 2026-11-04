@@ -5,6 +5,7 @@ import * as runs from "@/server/modules/payrun/runs";
 import * as slips from "@/server/modules/payrun/payslips";
 import * as pay from "@/server/modules/payrun/payments";
 import * as fnf from "@/server/modules/payrun/fnf";
+import * as imp from "@/server/modules/payrun/import";
 import { LINE_ACTIONS, STEPS, type BankFormat, type LineAction, type StepKey } from "@/server/modules/payrun/rules";
 
 const uuid = z.uuid();
@@ -105,4 +106,45 @@ export async function finalizeSettlementAction(exitId: string) {
 export async function settlementSummaryAction(exitId: string) {
   if (!isId(exitId)) return bad("Unknown exit.");
   return runAction((tx, actor) => fnf.fnfSummary(tx, actor, exitId), { refresh: false });
+}
+
+// ---------- Excel import of inputs
+async function fileFrom(form: FormData) {
+  const f = form.get("file");
+  if (!(f instanceof File) || f.size === 0) return null;
+  return f.arrayBuffer();
+}
+export async function previewInputsAction(runId: string, form: FormData) {
+  if (!isId(runId)) return bad("Unknown run.");
+  const bytes = await fileFrom(form);
+  if (!bytes) return bad("Choose an .xlsx file first.");
+  return runAction((tx, actor) => imp.previewInputImport(tx, actor, runId, bytes), { refresh: false });
+}
+export async function commitInputsAction(runId: string, form: FormData, v: number) {
+  if (!isId(runId)) return bad("Unknown run.");
+  const bytes = await fileFrom(form);
+  if (!bytes) return bad("Choose an .xlsx file first.");
+  return runAction((tx, actor) => imp.commitInputImport(tx, actor, runId, bytes, version(v)));
+}
+
+// ---------- settlement in parts
+export async function settlementModeAction(exitId: string, mode: "one_time" | "periodic") {
+  if (!isId(exitId)) return bad("Unknown exit.");
+  return runAction(async (tx, actor) => { await fnf.setSettlementMode(tx, actor, exitId, mode); });
+}
+export async function settlementPartAction(exitId: string, partNo: number, month: string) {
+  if (!isId(exitId) || typeof partNo !== "number" || typeof month !== "string") return bad("Unknown part.");
+  return runAction(async (tx, actor) => { await fnf.saveSettlementPart(tx, actor, exitId, partNo, month); });
+}
+export async function removeSettlementPartAction(exitId: string, partNo: number) {
+  if (!isId(exitId) || typeof partNo !== "number") return bad("Unknown part.");
+  return runAction(async (tx, actor) => { await fnf.removeSettlementPart(tx, actor, exitId, partNo); });
+}
+export async function settlementItemPartAction(exitId: string, key: string, partNo: number) {
+  if (!isId(exitId) || typeof key !== "string" || key.length > 120 || typeof partNo !== "number") return bad("Unknown item.");
+  return runAction(async (tx, actor) => { await fnf.assignItemPart(tx, actor, exitId, key, partNo); });
+}
+export async function finalizeSettlementPartAction(exitId: string, partNo: number) {
+  if (!isId(exitId) || typeof partNo !== "number") return bad("Unknown part.");
+  return runAction((tx, actor) => fnf.finalizeSettlementPart(tx, actor, exitId, partNo));
 }

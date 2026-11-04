@@ -36,9 +36,17 @@ async function exitRow(tx: Tx, exitId: string) {
   if (!x) throw new AppError("not_found", "Exit not found.");
   return x;
 }
-type Settlement = { id: string; status: "draft" | "approved" | "finalized"; items: FnfItem[]; net_paise: bigint | null; statement_file_id: string | null; settlement_month: string | null; updated_at: Date };
+type Settlement = { id: string; status: "draft" | "approved" | "finalized"; mode: "one_time" | "periodic"; items: FnfItem[]; net_paise: bigint | null; statement_file_id: string | null; settlement_month: string | null; updated_at: Date };
 const settlementOf = async (tx: Tx, exitId: string) =>
-  (await tx<Settlement[]>`select id, status, items, net_paise, statement_file_id, settlement_month::text, updated_at from fnf_settlements where exit_request_id = ${exitId}`)[0] ?? null;
+  (await tx<Settlement[]>`select id, status, mode, items, net_paise, statement_file_id, settlement_month::text, updated_at from fnf_settlements where exit_request_id = ${exitId}`)[0] ?? null;
+export type Part = { id: string; part_no: number; settlement_month: string; item_keys: string[]; net_paise: bigint | null; status: "draft" | "finalized"; statement_file_id: string | null; finalized_at: Date | null };
+const partsOf = (tx: Tx, settlementId: string) =>
+  tx<Part[]>`select id, part_no, settlement_month::text, item_keys, net_paise, status, statement_file_id, finalized_at from fnf_settlement_parts where settlement_id = ${settlementId} order by part_no`;
+export type PartView = { partNo: number; month: string; status: "draft" | "finalized"; net: number; fileId: string | null; finalizedAt: string | null; itemKeys: string[] };
+const partView = (items: FnfItem[]) => (p: Part): PartView => ({
+  partNo: p.part_no, month: p.settlement_month, status: p.status, fileId: p.statement_file_id, finalizedAt: p.finalized_at?.toISOString() ?? null, itemKeys: p.item_keys,
+  net: p.status === "finalized" ? N(p.net_paise) : fnfNet(items.filter((i) => i.part === p.part_no)),
+});
 
 /** Exits that need (or had) a full and final settlement, with where each one stands. */
 export async function fnfList(tx: Tx, actor: Actor) {
@@ -140,7 +148,7 @@ async function autoItems(tx: Tx, actor: Actor, x: ExitRow): Promise<{ items: Fnf
 
 export type FnfView = {
   exit: Pick<ExitRow, "id" | "status" | "kind" | "resignation_date" | "last_working_date" | "reason" | "name" | "number" | "designation" | "department" | "joining_date" | "pay_group" | "employee_id">;
-  settlement: { status: string; items: FnfItem[]; net: number; fileId: string | null; updatedAt: string } | null;
+  settlement: { status: string; mode: "one_time" | "periodic"; items: FnfItem[]; net: number; fileId: string | null; updatedAt: string; parts: PartView[] } | null;
   preview: FnfItem[]; notes: string[]; prerequisite: { ok: boolean; message: string | null }; self: boolean; canEdit: boolean;
 };
 
@@ -153,7 +161,7 @@ export async function fnfDetail(tx: Tx, actor: Actor, exitId: string): Promise<F
   return {
     exit: { id: x.id, status: x.status, kind: x.kind, resignation_date: x.resignation_date, last_working_date: x.last_working_date, reason: x.reason, name: x.name, number: x.number,
       designation: x.designation, department: x.department, joining_date: x.joining_date, pay_group: x.pay_group, employee_id: x.employee_id },
-    settlement: s ? { status: s.status, items: s.items, net: N(s.net_paise), fileId: s.statement_file_id, updatedAt: s.updated_at.toISOString() } : null,
+    settlement: s ? { status: s.status, mode: s.mode, items: s.items, net: N(s.net_paise), fileId: s.statement_file_id, updatedAt: s.updated_at.toISOString(), parts: (await partsOf(tx, s.id)).map(partView(s.items)) } : null,
     preview: auto.items, notes: auto.notes, prerequisite: await prerequisite(tx, x), self, canEdit: !self && s?.status !== "finalized" && ["in_progress", "exited"].includes(x.status),
   };
 }
@@ -163,9 +171,14 @@ async function editable(tx: Tx, actor: Actor, exitId: string) {
   const x = await exitRow(tx, exitId);
   assertNotSelf(actor, x.employee_id, "work on your own final settlement");
   if (!["in_progress", "exited"].includes(x.status)) throw new AppError("invalid", "Settlements are for exits that are under way or complete.");
-  const [s] = await tx<Settlement[]>`select id, status, items, net_paise, statement_file_id, settlement_month::text, updated_at from fnf_settlements where exit_request_id = ${exitId} for update`;
+  const [s] = await tx<Settlement[]>`select id, status, mode, items, net_paise, statement_file_id, settlement_month::text, updated_at from fnf_settlements where exit_request_id = ${exitId} for update`;
   if (s?.status === "finalized") throw new AppError("conflict", "This settlement is finalised and can't change.");
   return { x, s: s ?? null };
+}
+/** Keys of items already paid in a finalised part: they can't change any more. */
+async function frozenKeys(tx: Tx, s: Settlement | null) {
+  if (!s || s.mode !== "periodic") return new Set<string>();
+  return new Set((await partsOf(tx, s.id)).filter((p) => p.status === "finalized").flatMap((p) => p.item_keys));
 }
 async function save(tx: Tx, actor: Actor, x: ExitRow, s: Settlement | null, items: FnfItem[]) {
   const net = fnfNet(items);
@@ -182,7 +195,10 @@ export async function buildSettlement(tx: Tx, actor: Actor, exitId: string) {
   const { x, s } = await editable(tx, actor, exitId);
   const auto = await autoItems(tx, actor, x);
   const prior = new Map((s?.items ?? []).map((i) => [i.key, i]));
-  const items = [...auto.items.map((i) => { const p = prior.get(i.key); return p && i.paise > 0 ? { ...i, action: p.action } : i; }), ...(s?.items ?? []).filter((i) => !i.auto)];
+  const frozen = await frozenKeys(tx, s);
+  const items = [...auto.items.map((i) => { const p = prior.get(i.key); return p && frozen.has(i.key) ? p : p && i.paise > 0 ? { ...i, action: p.action, part: p.part ?? null } : { ...i, part: p?.part ?? null }; }), ...(s?.items ?? []).filter((i) => !i.auto)];
+  // auto items that vanished but were already paid in a part stay on the record
+  for (const [k, p] of prior) if (p.auto && frozen.has(k) && !items.some((i) => i.key === k)) items.push(p);
   const net = await save(tx, actor, x, s, items);
   await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: s ? "fnf.recalculated" : "fnf.started", diff: { items: items.length, net } });
   return { net, notes: auto.notes };
@@ -194,6 +210,7 @@ export async function setItemAction(tx: Tx, actor: Actor, exitId: string, key: s
   if (!s) throw new AppError("invalid", "Work out the settlement first.");
   const it = s.items.find((i) => i.key === key);
   if (!it) throw new AppError("not_found", "Item not found.");
+  if ((await frozenKeys(tx, s)).has(key)) throw new AppError("conflict", "This item was paid in a finalised part, so it can't change.");
   const items = s.items.map((i) => (i.key === key ? { ...i, action } : i));
   const net = await save(tx, actor, x, s, items);
   await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.item_action", diff: { key, action, net } });
@@ -222,6 +239,7 @@ export async function removeManualItem(tx: Tx, actor: Actor, exitId: string, key
   const it = s?.items.find((i) => i.key === key);
   if (!s || !it) throw new AppError("not_found", "Item not found.");
   if (it.auto) throw new AppError("invalid", "erp's own items can't be removed; mark them as not paid instead.");
+  if ((await frozenKeys(tx, s)).has(key)) throw new AppError("conflict", "This item was paid in a finalised part, so it can't be removed.");
   const net = await save(tx, actor, x, s, s.items.filter((i) => i.key !== key));
   await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.item_removed", diff: { key, net } });
   return { net };
@@ -231,6 +249,7 @@ export async function removeManualItem(tx: Tx, actor: Actor, exitId: string, key
 export async function finalizeSettlement(tx: Tx, actor: Actor, exitId: string) {
   const { x, s } = await editable(tx, actor, exitId);
   if (!s) throw new AppError("invalid", "Work out the settlement first.");
+  if (s.mode === "periodic") throw new AppError("invalid", "This settlement is paid in parts: finalise each part instead.");
   const pre = await prerequisite(tx, x);
   if (!pre.ok) throw new AppError("invalid", pre.message!);
   const lwdMonth = monthStart(x.last_working_date);
@@ -259,6 +278,118 @@ export async function finalizeSettlement(tx: Tx, actor: Actor, exitId: string) {
   await notifyEmployee(tx, actor.tenant.id, x.employee_id, "payroll.fnf", "Your full and final settlement is ready", "Open My finances to download the statement.", "/me/pay");
   await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.finalized", diff: { net, items: s.items.length } });
   return { net, fileId };
+}
+
+// ---------------------------------------------------------------- partial / periodic settlement
+
+const MAX_PARTS = 12;
+
+/** Pay the settlement in one go (the default) or in parts, each with its own month and statement. */
+export async function setSettlementMode(tx: Tx, actor: Actor, exitId: string, mode: "one_time" | "periodic") {
+  if (mode !== "one_time" && mode !== "periodic") throw new AppError("invalid", "Pick one payment or payment in parts.");
+  const { x, s } = await editable(tx, actor, exitId);
+  if (!s) throw new AppError("invalid", "Work out the settlement first.");
+  if (s.mode === mode) return;
+  const parts = await partsOf(tx, s.id);
+  if (parts.some((p) => p.status === "finalized")) throw new AppError("conflict", "A part has already been finalised, so the settlement stays in parts.");
+  if (mode === "periodic") {
+    if (!parts.length) await tx`insert into fnf_settlement_parts (tenant_id, settlement_id, part_no, settlement_month) values (${actor.tenant.id}, ${s.id}, 1, ${monthStart(x.last_working_date)})`;
+    await tx`update fnf_settlements set mode = 'periodic', items = ${tx.json(s.items.map((i) => ({ ...i, part: i.part ?? 1 })) as never)}, updated_at = now() where id = ${s.id}`;
+  } else {
+    await tx`delete from fnf_settlement_parts where settlement_id = ${s.id}`;
+    await tx`update fnf_settlements set mode = 'one_time', items = ${tx.json(s.items.map((i) => ({ ...i, part: null })) as never)}, updated_at = now() where id = ${s.id}`;
+  }
+  await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.mode", diff: { mode } });
+}
+
+/** Add a part or change the month a draft part is paid in. Months run from the last working day's month on. */
+export async function saveSettlementPart(tx: Tx, actor: Actor, exitId: string, partNo: number, month: string) {
+  if (!Number.isInteger(partNo) || partNo < 1 || partNo > MAX_PARTS) throw new AppError("invalid", `Parts are numbered 1 to ${MAX_PARTS}.`);
+  if (!/^\d{4}-(0[1-9]|1[0-2])-01$/.test(month)) throw new AppError("invalid", "Pick a month.", "month");
+  const { x, s } = await editable(tx, actor, exitId);
+  if (!s || s.mode !== "periodic") throw new AppError("invalid", "Switch the settlement to payment in parts first.");
+  if (month < monthStart(x.last_working_date)) throw new AppError("invalid", `Parts are paid from ${monthLabel(monthStart(x.last_working_date))} on.`, "month");
+  const parts = await partsOf(tx, s.id);
+  const cur = parts.find((p) => p.part_no === partNo);
+  if (cur?.status === "finalized") throw new AppError("conflict", "This part is finalised; its month can't change.");
+  if (!cur && partNo !== parts.length + 1) throw new AppError("invalid", `Add part ${parts.length + 1} next.`);
+  await tx`insert into fnf_settlement_parts (tenant_id, settlement_id, part_no, settlement_month) values (${actor.tenant.id}, ${s.id}, ${partNo}, ${month})
+           on conflict (settlement_id, part_no) do update set settlement_month = excluded.settlement_month, updated_at = now()`;
+  await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.part_saved", diff: { partNo, month } });
+}
+
+/** Remove the last draft part; its items go back to part 1. */
+export async function removeSettlementPart(tx: Tx, actor: Actor, exitId: string, partNo: number) {
+  const { x, s } = await editable(tx, actor, exitId);
+  if (!s || s.mode !== "periodic") throw new AppError("invalid", "This settlement isn't paid in parts.");
+  const parts = await partsOf(tx, s.id);
+  const last = parts[parts.length - 1];
+  if (!last || last.part_no !== partNo || partNo === 1) throw new AppError("invalid", "Only the last part can be removed, and part 1 stays.");
+  if (last.status === "finalized") throw new AppError("conflict", "This part is finalised.");
+  await tx`delete from fnf_settlement_parts where id = ${last.id}`;
+  await save(tx, actor, x, s, s.items.map((i) => (i.part === partNo ? { ...i, part: 1 } : i)));
+  await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.part_removed", diff: { partNo } });
+}
+
+/** Put an item into a part. */
+export async function assignItemPart(tx: Tx, actor: Actor, exitId: string, key: string, partNo: number) {
+  const { x, s } = await editable(tx, actor, exitId);
+  if (!s || s.mode !== "periodic") throw new AppError("invalid", "This settlement isn't paid in parts.");
+  const it = s.items.find((i) => i.key === key);
+  if (!it) throw new AppError("not_found", "Item not found.");
+  const parts = await partsOf(tx, s.id);
+  const target = parts.find((p) => p.part_no === partNo);
+  if (!target) throw new AppError("invalid", "Add that part first.");
+  if (target.status === "finalized") throw new AppError("conflict", "That part is already finalised.");
+  if ((await frozenKeys(tx, s)).has(key)) throw new AppError("conflict", "This item was paid in a finalised part.");
+  await save(tx, actor, x, s, s.items.map((i) => (i.key === key ? { ...i, part: partNo } : i)));
+  await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.item_part", diff: { key, partNo } });
+}
+
+/**
+ * Lock one part: its items are paid (loans and expense claims in it are settled), it gets its own statement, and the
+ * person is told. When every item to pay sits in a finalised part, the settlement itself is finalised.
+ */
+export async function finalizeSettlementPart(tx: Tx, actor: Actor, exitId: string, partNo: number) {
+  const { x, s } = await editable(tx, actor, exitId);
+  if (!s || s.mode !== "periodic") throw new AppError("invalid", "This settlement isn't paid in parts.");
+  const parts = await partsOf(tx, s.id);
+  const part = parts.find((p) => p.part_no === partNo);
+  if (!part) throw new AppError("not_found", "Part not found.");
+  if (part.status === "finalized") throw new AppError("conflict", "This part is already finalised.");
+  const earlier = parts.find((p) => p.part_no < partNo && p.status !== "finalized");
+  if (earlier) throw new AppError("invalid", `Finalise part ${earlier.part_no} first: parts are paid in order.`);
+  const mine = s.items.filter((i) => i.part === partNo);
+  if (!mine.some((i) => i.action === "pay" || i.action === "paid_outside")) throw new AppError("invalid", "Put at least one item to pay into this part first.");
+  if (mine.some((i) => i.key === "salary" && i.action === "pay")) {
+    const pre = await prerequisite(tx, x);
+    if (!pre.ok) throw new AppError("invalid", pre.message!);
+    const [open] = await tx<{ status: string }[]>`
+      select r.status from payroll_runs r join payroll_lines l on l.run_id = r.id
+      where r.pay_group_id = ${x.pay_group_id} and r.period_month = ${part.settlement_month} and r.status in ('draft','in_progress') and l.employee_id = ${x.employee_id} and l.action = 'process'`;
+    if (open) throw new AppError("conflict", `${x.name} is also in the ${monthLabel(part.settlement_month)} payroll run. Recalculate that run after finalising, or mark the salary here as paid separately.`);
+  }
+  const net = fnfNet(mine);
+  const [t] = await tx<{ name: string }[]>`select name from tenants where id = ${actor.tenant.id}`;
+  const today = new Date().toISOString().slice(0, 10);
+  const bytes = await renderFnfStatement({
+    company: t?.name ?? actor.tenant.name, legalEntity: x.legal_entity ?? "",
+    employee: { name: x.name, number: x.number, designation: x.designation, department: x.department, joining: x.joining_date, lastDay: x.last_working_date, reason: `${x.reason ?? "-"} · part ${partNo} of ${parts.length}, ${monthLabel(part.settlement_month)}` },
+    items: mine, net, finalizedOn: today, unverified: await ratesNeedVerification(tx),
+  });
+  const fileId = await saveFile(tx, { tenantId: actor.tenant.id, userId: actor.userId, name: `Final settlement ${x.number} part ${partNo}.pdf`, mime: "application/pdf", bytes, ext: "pdf" });
+  for (const i of mine) {
+    if (!i.key.startsWith("loan:") || i.action !== "pay" || i.paise <= 0) continue;
+    await recoverLoanInFnf(tx, actor, i.key.slice(5), { amountPaise: i.paise, paidOn: today, reference: `Final settlement ${x.number} part ${partNo}` }, today);
+  }
+  await settleClaimsInFnf(tx, actor, mine.filter((i) => i.key.startsWith("expense:") && (i.action === "pay" || i.action === "paid_outside")).map((i) => i.key.slice(8)), `Final settlement ${x.number} part ${partNo}`);
+  await tx`update fnf_settlement_parts set status = 'finalized', net_paise = ${net}, item_keys = ${mine.map((i) => i.key)}::text[], statement_file_id = ${fileId}, finalized_at = now(), updated_at = now() where id = ${part.id}`;
+  const left = s.items.filter((i) => (i.action === "pay" || i.action === "paid_outside") && i.part !== partNo && !parts.some((p) => p.status === "finalized" && p.item_keys.includes(i.key)));
+  const done = left.length === 0;
+  await tx`update fnf_settlements set ${done ? tx`status = 'finalized', settlement_month = ${part.settlement_month},` : tx``} net_paise = ${fnfNet(s.items)}, statement_file_id = ${fileId}, updated_at = now() where id = ${s.id}`;
+  await notifyEmployee(tx, actor.tenant.id, x.employee_id, "payroll.fnf", done ? "Your full and final settlement is complete" : `Part ${partNo} of your final settlement is ready`, "Open My finances to download the statement.", "/me/pay");
+  await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.part_finalized", diff: { partNo, net, items: mine.length, settlementFinalized: done } });
+  return { net, fileId, settlementFinalized: done };
 }
 
 /** For the exit drawer: where the settlement stands, and whether this person may open it. */
