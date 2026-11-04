@@ -10,10 +10,10 @@ import { deliverWebhooks } from "./service";
 
 /*
  * Approvals from Slack and Teams. When a step becomes pending, the connected channel gets a message:
- *   Slack  — Block Kit buttons whose values are signed one-use tokens; Slack posts the press to /api/chat/slack,
- *            verified with SLACK_SIGNING_SECRET (without it, the message has only an "Open in erp" link).
- *   Teams  — an Adaptive Card whose Approve / Decline buttons open a signed confirm page (/api/chat/act) in erp.
- * The token names the tenant, step and approver; acting runs the normal decide() as that approver, so the
+ *   Slack  — Block Kit link buttons (with SLACK_SIGNING_SECRET set; otherwise only "Open in erp") and
+ *   Teams  — an Adaptive Card; both open a signed confirm page (/api/chat/act) in erp.
+ * The token names the tenant, step and approver; the confirm page only acts for a session signed in as that approver
+ * (the channel is shared, so a token in it proves nothing about who pressed), then runs the normal decide(), so the
  * step's guard (pending, this approver) still applies and nothing can be decided twice.
  */
 
@@ -63,10 +63,15 @@ export async function notifyChatApproval(tx: Tx, tenantId: string, a: { stepId: 
 
 export type ChatActResult = { ok: true; message: string; decision: "approved" | "rejected"; summary: string } | { ok: false; message: string };
 
-/** Verify a token and decide the step as the named approver. Used by both the Slack and the Teams routes. */
-export async function actOnChatToken(token: string | null, comment: string, now = new Date()): Promise<ChatActResult> {
+/**
+ * Verify a token and decide the step as the named approver. The token alone is not enough: the message sits in a shared
+ * channel (anyone there, the requester included, can see and forward it), so the caller must also be signed in to erp
+ * as that approver (`signedInEmployeeId` from the session on the confirm page). Without that, nothing is decided.
+ */
+export async function actOnChatToken(token: string | null, comment: string, signedInEmployeeId: string | null, now = new Date()): Promise<ChatActResult> {
   const a = verifyAction(actionSecret(), token, Math.floor(now.getTime() / 1000));
   if (!a) return { ok: false, message: "This approval link is invalid or has expired. Open your Inbox in erp instead." };
+  if (!signedInEmployeeId || signedInEmployeeId !== a.a) return { ok: false, message: "Sign in to erp as the approver named on this request, then open the link again." };
   // the tenant row is read inside its own RLS scope (the app role sees nothing outside app.tenant_id)
   const [t] = await withTenant(a.t, (tx) => tx<{ id: string; name: string; status: string; subdomain: string; plan: Tenant["plan"] }[]>`select id, name, status, subdomain::text, plan from tenants where id = ${a.t}`);
   if (!t) return { ok: false, message: "This workspace no longer exists." };

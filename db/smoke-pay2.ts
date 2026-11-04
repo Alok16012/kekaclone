@@ -328,7 +328,16 @@ async function main() {
     await fnf.assignItemPart(tx, karan, x.id, later.key, 2);
     if (later.action !== "pay") await fnf.setItemAction(tx, karan, x.id, later.key, "pay");
     // part 1 pays everything else; the salary item is marked paid separately (Nikhil is still in the open run) so the test doesn't depend on that run
-    if (d.settlement!.items.some((i) => i.key === "salary")) await fnf.setItemAction(tx, karan, x.id, "salary", "paid_outside");
+    const sal = d.settlement!.items.find((i) => i.key === "salary");
+    const [inRun] = await tx`select 1 from payroll_runs r join payroll_lines l on l.run_id = r.id where r.period_month = ${m1} and r.status in ('draft','in_progress') and l.employee_id = ${x.employee_id} and l.action = 'process'`;
+    if (sal && inRun) {
+      // regression: the salary is the last working day's month; paying it in a part dated a later month must still see that month's open run
+      if (sal.action !== "pay") await fnf.setItemAction(tx, karan, x.id, "salary", "pay");
+      await fnf.saveSettlementPart(tx, karan, x.id, 1, m2);
+      await fails(fnf.finalizeSettlementPart(tx, karan, x.id, 1), "conflict", /also in the .* payroll run/);
+      await fnf.saveSettlementPart(tx, karan, x.id, 1, m1);
+    }
+    if (sal) await fnf.setItemAction(tx, karan, x.id, "salary", "paid_outside");
     await fails(fnf.finalizeSettlement(tx, karan, x.id), "invalid", /parts/);
     await fails(fnf.finalizeSettlementPart(tx, karan, x.id, 2), "invalid", /Finalise part 1 first/);
     const p1 = await fnf.finalizeSettlementPart(tx, karan, x.id, 1);

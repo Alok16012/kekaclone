@@ -60,6 +60,21 @@ export async function fnfList(tx: Tx, actor: Actor) {
 }
 
 /** Whether the month before the last working day has been finalised (needed before settling). */
+/**
+ * The last month's salary must be paid once: refuse to pay it in the settlement while the regular run for that month
+ * (the last working day's month, whatever month a periodic part is paid in) has the person in it, or already paid them.
+ */
+async function assertSalaryNotInRun(tx: Tx, x: ExitRow) {
+  const lwdMonth = monthStart(x.last_working_date);
+  const lines = await tx<{ status: string; action: string }[]>`
+    select r.status, l.action from payroll_runs r join payroll_lines l on l.run_id = r.id
+    where r.pay_group_id = ${x.pay_group_id} and r.period_month = ${lwdMonth} and r.status <> 'rolled_back' and l.employee_id = ${x.employee_id}`;
+  if (lines.some((l) => (l.status === "draft" || l.status === "in_progress") && l.action === "process"))
+    throw new AppError("conflict", `${x.name} is also in the ${monthLabel(lwdMonth)} payroll run. Recalculate that run after finalising, or mark the salary here as paid separately.`);
+  if (lines.some((l) => !["draft", "in_progress"].includes(l.status) && slipped(l.action)))
+    throw new AppError("conflict", `Salary for ${monthLabel(lwdMonth)} was already paid in the regular payroll. Recalculate the settlement so it isn't paid twice.`);
+}
+
 async function prerequisite(tx: Tx, x: ExitRow) {
   if (!x.pay_group_id) return { ok: false, message: `${x.name} isn't in a pay group, so erp can't work out their final salary.` };
   const lwdMonth = monthStart(x.last_working_date), prev = addMonths(lwdMonth, -1);
@@ -254,10 +269,7 @@ export async function finalizeSettlement(tx: Tx, actor: Actor, exitId: string) {
   const pre = await prerequisite(tx, x);
   if (!pre.ok) throw new AppError("invalid", pre.message!);
   const lwdMonth = monthStart(x.last_working_date);
-  const [open] = await tx<{ status: string }[]>`
-    select r.status from payroll_runs r join payroll_lines l on l.run_id = r.id
-    where r.pay_group_id = ${x.pay_group_id} and r.period_month = ${lwdMonth} and r.status in ('draft','in_progress') and l.employee_id = ${x.employee_id} and l.action = 'process'`;
-  if (open && s.items.some((i) => i.key === "salary" && i.action === "pay")) throw new AppError("conflict", `${x.name} is also in the ${monthLabel(lwdMonth)} payroll run. Recalculate that run after finalising, or mark the salary here as paid separately.`);
+  if (s.items.some((i) => i.key === "salary" && i.action === "pay")) await assertSalaryNotInRun(tx, x);
   const net = fnfNet(s.items);
   const [t] = await tx<{ name: string }[]>`select name from tenants where id = ${actor.tenant.id}`;
   const today = new Date().toISOString().slice(0, 10);
@@ -366,10 +378,8 @@ export async function finalizeSettlementPart(tx: Tx, actor: Actor, exitId: strin
   if (mine.some((i) => i.key === "salary" && i.action === "pay")) {
     const pre = await prerequisite(tx, x);
     if (!pre.ok) throw new AppError("invalid", pre.message!);
-    const [open] = await tx<{ status: string }[]>`
-      select r.status from payroll_runs r join payroll_lines l on l.run_id = r.id
-      where r.pay_group_id = ${x.pay_group_id} and r.period_month = ${part.settlement_month} and r.status in ('draft','in_progress') and l.employee_id = ${x.employee_id} and l.action = 'process'`;
-    if (open) throw new AppError("conflict", `${x.name} is also in the ${monthLabel(part.settlement_month)} payroll run. Recalculate that run after finalising, or mark the salary here as paid separately.`);
+    // the salary is the last working day's month, even when this part is paid in a later month
+    await assertSalaryNotInRun(tx, x);
   }
   const net = fnfNet(mine);
   const [t] = await tx<{ name: string }[]>`select name from tenants where id = ${actor.tenant.id}`;

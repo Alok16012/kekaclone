@@ -67,7 +67,9 @@ export function endpointUrlProblem(url: string, ownRoot?: string | null) {
   try { u = new URL(url.trim()); } catch { return "Enter a full URL starting with https://."; }
   if (u.protocol !== "https:") return "Webhook URLs must use https.";
   const h = u.hostname.toLowerCase();
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || /^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) || h === "::1" || h === "[::1]") return "That address points at a private network.";
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal") || /^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h)) return "That address points at a private network.";
+  // IPv6 literals (the URL keeps the brackets): loopback, unspecified, unique-local, link-local and IPv4-mapped addresses
+  if (h.startsWith("[") && (/^\[(::1?|0*:.*|f[cd][0-9a-f]{0,2}:.*|fe[89ab][0-9a-f]?:.*)\]$/.test(h) || h.startsWith("[::ffff:"))) return "That address points at a private network.";
   if (ownRoot && (h === ownRoot || h.endsWith("." + ownRoot))) return "Webhooks can't point back at erp.";
   return null;
 }

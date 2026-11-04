@@ -1,10 +1,11 @@
-import { actOnChatToken } from "@/server/modules/integrations/chat";
 import { slackPressedAction, verifySlackSignature } from "@/server/modules/integrations/chat-rules";
 
 /**
  * Slack interactivity endpoint (one per Slack app, any workspace host): verifies the request with
- * SLACK_SIGNING_SECRET, reads the pressed button's signed token and decides the step as the named approver.
- * Replies by replacing the original message. Returns 404 while the secret isn't configured.
+ * SLACK_SIGNING_SECRET and acknowledges button presses. It never decides anything: the message sits in a shared
+ * channel and Slack tells us nothing that ties the presser to an erp approver, so Approve / Decline are link buttons
+ * that open erp's confirm page (/api/chat/act), which acts only for the approver's own signed-in session.
+ * Returns 404 while the secret isn't configured.
  */
 export async function POST(req: Request) {
   const secret = process.env.SLACK_SIGNING_SECRET?.trim();
@@ -17,8 +18,6 @@ export async function POST(req: Request) {
   try { payload = JSON.parse(new URLSearchParams(body).get("payload") ?? "{}"); } catch { return Response.json({ error: "Bad payload." }, { status: 400 }); }
   const pressed = slackPressedAction(payload);
   if (!pressed) return new Response(null, { status: 200 });   // url_verification / other interaction types: nothing to do
-  if (pressed.actionId === "open") return new Response(null, { status: 200 });
-  const user = (payload as { user?: { username?: string; name?: string } }).user;
-  const r = await actOnChatToken(pressed.value, `via Slack${user?.username ? ` (${user.username})` : ""}`);
-  return Response.json({ replace_original: true, text: r.ok ? `✅ ${r.message}` : `⚠️ ${r.message}` });
+  // approve / decline / open are link buttons: the browser opens erp; Slack only needs a 200 here
+  return new Response(null, { status: 200 });
 }

@@ -26,6 +26,7 @@ import { listEndpoints } from "@/server/modules/integrations/service";
 import * as push from "@/server/modules/push/service";
 import { syncQueuedPunches } from "@/server/modules/attendance/offline";
 import { encryptField } from "@/server/modules/payroll/secret";
+import { appUrl } from "@/server/email";
 import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import { DEMO_PASSWORD, DEMO_SUBDOMAIN } from "./demo";
 
@@ -107,6 +108,13 @@ async function main() {
     assert.equal(log.length, 1); assert.equal(log[0].status, "ok"); assert.equal(log[0].subject, "Arjun Rao");
     // a failing action is recorded and doesn't break the caller's transaction
     await tx`update automations set actions = ${tx.json([{ type: "task", to: "employee:" + randomUUID(), title: "x", due_days: 1 }, { type: "group", group_id: "00000000-0000-0000-0000-000000000000" }] as never)} where id = ${id}`;
+    // SSRF: internal webhook targets are refused when saving, and never queued even if one is already stored
+    for (const url of ["https://127.0.0.1/x", "https://169.254.169.254/latest/meta-data", "https://[::1]/x"]) {
+      await assert.rejects(auto.saveAutomation(tx, asha, id, { name: "Smoke joiner", trigger: "employee.joined", actions: [{ type: "webhook", url }] }), /private network/, url);
+    }
+    await tx`update automations set actions = ${tx.json([{ type: "webhook", url: "https://10.0.0.5/hook" }] as never)} where id = ${id}`;
+    await auto.emitEvent(tx, tenant.id, "employee.joined", { employeeId: arjun.employeeId, occurrence: "smoke-arjun-ssrf" });
+    assert.equal((await tx`select 1 from webhook_endpoints where url = 'https://10.0.0.5/hook'`).length, 0, "a stored internal webhook is never queued");
     await tx`update automations set actions = ${tx.json([{ type: "webhook", url: "https://hooks.example.com/x" }] as never)} where id = ${id}`;
     const r3 = await auto.emitEvent(tx, tenant.id, "employee.joined", { employeeId: arjun.employeeId, occurrence: "smoke-arjun-2" });
     assert.equal(r3.ran, 1);
@@ -224,6 +232,7 @@ async function main() {
   // ---------- Web Push: queued per in-app notification, delivered after commit, gone endpoints dropped ----------
   await withTenant(tenant.id, async (tx) => {
     await assert.rejects(push.subscribePush(tx, arjun, { endpoint: "http://x", keys: { p256dh: "a", auth: "b" } }, null), /usable/);
+    await assert.rejects(push.subscribePush(tx, arjun, { endpoint: "https://169.254.169.254/latest", keys: { p256dh: "a", auth: "b" } }, null), /usable/, "push endpoints on internal addresses are refused (SSRF)");
     await push.subscribePush(tx, arjun, { endpoint: "https://push.example.com/sub/1", keys: { p256dh: "a", auth: "b" } }, "Mozilla/5.0 (Linux; Android 14) Chrome/130");
     await push.subscribePush(tx, arjun, { endpoint: "https://push.example.com/sub/gone", keys: { p256dh: "a", auth: "b" } }, "Mozilla/5.0 (iPhone) Safari/605");
     const devices = await push.pushDevices(tx, arjun);
@@ -363,23 +372,27 @@ async function main() {
       assert.equal(n, 1);
       return s.id;
     });
-    const msg = posted[0] as { blocks: { elements?: { action_id: string; value?: string }[] }[] };
+    const msg = posted[0] as { blocks: { elements?: { action_id: string; value?: string; url?: string }[] }[] };
     const buttons = msg.blocks[1].elements!;
     assert.deepEqual(buttons.map((b) => b.action_id), ["approve", "decline", "open"]);
     const approveTok = buttons[0].value!, declineTok = buttons[1].value!;
     const a = verifyAction(chat.actionSecret(), approveTok, Math.floor(Date.now() / 1000))!;
     assert.equal(a.s, stepId); assert.equal(a.a, owner.employeeId); assert.equal(a.t, ft.id); assert.equal(a.d, "approved");
-    assert.equal((await chat.actOnChatToken("garbage", "")).ok, false);
+    assert.equal((await chat.actOnChatToken("garbage", "", owner.employeeId)).ok, false);
     const forged = signAction("wrong-secret", a);
-    assert.equal((await chat.actOnChatToken(forged, "")).ok, false, "a token signed with another secret is refused");
+    assert.equal((await chat.actOnChatToken(forged, "", owner.employeeId)).ok, false, "a token signed with another secret is refused");
     const stale = signAction(chat.actionSecret(), { ...a, e: Math.floor(Date.now() / 1000) - 10 });
-    assert.equal((await chat.actOnChatToken(stale, "")).ok, false, "expired tokens are refused");
+    assert.equal((await chat.actOnChatToken(stale, "", owner.employeeId)).ok, false, "expired tokens are refused");
     const selfApprove = signAction(chat.actionSecret(), { ...a, a: ravi.employeeId });
-    assert.equal((await chat.actOnChatToken(selfApprove, "")).ok, false, "the requester can't be made the approver by rewriting the token (step guard)");
-    const done = await chat.actOnChatToken(approveTok, "via Slack (smoke)");
+    assert.equal((await chat.actOnChatToken(selfApprove, "", ravi.employeeId)).ok, false, "the requester can't be made the approver by rewriting the token (step guard)");
+    // the channel is shared: holding the token is not enough, the caller must be signed in as the named approver
+    assert.equal((await chat.actOnChatToken(approveTok, "", null)).ok, false, "no session: a token from the channel decides nothing");
+    assert.equal((await chat.actOnChatToken(approveTok, "", ravi.employeeId)).ok, false, "the requester pressing the approver's button decides nothing");
+    assert.equal(buttons[0].url, `${appUrl(sub, "/api/chat/act")}?token=${encodeURIComponent(approveTok)}`, "Slack buttons open the confirm page");
+    const done = await chat.actOnChatToken(approveTok, "via Slack (smoke)", owner.employeeId);
     assert.ok(done.ok && done.decision === "approved", JSON.stringify(done));
     assert.match(done.message, /approved by Nisha Rao/);
-    const again = await chat.actOnChatToken(declineTok, "");
+    const again = await chat.actOnChatToken(declineTok, "", owner.employeeId);
     assert.equal(again.ok, false, "one decision only: the decline button is dead once approved");
     const [lrRow] = await withTenant(ft.id, (tx) => tx<{ status: string }[]>`select status from leave_requests where employee_id = ${ravi.employeeId}`);
     assert.equal(lrRow.status, "approved");
@@ -396,7 +409,7 @@ async function main() {
       await chat.notifyChatApproval(tx, ft.id, { stepId, approverId: owner.employeeId, approverName: "a", requesterName: "r", summary: "s" }, async (_u, body) => { plain.push(body); return 200; });
       assert.deepEqual((plain[0] as { blocks: { elements?: { action_id: string }[] }[] }).blocks[1].elements!.map((e) => e.action_id), ["open"]);
     });
-    ok("Slack / Teams approvals: pending steps announced with signed Approve / Decline tokens (tenant, step, approver, expiry); forged, expired, re-targeted and re-used tokens refused; a press decides the step as the approver with an audit trail; plain message without the signing secret");
+    ok("Slack / Teams approvals: pending steps announced with signed Approve / Decline tokens (tenant, step, approver, expiry); forged, expired, re-targeted and re-used tokens refused; a token without the approver's own session decides nothing; a press decides the step as the approver with an audit trail; plain message without the signing secret");
 
     // ---------- tenant isolation: the throw-away tenant sees none of acme's new rows, and acme none of its ----------
     await withTenant(ft.id, async (tx) => {

@@ -56,7 +56,7 @@ async function Docs() {
       <p className="mt-2 text-sm text-text-muted">Events: {WEBHOOK_EVENTS.filter((e) => e.key !== "test.ping").map((e) => <code key={e.key} className="mr-1 font-mono">{e.key}</code>)}. Each delivery is a JSON POST <code className="font-mono">{`{ id, type, created_at, data }`}</code> with <code className="font-mono">X-Erp-Signature: t=&lt;unix&gt;,v1=&lt;hmac-sha256(secret, t + &quot;.&quot; + body)&gt;</code>, retried with backoff (1 m, 5 m, 30 m, 2 h, 12 h). Answer 2xx to acknowledge.</p>
 
       <h2 className="mt-10 text-xl font-semibold">4. Slack and Teams</h2>
-      <p className="mt-2 text-base text-text-muted">Connected under Settings → Integrations. Approval requests reach the channel with Approve / Decline. Slack buttons post to <code className="font-mono">/api/chat/slack</code> (signed with your app&apos;s signing secret); Teams buttons open a signed confirm page in erp.</p>
+      <p className="mt-2 text-base text-text-muted">Connected under Settings → Integrations. Approval requests reach the channel with Approve / Decline. Both open a signed confirm page in erp that only acts for the named approver once they are signed in (Slack&apos;s interactivity URL is <code className="font-mono">/api/chat/slack</code>, verified with your app&apos;s signing secret, and only acknowledges presses).</p>
     </main>
   );
 }

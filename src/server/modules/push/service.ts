@@ -1,6 +1,7 @@
 import "server-only";
 import { AppError, withTenant, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
+import { endpointUrlProblem } from "@/server/modules/integrations/rules";
 
 /*
  * Web Push (VAPID). Disabled with a clear "not configured" state until VAPID keys are in .env.local:
@@ -19,7 +20,8 @@ export type SubscriptionInput = { endpoint: string; keys: { p256dh: string; auth
 
 const validSubscription = (s: unknown): s is SubscriptionInput => {
   const x = s as SubscriptionInput;
-  return !!x && typeof x.endpoint === "string" && /^https:\/\//.test(x.endpoint) && x.endpoint.length < 2000 && !!x.keys && typeof x.keys.p256dh === "string" && typeof x.keys.auth === "string";
+  // the server POSTs to this address, so it must be a public https host (never an internal one: SSRF)
+  return !!x && typeof x.endpoint === "string" && /^https:\/\//.test(x.endpoint) && x.endpoint.length < 2000 && !endpointUrlProblem(x.endpoint, (process.env.ROOT_DOMAIN ?? "").split(":")[0] || null) && !!x.keys && typeof x.keys.p256dh === "string" && typeof x.keys.auth === "string";
 };
 
 export async function subscribePush(tx: Tx, actor: Actor, sub: unknown, userAgent: string | null) {

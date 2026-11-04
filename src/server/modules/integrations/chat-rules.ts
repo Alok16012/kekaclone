@@ -46,8 +46,9 @@ export function slackApprovalMessage(m: ApprovalMessage) {
   ];
   if (m.approveToken && m.declineToken) {
     blocks.push({ type: "actions", block_id: "erp_approval", elements: [
-      { type: "button", style: "primary", text: { type: "plain_text", text: "Approve" }, action_id: "approve", value: m.approveToken },
-      { type: "button", style: "danger", text: { type: "plain_text", text: "Decline" }, action_id: "decline", value: m.declineToken },
+      // link buttons: the press opens erp's confirm page, which acts only for the approver's own signed-in session
+      { type: "button", style: "primary", text: { type: "plain_text", text: "Approve" }, action_id: "approve", value: m.approveToken, ...(m.actUrl ? { url: `${m.actUrl}?token=${encodeURIComponent(m.approveToken)}` } : {}) },
+      { type: "button", style: "danger", text: { type: "plain_text", text: "Decline" }, action_id: "decline", value: m.declineToken, ...(m.actUrl ? { url: `${m.actUrl}?token=${encodeURIComponent(m.declineToken)}` } : {}) },
       { type: "button", text: { type: "plain_text", text: "Open in erp" }, action_id: "open", url: m.inboxUrl },
     ] });
   } else {

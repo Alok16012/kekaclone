@@ -1,11 +1,13 @@
 import { actOnChatToken } from "@/server/modules/integrations/chat";
 import { verifyAction, type ChatAction } from "@/server/modules/integrations/chat-rules";
 import { actionSecret } from "@/server/modules/integrations/chat";
+import { getActor } from "@/server/auth/session";
 
 /**
  * Approve / decline from a Teams card (or any chat that can only open links). GET shows a small confirm page so a
  * link preview or an accidental tap never decides anything; POST acts. The token is signed and one-use by nature
- * (the step can only be decided once). Public route: no session, the token names the tenant and approver.
+ * (the step can only be decided once). The card sits in a shared channel, so the token is not proof of who opened it:
+ * both GET and POST need an erp session on this workspace signed in as the approver the token names.
  */
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -17,17 +19,31 @@ function page(title: string, body: string) {
 
 const describe = (a: ChatAction) => (a.d === "approved" ? "approve" : "decline");
 
+/** The signed-in approver for this token, or the page to show instead. */
+async function approverFor(a: ChatAction, token: string): Promise<{ employeeId: string } | Response> {
+  const actor = await getActor();
+  if (!actor || actor.tenant.id !== a.t) return page("Sign in first", `<h1>Sign in to erp first</h1><p>Only the approver named on this request can decide it. Sign in to erp, then open the link from chat again.</p><a class="btn" href="/login?next=${esc(encodeURIComponent(`/api/chat/act?token=${token}`))}">Sign in</a>`);
+  if (actor.employeeId !== a.a) return page("Not your request", `<h1>This request isn't waiting for you</h1><p>Only the approver named on it can decide it from this link. You're signed in as ${esc(actor.name)}.</p><a class="link" href="/inbox">Open your Inbox</a>`);
+  return { employeeId: actor.employeeId };
+}
+
 export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
   const a = verifyAction(actionSecret(), token, Math.floor(Date.now() / 1000));
   if (!a) return page("Link expired", `<h1>This link has expired</h1><p>Open your Inbox in erp to decide the request.</p>`);
-  return page("Confirm", `<h1>Confirm: ${describe(a)} this request?</h1><p>You're acting as the approver named on this link. This can't be undone from chat.</p>
+  const who = await approverFor(a, token!);
+  if (who instanceof Response) return who;
+  return page("Confirm", `<h1>Confirm: ${describe(a)} this request?</h1><p>You're signed in as the approver named on this request. This can't be undone from chat.</p>
 <form method="post"><input type="hidden" name="token" value="${esc(token!)}"><button class="${a.d === "rejected" ? "danger" : ""}" type="submit">${a.d === "approved" ? "Approve" : "Decline"}</button></form>`);
 }
 
 export async function POST(req: Request) {
   const form = await req.formData().catch(() => null);
   const token = typeof form?.get("token") === "string" ? (form!.get("token") as string) : null;
-  const r = await actOnChatToken(token, "via Teams");
+  const a = verifyAction(actionSecret(), token, Math.floor(Date.now() / 1000));
+  if (!a) return page("Link expired", `<h1>This link has expired</h1><p>Open your Inbox in erp to decide the request.</p>`);
+  const who = await approverFor(a, token!);
+  if (who instanceof Response) return who;
+  const r = await actOnChatToken(token, "via chat approval link", who.employeeId);
   return page(r.ok ? "Done" : "Couldn't act", r.ok ? `<h1>${r.decision === "approved" ? "Approved" : "Declined"}</h1><p>${esc(r.message)}</p>` : `<h1>Couldn't act on this request</h1><p>${esc(r.message)}</p>`);
 }

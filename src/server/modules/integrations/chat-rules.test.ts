@@ -36,6 +36,9 @@ describe("messages", () => {
     const withButtons = slackApprovalMessage(m) as { blocks: { type: string; elements?: { action_id: string; value?: string }[] }[] };
     expect(withButtons.blocks[1].elements?.map((e) => e.action_id)).toEqual(["approve", "decline", "open"]);
     expect(withButtons.blocks[1].elements?.[0].value).toBe("A");
+    // link buttons to the session-gated confirm page (a press in the shared channel decides nothing by itself)
+    expect((withButtons.blocks[1].elements?.[0] as { url?: string }).url).toBe("https://acme.erp.app/api/chat/act?token=A");
+    expect((withButtons.blocks[1].elements?.[1] as { url?: string }).url).toBe("https://acme.erp.app/api/chat/act?token=D");
     const plain = slackApprovalMessage({ ...m, approveToken: null, declineToken: null }) as { blocks: { elements?: { action_id: string }[] }[] };
     expect(plain.blocks[1].elements?.map((e) => e.action_id)).toEqual(["open"]);
   });

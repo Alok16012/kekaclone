@@ -377,12 +377,14 @@ export async function computeRun(tx: Tx, runId: string, opts: { expectedVersion?
   await loanEmisForMonth(tx, run.pay_group_id, run.period_month);
   const [{ tenant_id }] = await tx<{ tenant_id: string }[]>`select tenant_id from payroll_runs where id = ${runId}`;
   const [prev] = await tx<{ status: string }[]>`select status from payroll_runs where pay_group_id = ${run.pay_group_id} and period_month = ${addMonths(run.period_month, -1)} and status <> 'rolled_back'`;
-  // the last month's salary is paid in a finalised settlement (or a finalised part of a periodic one) for this month
+  // the last month's salary is paid in a finalised settlement (or a finalised part of a periodic one, whatever month that
+  // part is paid in): the run for the last working day's month leaves it out
   const settled = await tx<{ employee_id: string }[]>`
-    select s.employee_id from fnf_settlements s
+    select s.employee_id from fnf_settlements s join exit_requests x on x.id = s.exit_request_id
     where exists (select 1 from jsonb_array_elements(s.items) i where i->>'key' = 'salary' and i->>'action' in ('pay','paid_outside'))
       and ((s.status = 'finalized' and s.mode = 'one_time' and s.settlement_month = ${run.period_month})
-        or exists (select 1 from fnf_settlement_parts p where p.settlement_id = s.id and p.status = 'finalized' and p.settlement_month = ${run.period_month} and 'salary' = any(p.item_keys)))`;
+        or (date_trunc('month', x.last_working_date)::date = ${run.period_month}::date
+          and exists (select 1 from fnf_settlement_parts p where p.settlement_id = s.id and p.status = 'finalized' and 'salary' = any(p.item_keys))))`;
   const shared: Shared = { components: await components(tx), rates: new Map(), prevLocked: !!prev && isLockedStatus(prev.status), tenantId: tenant_id, settledInFnf: new Set(settled.map((r) => r.employee_id)) };
   const people = await runPeople(tx, run.pay_group_id, run.period_month);
   await tx`delete from payroll_lines where run_id = ${runId}`;

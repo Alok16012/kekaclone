@@ -9,6 +9,7 @@ import { notify } from "@/server/modules/notifications/service";
 import { queueEmail, appUrl } from "@/server/email";
 import { simpleEmail } from "@/server/email/simple";
 import { encryptField } from "@/server/modules/payroll/secret";
+import { endpointUrlProblem } from "@/server/modules/integrations/rules";
 import { addDaysISO, todayIn, type ISODate } from "@/lib/dates";
 import {
   dailyDue, dedupeKey, matches, render, triggerKind, validateAutomation,
@@ -22,6 +23,8 @@ import {
  * Each automation runs inside a savepoint, so one failing action never breaks the mutation that triggered it, and
  * every (automation, occurrence) pair runs once (automation_runs.dedupe_key).
  */
+
+const ownRoot = () => (process.env.ROOT_DOMAIN ?? "").split(":")[0] || null;
 
 export const canManageAutomations = (actor: Actor) => canFor(actor, "automations.manage", EVERYWHERE);
 function assertManage(actor: Actor) {
@@ -46,6 +49,7 @@ export async function saveAutomation(tx: Tx, actor: Actor, id: string | null, ra
   const a = v.value;
   for (const act of a.actions) {
     if (act.type === "group") { const [g] = await tx`select 1 from groups where id = ${act.group_id}`; if (!g) throw new AppError("invalid", "Add to group: that group doesn't exist.", "actions"); }
+    if (act.type === "webhook") { const problem = endpointUrlProblem(act.url, ownRoot()); if (problem) throw new AppError("invalid", `Webhook: ${problem}`, "actions"); }
     for (const r of recipientsOf(act)) if (r.startsWith("employee:")) { const [e] = await tx`select 1 from employees where id = ${r.slice(9)} and status <> 'relieved'`; if (!e) throw new AppError("invalid", "One of the people picked no longer works here.", "actions"); }
   }
   if (id) {
@@ -174,6 +178,9 @@ async function runAction(tx: Tx, c: Ctx, a: Action): Promise<Record<string, unkn
       return { announcement: post.id };
     }
     case "webhook": {
+      // saved before the private-network check existed, or the root changed since: never queue a call to an internal address
+      const problem = endpointUrlProblem(a.url, ownRoot());
+      if (problem) return { webhook: `refused: ${problem}` };
       let [w] = await tx<{ id: string }[]>`select id from webhook_endpoints where kind = 'automation' and url = ${a.url}`;
       if (!w) {
         const id = randomUUID();

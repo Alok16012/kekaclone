@@ -24,6 +24,9 @@ describe("api keys and webhooks", () => {
     expect(endpointUrlProblem("http://example.com/hook")).toMatch(/https/);
     expect(endpointUrlProblem("https://10.0.0.5/hook")).toMatch(/private/);
     expect(endpointUrlProblem("https://acme.localhost:3100/x")).toMatch(/private/);
+    for (const u of ["https://127.0.0.1/x", "https://169.254.169.254/latest", "https://[::1]/x", "https://[fd00::1]/x", "https://[fe80::1]/x", "https://[::ffff:127.0.0.1]/x", "https://2130706433/x", "https://100.64.0.1/x", "https://metadata.google.internal/x"]) expect(endpointUrlProblem(u), u).toMatch(/private/);
+    expect(endpointUrlProblem("https://hooks.example.com/x")).toBeNull();
+    expect(endpointUrlProblem("https://[2606:4700::1111]/x")).toBeNull();
     expect(endpointUrlProblem("https://acme.erp.app/x", "erp.app")).toMatch(/erp/);
     expect(endpointUrlProblem("https://hooks.example.com/erp")).toBeNull();
     expect(endpointUrlProblem("garbage")).toMatch(/full URL/);
