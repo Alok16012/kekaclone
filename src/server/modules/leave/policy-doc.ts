@@ -50,10 +50,8 @@ export function describeRule(r: RuleRow): string[] {
     const parts: string[] = [];
     if (carry === "all") parts.push("the whole unused balance carries forward to the next leave year");
     else if (carry === "upto") parts.push(`up to ${days(ye.carry_max ?? 0)} carry forward to the next leave year`);
-    else parts.push("unused days don't carry forward");
-    if (ye.encash_max) parts.push(`up to ${days(ye.encash_max)} beyond that are encashed with salary`);
-    parts.push("the rest lapses");
-    out.push(`At year end, ${parts.join(", ")}.`);
+    if (ye.encash_max) parts.push(`up to ${days(ye.encash_max)} ${parts.length ? "beyond that are" : "are"} encashed with salary`);
+    out.push(parts.length ? `At year end, ${parts.join(", ")}, and the rest lapses.` : "At year end, unused days lapse; nothing carries forward.");
   }
   const apply: string[] = [];
   apply.push(a.allowHalfDay ? "Half days are allowed." : "Half days aren't allowed.");

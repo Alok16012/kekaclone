@@ -65,12 +65,12 @@ async function main() {
     const e = P[first];
     return { tenant, userId: e.user_id, employeeId: e.id, name: e.display_name, email: "", title: null, roles: [], permissions: new Set(perms), grants: perms.length ? [{ permissions: perms, scopes }] : [] };
   };
-  const asha = actor("Asha", ["*"]), rohan = actor("Rohan"), arjun = actor("Arjun"), vikram = actor("Vikram"), divya = actor("Divya"), priya = actor("Priya");
+  const asha = actor("Asha", ["*"]), rohan = actor("Rohan"), arjun = actor("Arjun"), divya = actor("Divya"), priya = actor("Priya");
   const priyaScoped = actor("Priya", ["leave.admin", "attendance.admin"], [{ type: "department", ids: [P.Divya.department_id] }]);   // Operations only
   const today = todayIn();
   const nextWorking = (from = today) => { let d = addDaysISO(from, 1); while (!working(d)) d = addDaysISO(d, 1); return d; };
   const cl = await withTenant(tenant.id, (tx) => tx<{ id: string }[]>`select id from leave_types where code = 'CL'`).then((r) => r[0].id);
-  const ml = await withTenant(tenant.id, (tx) => tx<{ id: string }[]>`select id from leave_types where code = 'ML'`).then((r) => r[0].id);
+  const ml = await withTenant(tenant.id, (tx) => tx<{ id: string }[]>`select id from leave_types where code = 'MRG'`).then((r) => r[0].id);
   const stepFor = async (tx: Tx, entityId: string, who: Actor) => (await approvals.inbox(tx, who)).find((i) => i.entity_id === entityId);
 
   // ---------------------------------------------------------------- apply on behalf
@@ -186,7 +186,7 @@ async function main() {
     assert.ok(doc.sections.length >= 5);
     const clSec = doc.sections.find((s) => s.code === "CL")!;
     assert.ok(clSec.lines.some((l) => /12 days a leave year, credited every month/.test(l)));
-    const mlSec = doc.sections.find((s) => s.code === "ML")!;
+    const mlSec = doc.sections.find((s) => s.code === "MRG")!;
     assert.ok(mlSec.lines.some((l) => /granted by HR for a specific event/.test(l)));
     const el = doc.sections.find((s) => s.code === "EL")!;
     assert.ok(el.lines.some((l) => /up to 30 days carry forward/.test(l) && /encashed/.test(l)));

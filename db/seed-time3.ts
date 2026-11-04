@@ -23,7 +23,7 @@ export async function seedTime3(tenantId: string) {
 
     // event-based leave: "Marriage leave" in the default plan, granted per event (no yearly quota); Vikram has a grant for his wedding
     const [plan] = await tx<{ id: string }[]>`select id from leave_plans where is_default limit 1`;
-    const [ml] = await tx<{ id: string }[]>`insert into leave_types (tenant_id, name, code, kind, is_paid, color) values (${tenantId}, 'Marriage leave', 'ML', 'incident', true, 'var(--chart-6)') returning id`;
+    const [ml] = await tx<{ id: string }[]>`insert into leave_types (tenant_id, name, code, kind, is_paid, color) values (${tenantId}, 'Marriage leave', 'MRG', 'incident', true, 'var(--chart-6)') returning id`;
     await tx`insert into leave_plan_rules (tenant_id, leave_plan_id, leave_type_id, yearly_quota, accrual, application, year_end, approval)
              values (${tenantId}, ${plan.id}, ${ml.id}, null, ${tx.json({ frequency: "upfront", day: 1, prorate_joining: false, stop_in_probation: false })},
                      ${tx.json({ allowHalfDay: false, backdateDays: 7, sandwich: { enabled: true } })}, ${tx.json({ carry: "none" })}, ${tx.json({})})`;
