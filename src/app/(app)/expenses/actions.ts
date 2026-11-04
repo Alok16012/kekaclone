@@ -3,6 +3,7 @@ import { z } from "zod";
 import { runAction } from "@/server/action";
 import * as exp from "@/server/modules/expenses/service";
 import * as admin from "@/server/modules/expenses/admin";
+import * as fx from "@/server/modules/expenses/fx";
 import { CATEGORY_KINDS, LIMIT_PERIODS, parseRupees } from "@/server/modules/expenses/rules";
 
 const uuid = z.uuid();
@@ -95,4 +96,14 @@ export async function saveCategoryAction(policyId: string, id: string | null, in
 export async function deleteCategoryAction(id: string) {
   if (!uuid.safeParse(id).success) return bad("Category not found.");
   return runAction((tx, actor) => admin.deleteCategory(tx, actor, id));
+}
+
+// ---------- exchange rates
+export async function saveRateAction(input: { currency: string; asOf: string; rate: string }) {
+  if (typeof input?.currency !== "string" || typeof input.asOf !== "string" || typeof input.rate !== "string") return bad("Check the rate details.");
+  return runAction((tx, actor) => fx.saveRate(tx, actor, input));
+}
+export async function deleteRateAction(id: string) {
+  if (!uuid.safeParse(id).success) return bad("Rate not found.");
+  return runAction(async (tx, actor) => { await fx.deleteRate(tx, actor, id); });
 }

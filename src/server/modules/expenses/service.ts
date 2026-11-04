@@ -10,6 +10,7 @@ import { addDaysISO, todayIn } from "@/lib/dates";
 import { canFinanceFor, canPayFor, canReportFor, EXP_APPROVE, canAdminExpenses } from "./access";
 import { audit, policyFor } from "./admin";
 import { onExpenseAdvanceDecided, onExpenseClaimDecided } from "./effects";
+import { convert, currenciesWithRates } from "./fx";
 import {
   checkLine, extOf, inr, isBlocking, isEditable, MAX_RECEIPTS, mileagePaise, monthLabel, perDiemPaise, RECEIPT_EXTS, RECEIPT_LABEL,
   schedulableMonth, summarize, violationText, type Category, type ClaimStatus, type Line,
@@ -92,9 +93,23 @@ async function editableClaim(tx: Tx, actor: Actor, claimId: string) {
 export type ExpenseInput = {
   categoryId: string; spentOn: string; amountPaise: number | null; kmHundredths: number | null; halfDays: number | null;
   merchant: string | null; description: string | null; claimId?: string | null;
+  /** ISO code; INR when empty. For a foreign currency, amountPaise is that currency's minor units and erp converts to INR at the rate finance set. */
+  currency?: string | null;
 };
 
-function amountFor(cat: Category, input: ExpenseInput) {
+async function amountFor(tx: Tx, cat: Category, input: ExpenseInput) {
+  const cur = (input.currency ?? "INR").trim().toUpperCase() || "INR";
+  if (cur !== "INR") {
+    if (cat.kind === "mileage" || cat.kind === "per_diem") throw new AppError("invalid", "Mileage and per diem are worked out in rupees.", "currency");
+    if (!input.amountPaise || input.amountPaise <= 0) throw new AppError("invalid", "Enter an amount above zero.", "amount");
+    const c = await convert(tx, input.amountPaise, cur, input.spentOn);
+    return { amount: c.inrPaise, km: null, halfDays: null, currency: c.currency, foreign: input.amountPaise, rateMicro: c.rateMicro };
+  }
+  return { ...amountForInr(cat, input), currency: "INR", foreign: null as number | null, rateMicro: 1_000_000 };
+}
+const rateText = (micro: number) => `${Math.floor(micro / 1_000_000)}.${String(micro % 1_000_000).padStart(6, "0")}`;
+
+function amountForInr(cat: Category, input: ExpenseInput) {
   if (cat.kind === "mileage") {
     if (!input.kmHundredths || input.kmHundredths <= 0) throw new AppError("invalid", "Enter the distance in km.", "distance");
     return { amount: mileagePaise(input.kmHundredths, cat.rate_per_km_paise ?? 0), km: input.kmHundredths, halfDays: null };
@@ -124,12 +139,12 @@ export async function addExpense(tx: Tx, actor: Actor, input: ExpenseInput, file
   checkDate(input.spentOn);
   if (files.length > MAX_RECEIPTS) throw new AppError("invalid", `Attach up to ${MAX_RECEIPTS} receipts.`, "receipts");
   const cat = await categoryFor(tx, actor.employeeId, input.categoryId);
-  const a = amountFor(cat, input);
+  const a = await amountFor(tx, cat, input);
   if (input.claimId) await editableClaim(tx, actor, input.claimId);
   const receipts = await saveReceipts(tx, actor, files);
   const [x] = await tx<{ id: string }[]>`
-    insert into expenses (tenant_id, claim_id, employee_id, category_id, spent_on, amount_paise, base_amount_paise, merchant, description, distance_km, receipt_file_ids, custom)
-    values (${actor.tenant.id}, ${input.claimId ?? null}, ${actor.employeeId}, ${cat.id}, ${input.spentOn}, ${a.amount}, ${a.amount},
+    insert into expenses (tenant_id, claim_id, employee_id, category_id, spent_on, amount_paise, currency, fx_rate, base_amount_paise, merchant, description, distance_km, receipt_file_ids, custom)
+    values (${actor.tenant.id}, ${input.claimId ?? null}, ${actor.employeeId}, ${cat.id}, ${input.spentOn}, ${a.foreign ?? a.amount}, ${a.currency}, ${rateText(a.rateMicro)}, ${a.amount},
       ${input.merchant?.trim().slice(0, 120) || null}, ${input.description?.trim().slice(0, 1000) || null}, ${kmText(a.km)}, ${receipts}::uuid[],
       ${tx.json(a.halfDays ? { half_days: a.halfDays } : {})}) returning id`;
   if (input.claimId) await refreshTotal(tx, input.claimId);
@@ -150,11 +165,11 @@ export async function updateExpense(tx: Tx, actor: Actor, id: string, input: Exp
   const x = await ownEditableExpense(tx, actor, id);
   checkDate(input.spentOn);
   const cat = await categoryFor(tx, actor.employeeId, input.categoryId);
-  const a = amountFor(cat, input);
+  const a = await amountFor(tx, cat, input);
   const keep = x.receipt_file_ids.filter((f) => !change.remove.includes(f));
   if (keep.length + change.add.length > MAX_RECEIPTS) throw new AppError("invalid", `Attach up to ${MAX_RECEIPTS} receipts.`, "receipts");
   const added = await saveReceipts(tx, actor, change.add);
-  await tx`update expenses set category_id = ${cat.id}, spent_on = ${input.spentOn}, amount_paise = ${a.amount}, base_amount_paise = ${a.amount},
+  await tx`update expenses set category_id = ${cat.id}, spent_on = ${input.spentOn}, amount_paise = ${a.foreign ?? a.amount}, currency = ${a.currency}, fx_rate = ${rateText(a.rateMicro)}, base_amount_paise = ${a.amount},
            merchant = ${input.merchant?.trim().slice(0, 120) || null}, description = ${input.description?.trim().slice(0, 1000) || null},
            distance_km = ${kmText(a.km)}, receipt_file_ids = ${[...keep, ...added]}::uuid[], custom = ${tx.json(a.halfDays ? { half_days: a.halfDays } : {})}
            where id = ${id}`;
@@ -311,13 +326,15 @@ export async function reopenClaim(tx: Tx, actor: Actor, claimId: string) {
 // ---------- reading ----------
 export type ExpenseRow = {
   id: string; claim_id: string | null; category_id: string; category: string; kind: string; gl_code: string | null; spent_on: string;
-  amount_paise: number; merchant: string | null; description: string | null; km_h: number | null; half_days: number | null;
+  /** INR paise (converted when the expense was in another currency) */
+  amount_paise: number; currency: string; foreign_amount_paise: number | null; fx_rate: string | null;
+  merchant: string | null; description: string | null; km_h: number | null; half_days: number | null;
   receipts: { id: string; name: string; mime: string }[]; violations: string[]; violation_text: string[];
 };
 
 async function expenseRows(tx: Tx, where: { claimId?: string; unclaimedFor?: string }): Promise<ExpenseRow[]> {
-  const rows = await tx<(Omit<ExpenseRow, "amount_paise" | "receipts" | "violation_text" | "half_days"> & { amount_paise: bigint; receipt_file_ids: string[]; custom: { half_days?: number }; limit_paise: bigint | null; receipt_required_above_paise: bigint | null; employee_id: string })[]>`
-    select x.id, x.claim_id, x.category_id, c.name as category, c.kind, c.gl_code, x.spent_on::text, x.base_amount_paise as amount_paise, x.merchant, x.description,
+  const rows = await tx<(Omit<ExpenseRow, "amount_paise" | "receipts" | "violation_text" | "half_days" | "foreign_amount_paise"> & { amount_paise: bigint; foreign_amount_paise: bigint; receipt_file_ids: string[]; custom: { half_days?: number }; limit_paise: bigint | null; receipt_required_above_paise: bigint | null; employee_id: string })[]>`
+    select x.id, x.claim_id, x.category_id, c.name as category, c.kind, c.gl_code, x.spent_on::text, x.base_amount_paise as amount_paise, x.currency, x.amount_paise as foreign_amount_paise, x.fx_rate::text, x.merchant, x.description,
       round(x.distance_km * 100)::int as km_h, x.receipt_file_ids, x.violations, x.custom, c.limit_paise, c.receipt_required_above_paise, x.employee_id
     from expenses x join expense_categories c on c.id = x.category_id
     where ${where.claimId ? tx`x.claim_id = ${where.claimId}` : tx`x.claim_id is null and x.employee_id = ${where.unclaimedFor!}`}
@@ -329,7 +346,8 @@ async function expenseRows(tx: Tx, where: { claimId?: string; unclaimedFor?: str
   const rules = policy ? { allowFutureDated: policy.allowFutureDated, submissionDeadlineDays: policy.submissionDeadlineDays } : null;
   return rows.map((r) => ({
     id: r.id, claim_id: r.claim_id, category_id: r.category_id, category: r.category, kind: r.kind, gl_code: r.gl_code, spent_on: r.spent_on,
-    amount_paise: N(r.amount_paise), merchant: r.merchant, description: r.description, km_h: r.km_h, half_days: r.custom?.half_days ?? null,
+    amount_paise: N(r.amount_paise), currency: r.currency ?? "INR", foreign_amount_paise: r.currency && r.currency !== "INR" ? N(r.foreign_amount_paise) : null, fx_rate: r.currency && r.currency !== "INR" ? r.fx_rate : null,
+    merchant: r.merchant, description: r.description, km_h: r.km_h, half_days: r.custom?.half_days ?? null,
     receipts: r.receipt_file_ids.map((id) => byId.get(id)).filter((f): f is { id: string; name: string; mime: string } => !!f),
     violations: r.violations,
     violation_text: r.violations.map((v) => violationText(v, { limit_paise: r.limit_paise == null ? null : N(r.limit_paise), receipt_required_above_paise: r.receipt_required_above_paise == null ? null : N(r.receipt_required_above_paise) }, rules)),
@@ -355,13 +373,14 @@ const CLAIM_SELECT = (tx: Tx) => tx`
   from expense_claims c`;
 
 export async function myExpenses(tx: Tx, actor: Actor) {
-  const [policy, unclaimed, claims, advances] = await Promise.all([
+  const [policy, unclaimed, claims, advances, currencies] = await Promise.all([
     policyFor(tx, actor.employeeId),
     expenseRows(tx, { unclaimedFor: actor.employeeId }),
     tx<RawClaim[]>`${CLAIM_SELECT(tx)} where c.employee_id = ${actor.employeeId} order by c.created_at desc`,
     myAdvances(tx, actor),
+    currenciesWithRates(tx),
   ]);
-  return { policy, unclaimed, claims: claims.map(toClaim), advances };
+  return { policy, unclaimed, claims: claims.map(toClaim), advances, currencies };
 }
 
 /**

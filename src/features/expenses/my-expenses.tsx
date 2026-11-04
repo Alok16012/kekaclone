@@ -18,7 +18,7 @@ import type { AdvanceRow, ClaimRow, ExpenseRow } from "@/server/modules/expenses
 import { ExpenseDialog } from "./expense-dialog";
 import { ClaimStatus, ExpenseLine, Money, shortDate } from "./shared";
 
-export type MyExpensesData = { categories: Category[]; policyName: string | null; unclaimed: ExpenseRow[]; claims: ClaimRow[]; advances: AdvanceRow[]; today: string };
+export type MyExpensesData = { categories: Category[]; policyName: string | null; unclaimed: ExpenseRow[]; claims: ClaimRow[]; advances: AdvanceRow[]; today: string; currencies: string[]; ocr: { configured: boolean; reason?: string } };
 
 export function MyExpenses({ d, startAdding }: { d: MyExpensesData; startAdding?: boolean }) {
   const [adding, setAdding] = React.useState(!!startAdding && d.categories.length > 0);
@@ -73,8 +73,8 @@ export function MyExpenses({ d, startAdding }: { d: MyExpensesData; startAdding?
         <TabsContent value="past"><ClaimList claims={past} empty="Approved and paid claims will show here." /></TabsContent>
       </Tabs>
 
-      {adding && <ExpenseDialog open onOpenChange={setAdding} categories={d.categories} today={d.today} />}
-      {editing && <ExpenseDialog open onOpenChange={(o) => !o && setEditing(null)} categories={d.categories} expense={editing} today={d.today} />}
+      {adding && <ExpenseDialog currencies={d.currencies} ocr={d.ocr} open onOpenChange={setAdding} categories={d.categories} today={d.today} />}
+      {editing && <ExpenseDialog currencies={d.currencies} ocr={d.ocr} open onOpenChange={(o) => !o && setEditing(null)} categories={d.categories} expense={editing} today={d.today} />}
       {grouping && <NewClaimDialog ids={[...selected]} total={d.unclaimed.filter((x) => selected.has(x.id)).reduce((s, x) => s + x.amount_paise, 0)} advances={openAdvances}
         onClose={(done) => { setGrouping(false); if (done) setSelected(new Set()); }} />}
       {deleting && (
