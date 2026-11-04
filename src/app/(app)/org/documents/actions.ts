@@ -1,10 +1,15 @@
 "use server";
 import { z } from "zod";
+import { refresh } from "next/cache";
 import { runAction } from "@/server/action";
+import { requireActor } from "@/server/auth/session";
+import { deliverQueued } from "@/server/email";
 import { storage } from "@/server/storage";
 import * as docs from "@/server/modules/documents/service";
 import * as letters from "@/server/modules/documents/letters";
 import { MAX_UPLOAD_BYTES } from "@/server/modules/documents/rules";
+import * as bulk from "@/server/modules/documents/bulk";
+import * as esign from "@/server/modules/documents/esign";
 
 const uuid = z.uuid();
 const bad = (error: string, field?: string) => ({ ok: false as const, error, field });
@@ -82,7 +87,7 @@ export async function uploadPersonDocumentAction(form: FormData) {
   if (file === "too_big") return bad("This file is larger than 5 MB.", "file");
   const employeeId = str(form, "employeeId");
   if (!uuid.safeParse(employeeId).success) return bad("Person not found.");
-  return runAction((tx, actor) => docs.uploadPersonDocument(tx, actor, employeeId, { category: str(form, "category"), docType: str(form, "docType"), number: str(form, "number").slice(0, 60) || null, file }));
+  return runAction((tx, actor) => docs.uploadPersonDocument(tx, actor, employeeId, { category: str(form, "category"), docType: str(form, "docType"), number: str(form, "number").slice(0, 60) || null, expiryDate: str(form, "expiryDate").slice(0, 10) || null, file }));
 }
 
 export async function deletePersonDocumentAction(id: string) {
@@ -113,4 +118,74 @@ export async function previewLetterAction(templateId: string, employeeId: string
 export async function generateLetterAction(templateId: string, employeeId: string) {
   if (!uuid.safeParse(templateId).success || !uuid.safeParse(employeeId).success) return bad("Pick a template and a person.");
   return runAction((tx, actor) => letters.generateLetter(tx, actor, templateId, employeeId));
+}
+
+// ---------- docs2: review, bulk letters, erp Sign ----------
+
+const reviewInput = z.object({ status: z.enum(["verified", "rejected", "pending"]), comment: z.string().max(500).nullable().optional(), expiryDate: z.string().max(10).nullable().optional() });
+export async function reviewPersonDocumentAction(id: string, input: z.input<typeof reviewInput>) {
+  const p = reviewInput.safeParse(input);
+  if (!uuid.safeParse(id).success || !p.success) return bad("Check the review details.");
+  return runAction((tx, actor) => docs.reviewPersonDocument(tx, actor, id, p.data));
+}
+
+export async function bulkRecipientsAction(filters: unknown) {
+  return runAction(async (tx, actor) => {
+    const people = await bulk.recipients(tx, actor, filters);
+    return { count: people.length, sample: people.slice(0, 8).map((p) => ({ id: p.id, name: p.name, department: p.department })) };
+  }, { refresh: false });
+}
+
+/** Create the batch, then render as much as fits in ~20 seconds; the rest continues on "Continue" or the daily job. */
+export async function createBatchAction(templateId: string, filters: unknown) {
+  if (!uuid.safeParse(templateId).success) return bad("Pick a template.", "templateId");
+  const r = await runAction((tx, actor) => bulk.createBatch(tx, actor, { templateId, filters }), { refresh: false });
+  if (!r.ok) return r;
+  const actor = await requireActor();
+  const run = await bulk.runBatch(actor.tenant.id, r.data!.id, { budgetMs: 20_000 });
+  await deliverQueued(actor.tenant.id).catch(() => {});
+  refresh();
+  return { ok: true as const, data: { id: r.data!.id, total: r.data!.total, finished: run.finished } };
+}
+
+export async function continueBatchAction(batchId: string) {
+  if (!uuid.safeParse(batchId).success) return bad("Batch not found.");
+  const actor = await requireActor();
+  const r = await runAction((tx, a) => bulk.batchDetail(tx, a, batchId), { refresh: false });   // permission check
+  if (!r.ok) return r;
+  if (!r.data) return bad("Batch not found.");
+  const run = await bulk.runBatch(actor.tenant.id, batchId, { budgetMs: 20_000 });
+  await deliverQueued(actor.tenant.id).catch(() => {});
+  refresh();
+  return { ok: true as const, data: run };
+}
+
+export async function batchDetailAction(batchId: string) {
+  if (!uuid.safeParse(batchId).success) return bad("Batch not found.");
+  return runAction(async (tx, actor) => {
+    const d = await bulk.batchDetail(tx, actor, batchId);
+    return d ? { ...d, created_at: d.created_at.toISOString(), finished_at: d.finished_at?.toISOString() ?? null } : null;
+  }, { refresh: false });
+}
+
+const signersInput = z.array(z.object({ employeeId: uuid.nullable().optional(), email: z.string().max(200).nullable().optional(), name: z.string().max(120).nullable().optional(), title: z.string().max(80).nullable().optional() })).max(6);
+export async function requestSignaturesAction(letterId: string, signers: unknown, message?: string | null) {
+  const p = signersInput.safeParse(signers);
+  if (!uuid.safeParse(letterId).success || !p.success) return bad("Check the signers.", "signers");
+  return runAction((tx, actor) => esign.requestSignatures(tx, actor, letterId, p.data, typeof message === "string" ? message.slice(0, 500) : null));
+}
+
+export async function resendSignatureAction(requestId: string) {
+  if (!uuid.safeParse(requestId).success) return bad("Request not found.");
+  return runAction((tx, actor) => esign.resendSignature(tx, actor, requestId));
+}
+
+export async function cancelSignaturesAction(letterId: string) {
+  if (!uuid.safeParse(letterId).success) return bad("Letter not found.");
+  return runAction((tx, actor) => esign.cancelSignatures(tx, actor, letterId));
+}
+
+export async function signersAction(letterId: string) {
+  if (!uuid.safeParse(letterId).success) return bad("Letter not found.");
+  return runAction((tx) => esign.signersOf(tx, letterId), { refresh: false });
 }

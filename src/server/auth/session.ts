@@ -10,7 +10,7 @@ import type { Plan } from "@/server/modules/saas/plans";
 
 const COOKIE = process.env.SESSION_COOKIE ?? "erp_session";
 
-export type Branding = { logo_file_id?: string | null; accent?: string | null; accent_dark?: string | null; login_note?: string | null };
+export type Branding = { logo_file_id?: string | null; accent?: string | null; accent_dark?: string | null; login_note?: string | null; login_bg_file_id?: string | null };
 export type Tenant = {
   id: string; name: string; status: string; subdomain: string;
   /** plan, trial and sign-in settings come from the public tenant lookup; scripts may leave them out */

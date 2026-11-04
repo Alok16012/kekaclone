@@ -25,6 +25,11 @@ export const NOTIFICATION_EVENTS: EventGroup[] = [
     { key: "engage.praise", label: "Someone praised you", defaults: ["in_app"] },
     { key: "document.ack", label: "A document needs your acknowledgement", defaults: ["in_app", "email"] },
     { key: "letter.issued", label: "A letter was issued to you", defaults: ["in_app", "email"] },
+    { key: "document.reviewed", label: "HR verified or sent back a document you uploaded", defaults: ["in_app", "email"] },
+    { key: "document.review", label: "Someone uploaded a document for you to check (HR)", defaults: ["in_app"] },
+    { key: "document.expiry", label: "A document is about to expire (you and HR)", defaults: ["in_app", "email"] },
+    { key: "esign.completed", label: "Everyone signed a letter you sent with erp Sign", defaults: ["in_app", "email"] },
+    { key: "esign.declined", label: "A signer declined a letter you sent with erp Sign", defaults: ["in_app", "email"] },
   ] },
   { group: "Pay and expenses", events: [
     { key: "payroll.payslip", label: "Your payslip is ready", defaults: ["in_app", "email"] },
@@ -39,6 +44,7 @@ export const NOTIFICATION_EVENTS: EventGroup[] = [
   { group: "Exits and helpdesk", events: [
     { key: "exit.started", label: "An exit was started for you", defaults: ["in_app", "email"] },
     { key: "exit.updated", label: "Your exit was updated or completed", defaults: ["in_app", "email"] },
+    { key: "exit.survey", label: "The exit survey (sent when your exit starts)", defaults: ["in_app", "email"] },
     { key: "helpdesk.reply", label: "A reply on your helpdesk ticket", defaults: ["in_app", "email"] },
     { key: "helpdesk.closed", label: "Your helpdesk ticket was closed", defaults: ["in_app"] },
     { key: "helpdesk.assigned", label: "A ticket was assigned to you (agents)", defaults: ["in_app", "email"] },

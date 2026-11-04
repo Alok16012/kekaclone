@@ -46,6 +46,11 @@ function PasswordForm({ next }: { next?: string }) {
       <input type="hidden" name="next" value={next ?? ""} />
       <Field label="Work email" error={f.email}><Input name="email" type="email" autoComplete="username" defaultValue={state.values?.email} autoFocus required /></Field>
       <Field label="Password" error={f.password}><Input name="password" type="password" autoComplete="current-password" required /></Field>
+      {state.captcha && (
+        <Field label={state.captcha.question} help="A quick check after a few failed attempts. Answer in digits or words.">
+          <Input name="captcha" inputMode="numeric" autoComplete="off" maxLength={12} required className="max-w-40" />
+        </Field>
+      )}
       <Link href="/forgot-password" className="-mt-2 self-end text-sm font-medium text-accent-text hover:underline">Forgot password?</Link>
       <Button type="submit" size="lg" block loading={pending || !!state.redirectTo}>Sign in</Button>
     </form>

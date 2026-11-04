@@ -8,6 +8,7 @@ import { canFor, type Placement } from "@/server/auth/permissions";
 import { listReasons, myExit } from "@/server/modules/exits/service";
 import { personDocuments } from "@/server/modules/documents/service";
 import { listTemplates } from "@/server/modules/documents/letters";
+import { signStatusByFile } from "@/server/modules/documents/esign";
 import { todayIn } from "@/lib/dates";
 import { ProfileView } from "@/features/profile/profile-view";
 import { Button } from "@/ui/button";
@@ -55,6 +56,10 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
       reasons: (self || manageExit) && p.employee.status !== "relieved" ? await listReasons(tx) : [],
       praise, docs, finances, assets: assets ? toPersonAssetsDTO(assets) : null, sections, fields, policies, time, onboarding, performance,
       rehire: canRehire ? { notRehirable: x?.ok === false, lookups: await lookups(tx) } : null, templates: issue ? (await listTemplates(tx)).map((t) => ({ id: t.id, name: t.name, kind: t.kind })) : [],
+      signing: docs ? await signStatusByFile(tx, id) : {},
+      signers: issue ? await tx<{ id: string; name: string; title: string | null; department: string | null }[]>`
+        select e.id, e.display_name as name, d.title, dp.name as department from employees e left join designations d on d.id = e.designation_id left join departments dp on dp.id = e.department_id
+        where e.status <> 'relieved' and e.user_id is not null order by e.display_name` : [],
     };
   });
   if (!d) notFound();
@@ -70,8 +75,9 @@ export default async function PersonPage(props: PageProps<"/people/[id]">) {
   const banner = !d.exit ? undefined : d.self ? <MyExitBanner exit={d.exit} /> : <ExitStatusBanner exit={d.exit} name={e.first_name} />;
   const tabs = d.docs ? [{
     value: "documents", label: "Documents",
-    content: <PersonDocuments employeeId={e.id} name={e.display_name} canManage={d.docs.canManage} isSelf={d.docs.isSelf} templates={d.templates}
-      docs={d.docs.docs.map((x) => ({ id: x.id, category: x.category, doc_type: x.doc_type, number: x.number, status: x.status, file_id: x.file_id, file_name: x.file_name, size_bytes: x.size_bytes, created_at: x.created_at.toISOString() }))} />,
+    content: <PersonDocuments employeeId={e.id} name={e.display_name} canManage={d.docs.canManage} isSelf={d.docs.isSelf} templates={d.templates} people={d.signers} today={today}
+      docs={d.docs.docs.map((x) => ({ id: x.id, category: x.category, doc_type: x.doc_type, number: x.number, status: x.status, file_id: x.file_id, file_name: x.file_name, size_bytes: x.size_bytes, created_at: x.created_at.toISOString(),
+        expiry_date: x.expiry_date, review_comment: x.review_comment, verified_by_name: x.verified_by_name, sign: d.signing[x.file_id] ?? null }))} />,
   }] : [];
   if (d.time) tabs.push({ value: "time", label: "Time", content: <TimeTab employeeId={e.id} initial={d.time} thisMonth={today.slice(0, 8) + "01"} /> });
   if (d.assets) tabs.push({ value: "assets", label: "Assets", content: <PersonAssets data={d.assets} name={e.display_name} /> });

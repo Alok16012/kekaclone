@@ -4,18 +4,25 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { AppError } from "@/server/db";
 import { createSession, currentSubdomain, destroySession, resolveTenant } from "@/server/auth/session";
-import { provisionTenant } from "@/server/modules/tenants/provision";
 import { createHandoff, passwordLogin } from "@/server/modules/auth/service";
 import { requestReset, setPasswordWithToken } from "@/server/modules/auth/flows";
 import { needsCode, resendChallenge, startChallenge, verifyChallenge } from "@/server/modules/auth/mfa";
 import { isTrustedDevice, rememberThisDevice } from "@/server/modules/auth/trusted-device";
 import { startMobileOtp, verifyMobileOtp } from "@/server/modules/auth/mobile-otp";
+import { resendSignupCode, startSignup, verifySignup } from "@/server/modules/auth/signup";
+import { issueChallenge, recentFailures, verifyChallenge as verifyCaptcha } from "@/server/modules/auth/captcha";
+import { challengeRequired } from "@/server/auth/captcha-rules";
 
 /**
  * Auth actions return `redirectTo` instead of calling redirect(): a redirect inside a server action is rendered
  * by Next internally without the tenant subdomain, so the browser does a full navigation on the right host instead.
  */
-export type FormState = { error?: string; fields?: Record<string, string>; values?: Record<string, string>; redirectTo?: string; mfa?: { maskedEmail: string; next: string }; otp?: { maskedPhone: string; next: string }; notice?: string };
+export type FormState = {
+  error?: string; fields?: Record<string, string>; values?: Record<string, string>; redirectTo?: string;
+  mfa?: { maskedEmail: string; next: string }; otp?: { maskedPhone: string; next: string }; notice?: string;
+  /** sign-up: the email verification step */ verify?: { maskedEmail: string };
+  /** sign-in: an arithmetic challenge after repeated failures */ captcha?: { question: string };
+};
 
 const signupSchema = z.object({
   company: z.string().trim().min(2, "Enter your company name").max(120),
@@ -35,17 +42,38 @@ export async function signupAction(_: FormState, form: FormData): Promise<FormSt
     for (const i of parsed.error.issues) fields[String(i.path[0])] ??= i.message;
     return { fields, values };
   }
+  // step 1: park the sign-up and email a code; the workspace is created once the code checks out (verifySignupAction)
+  try {
+    const h = await headers();
+    const r = await startSignup(parsed.data, h.get("x-forwarded-for")?.split(",")[0]?.trim() || null);
+    return { verify: r, values };
+  } catch (e) {
+    if (e instanceof AppError) return e.field ? { fields: { [e.field]: e.message }, values } : { error: e.message, values };
+    console.error(e);
+    return { error: "We couldn't send the verification code. Please try again.", values };
+  }
+}
+
+/** Sign-up step 2: the emailed code. On success the workspace exists and the admin is handed over to its address. */
+export async function verifySignupAction(prev: FormState, form: FormData): Promise<FormState> {
+  if (!prev.verify) return { error: "Your sign-up timed out. Fill in the form again.", values: prev.values };
+  if (form.get("intent") === "resend") {
+    try { const r = await resendSignupCode(); return { ...prev, verify: r, error: undefined, notice: "We've sent a new code." }; }
+    catch (e) { return { ...prev, notice: undefined, error: e instanceof AppError ? e.message : "Couldn't send a new code." }; }
+  }
   let target: string;
   try {
-    const t = await provisionTenant(parsed.data);
+    const t = await verifySignup(String(form.get("code") ?? ""));
     const token = await createHandoff(t.tenantId, t.userId);
     const h = await headers();
     const proto = h.get("x-forwarded-proto") ?? "http";
     target = `${proto}://${t.subdomain}.${process.env.ROOT_DOMAIN}/auth/handoff?t=${encodeURIComponent(token)}`;
   } catch (e) {
-    if (e instanceof AppError) return e.field ? { fields: { [e.field]: e.message }, values } : { error: e.message, values };
-    console.error(e);
-    return { error: "We couldn't create your workspace. Please try again.", values };
+    const msg = e instanceof AppError ? e.message : "We couldn't create your workspace. Please try again.";
+    if (e instanceof AppError && e.field) return { fields: { [e.field]: e.message }, values: prev.values };   // e.g. the address was taken meanwhile
+    const restart = /Fill in the form again\.$/.test(msg);
+    if (!(e instanceof AppError)) console.error(e);
+    return restart ? { error: msg, values: prev.values } : { ...prev, notice: undefined, error: msg };
   }
   redirect(target);
 }
@@ -64,12 +92,23 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
   if (!tenant) return { error: "This workspace doesn't exist.", values };
   const raw = String(form.get("next") ?? "");
   const next = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/home";
+  // after repeated failures the form must answer a small arithmetic question first (server-generated and checked)
+  const failures = await recentFailures(tenant, parsed.data.email);
+  if (challengeRequired(failures)) {
+    const answer = form.get("captcha");
+    if (typeof answer !== "string" || !answer.trim()) return { captcha: await issueChallenge(tenant), values, error: "Please answer the question below so we know you're a person." };
+    if (!(await verifyCaptcha(tenant, answer))) return { captcha: await issueChallenge(tenant), values, error: "That answer wasn't right. Try the new question." };
+  }
   try {
     const userId = await passwordLogin(tenant, parsed.data.email, parsed.data.password);
     if ((await needsCode(tenant, userId)) && !(await isTrustedDevice(tenant, userId))) return { mfa: { ...(await startChallenge(tenant, userId)), next }, values };
     await createSession(tenant.id, userId);
   } catch (e) {
-    if (e instanceof AppError) return { error: e.message, values };
+    if (e instanceof AppError) {
+      // one more failure may cross the threshold: show the challenge right away so the next try isn't bounced
+      const captcha = challengeRequired(failures + 1) ? await issueChallenge(tenant) : undefined;
+      return { error: e.message, values, captcha };
+    }
     console.error(e);
     return { error: "We couldn't sign you in. Please try again.", values };
   }

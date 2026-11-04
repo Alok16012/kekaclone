@@ -3,6 +3,8 @@ import { z } from "zod";
 import { runAction } from "@/server/action";
 import { AppError } from "@/server/db";
 import * as exits from "@/server/modules/exits/service";
+import * as checklist from "@/server/modules/exits/checklist";
+import * as survey from "@/server/modules/exits/survey";
 
 const uuid = z.uuid();
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -100,4 +102,43 @@ export async function addExitReasonAction(input: { kind: string; name: string })
 export async function deleteExitReasonAction(id: string) {
   if (!uuid.safeParse(id).success) return bad("Reason not found.");
   return runAction((tx, actor) => exits.deleteReason(tx, actor, id));
+}
+
+// ---------- settings: the exit checklist template ----------
+const ownerInput = z.union([z.object({ type: z.literal("self") }), z.object({ type: z.literal("manager") }), z.object({ type: z.literal("role"), role: z.string().max(40) }), z.object({ type: z.literal("employee"), id: uuid })]);
+const checklistInput = z.object({ title: z.string().max(160), description: z.string().max(1000).nullable().optional(), owner: ownerInput, dueOffsetDays: z.number().int(), auto: z.enum(["assets_returned", "access_revoked", "fnf_finalized"]).nullable().optional() });
+export async function saveChecklistItemAction(id: string | null, input: z.input<typeof checklistInput>) {
+  const p = checklistInput.safeParse(input);
+  if ((id && !uuid.safeParse(id).success) || !p.success) return bad("Check the task details.");
+  return runAction((tx, actor) => checklist.saveChecklistItem(tx, actor, id, p.data));
+}
+export async function deleteChecklistItemAction(id: string) {
+  if (!uuid.safeParse(id).success) return bad("Task not found.");
+  return runAction((tx, actor) => checklist.deleteChecklistItem(tx, actor, id));
+}
+export async function moveChecklistItemAction(id: string, dir: "up" | "down") {
+  if (!uuid.safeParse(id).success || !["up", "down"].includes(dir)) return bad("Task not found.");
+  return runAction((tx, actor) => checklist.moveChecklistItem(tx, actor, id, dir));
+}
+
+// ---------- exit survey ----------
+const questionInput = z.object({ prompt: z.string().max(300), type: z.string().max(20), options: z.array(z.string().max(120)).max(20).optional(), required: z.boolean().optional() });
+export async function saveExitQuestionAction(id: string | null, input: z.input<typeof questionInput>) {
+  const p = questionInput.safeParse(input);
+  if ((id && !uuid.safeParse(id).success) || !p.success) return bad("Check the question.");
+  return runAction((tx, actor) => survey.saveExitQuestion(tx, actor, id, p.data));
+}
+export async function deleteExitQuestionAction(id: string) {
+  if (!uuid.safeParse(id).success) return bad("Question not found.");
+  return runAction((tx, actor) => survey.deleteExitQuestion(tx, actor, id));
+}
+export async function moveExitQuestionAction(id: string, dir: "up" | "down") {
+  if (!uuid.safeParse(id).success || !["up", "down"].includes(dir)) return bad("Question not found.");
+  return runAction((tx, actor) => survey.moveExitQuestion(tx, actor, id, dir));
+}
+const answersInput = z.record(z.string().max(40), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()]));
+export async function submitExitSurveyAction(answers: unknown) {
+  const p = answersInput.safeParse(answers);
+  if (!p.success) return bad("Check your answers.");
+  return runAction((tx, actor) => survey.submitExitSurvey(tx, actor, p.data));
 }

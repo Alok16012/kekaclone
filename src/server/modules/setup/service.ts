@@ -7,8 +7,8 @@ import { proratedOpening } from "@/server/modules/leave/rules";
 import { invite } from "@/server/modules/auth/flows";
 import { audit } from "@/server/modules/audit/service";
 import {
-  checkCompany, checkLeaveBasics, finish, markStep, normalize, nextStep, progress, shouldAutoOpen, showChecklist, start,
-  QUOTA_TYPES, STEP_KEYS, type CompanyInput, type QuotaCode, type SetupState, type SetupStep, type StepStatus,
+  checkCompany, checkLeaveBasics, checkPolicies, finish, markStep, normalize, nextStep, progress, shouldAutoOpen, showChecklist, start,
+  QUOTA_TYPES, STEP_KEYS, WEEKLY_OFF_PRESETS, type CompanyInput, type PoliciesInput, type QuotaCode, type SetupState, type SetupStep, type StepStatus, type WeeklyOffPreset,
 } from "./rules";
 
 /** The wizard is for whoever owns the workspace: Global admins only. */
@@ -39,17 +39,23 @@ export async function setupSummary(tx: Tx, actor: Actor): Promise<SetupSummary |
 export type SetupData = {
   state: SetupState;
   company: { id: string | null; name: string; pan: string | null; tan: string | null; address: Record<string, string> };
-  locations: MasterRow[]; departments: MasterRow[]; designations: MasterRow[];
+  locations: MasterRow[]; departments: MasterRow[]; designations: MasterRow[]; businessUnits: MasterRow[];
   leave: { planId: string | null; yearStart: "jan" | "apr"; locked: boolean; quotas: Record<QuotaCode, number | null> };
+  policies: {
+    holidayList: { id: string; name: string; year: number; holidays: { id: string; name: string; date: string; is_floater: boolean }[] } | null;
+    shift: { id: string; name: string; start: string; end: string } | null;
+    weeklyOff: { id: string; name: string; preset: WeeklyOffPreset | null } | null;
+    payGroup: { id: string; name: string; cutoffDay: number } | null;
+  };
   people: { total: number; notInvited: { id: string; name: string; email: string }[]; waiting: number };
 };
 
 export async function setupData(tx: Tx, actor: Actor): Promise<SetupData> {
   assertSetup(actor);
   const state = await readState(tx);
-  const [[le], locations, departments, designations, [plan], people] = await Promise.all([
+  const [[le], locations, departments, designations, businessUnits, [plan], people] = await Promise.all([
     tx<{ id: string; name: string; pan: string | null; tan: string | null; address: Record<string, string> }[]>`select id, name, pan, tan, address from legal_entities order by created_at limit 1`,
-    listMaster(tx, "locations"), listMaster(tx, "departments"), listMaster(tx, "designations"),
+    listMaster(tx, "locations"), listMaster(tx, "departments"), listMaster(tx, "designations"), listMaster(tx, "business_units"),
     tx<{ id: string; year_start: string; used: boolean }[]>`
       select p.id, p.year_start, exists (select 1 from leave_requests q join employees e on e.id = q.employee_id where e.leave_plan_id = p.id and q.status in ('pending','approved')) as used
       from leave_plans p order by p.is_default desc, p.created_at limit 1`,
@@ -63,11 +69,25 @@ export async function setupData(tx: Tx, actor: Actor): Promise<SetupData> {
       select t.code, r.yearly_quota from leave_plan_rules r join leave_types t on t.id = r.leave_type_id where r.leave_plan_id = ${plan.id}`;
     for (const r of rules) if (r.code in quotas) quotas[r.code as QuotaCode] = r.yearly_quota == null ? null : Number(r.yearly_quota);
   }
+  const year = Number(todayIn().slice(0, 4));
+  const [hl] = await tx<{ id: string; name: string; year: number }[]>`select id, name, year from holiday_lists where year >= ${year} order by year, created_at limit 1`;
+  const holidays = hl ? await tx<{ id: string; name: string; date: string; is_floater: boolean }[]>`select id, name, date::text, is_floater from holidays where holiday_list_id = ${hl.id} order by date` : [];
+  const [shift] = await tx<{ id: string; name: string; timings: Record<string, { start: string; end: string }> }[]>`select id, name, timings from shifts order by created_at, id limit 1`;
+  const [wo] = await tx<{ id: string; name: string; pattern: Record<string, unknown> }[]>`select id, name, pattern from weekly_off_policies order by created_at, id limit 1`;
+  const [pg] = await tx<{ id: string; name: string; attendance_cutoff_day: number }[]>`select id, name, attendance_cutoff_day from pay_groups order by created_at limit 1`;
+  const firstTiming = shift ? Object.values(shift.timings ?? {})[0] : null;
+  const preset = wo ? WEEKLY_OFF_PRESETS.find((p) => JSON.stringify(p.pattern) === JSON.stringify(wo.pattern))?.key ?? null : null;
   return {
     state,
     company: le ? { id: le.id, name: le.name, pan: le.pan, tan: le.tan, address: le.address ?? {} } : { id: null, name: actor.tenant.name, pan: null, tan: null, address: {} },
-    locations, departments, designations,
+    locations, departments, designations, businessUnits,
     leave: { planId: plan?.id ?? null, yearStart: plan?.year_start === "apr" ? "apr" : "jan", locked: !!plan?.used, quotas },
+    policies: {
+      holidayList: hl ? { ...hl, holidays } : null,
+      shift: shift ? { id: shift.id, name: shift.name, start: firstTiming?.start ?? "09:30", end: firstTiming?.end ?? "18:30" } : null,
+      weeklyOff: wo ? { id: wo.id, name: wo.name, preset } : null,
+      payGroup: pg ? { id: pg.id, name: pg.name, cutoffDay: pg.attendance_cutoff_day } : null,
+    },
     people: {
       total: people.length,
       notInvited: people.filter((p) => p.user_status === "invited" && !p.invited_at).map(({ id, name, email }) => ({ id, name, email })),
@@ -101,8 +121,8 @@ export async function completeStep(tx: Tx, actor: Actor, step: SetupStep, status
   assertSetup(actor);
   if (!STEP_KEYS.includes(step)) throw new AppError("invalid", "Unknown step.");
   if (status === "done") {
-    if (step === "company" || step === "leave") throw new AppError("invalid", "Save this step's form to complete it.");
-    const need: Partial<Record<SetupStep, [string, string]>> = { locations: ["locations", "location"], departments: ["departments", "department"], designations: ["designations", "designation"] };
+    if (step === "company" || step === "leave" || step === "policies") throw new AppError("invalid", "Save this step's form to complete it.");
+    const need: Partial<Record<SetupStep, [string, string]>> = { locations: ["locations", "location"], departments: ["departments", "department"], designations: ["designations", "designation"], business_units: ["business_units", "business unit"] };
     const n = need[step];
     if (n) {
       const [{ c }] = await tx<{ c: number }[]>`select count(*)::int as c from ${tx(n[0])}`;
@@ -206,6 +226,53 @@ async function resyncOpenings(tx: Tx, actor: Actor, planId: string, yearStart: "
     if (touched) resynced++;
   }
   return { resynced, kept };
+}
+
+/**
+ * Policies: the default shift's hours (Monday to Friday, keeping any weekend timings), the default weekly-off pattern,
+ * and the pay group's attendance cut-off when payroll is set up. Holidays are added one by one on the same step.
+ */
+export async function savePolicies(tx: Tx, actor: Actor, input: PoliciesInput) {
+  assertSetup(actor);
+  const r = checkPolicies(input);
+  if (!r.ok) throw new AppError("invalid", r.problem.message, r.problem.field);
+  const v = r.value;
+  const diff: Record<string, unknown> = {};
+  const [shift] = await tx<{ id: string; timings: Record<string, { start: string; end: string }> }[]>`select id, timings from shifts order by created_at, id limit 1 for update`;
+  if (shift) {
+    const timings = { ...(shift.timings ?? {}) };
+    for (const d of ["mon", "tue", "wed", "thu", "fri"]) if (timings[d] || !Object.keys(timings).length || ["mon", "tue", "wed", "thu", "fri"].some((k) => timings[k])) timings[d] = { start: v.shiftStart, end: v.shiftEnd };
+    if (JSON.stringify(timings) !== JSON.stringify(shift.timings)) { await tx`update shifts set timings = ${tx.json(timings)}, updated_at = now() where id = ${shift.id}`; diff.shift = { start: v.shiftStart, end: v.shiftEnd }; }
+  } else {
+    const timings = Object.fromEntries(["mon", "tue", "wed", "thu", "fri"].map((d) => [d, { start: v.shiftStart, end: v.shiftEnd }]));
+    await tx`insert into shifts (tenant_id, name, code, timings, break_minutes, grace_minutes, half_day_minutes) values (${actor.tenant.id}, 'General', 'GEN', ${tx.json(timings)}, 60, 15, 240)`;
+    diff.shift = { start: v.shiftStart, end: v.shiftEnd, created: true };
+  }
+  const preset = WEEKLY_OFF_PRESETS.find((p) => p.key === v.weeklyOff)!;
+  const [wo] = await tx<{ id: string; pattern: unknown }[]>`select id, pattern from weekly_off_policies order by created_at, id limit 1 for update`;
+  if (wo) {
+    if (JSON.stringify(wo.pattern) !== JSON.stringify(preset.pattern)) { await tx`update weekly_off_policies set name = ${preset.label}, pattern = ${tx.json(preset.pattern)}, updated_at = now() where id = ${wo.id}`; diff.weekly_off = preset.key; }
+  } else {
+    await tx`insert into weekly_off_policies (tenant_id, name, pattern) values (${actor.tenant.id}, ${preset.label}, ${tx.json(preset.pattern)})`;
+    diff.weekly_off = preset.key;
+  }
+  if (v.cutoffDay != null) {
+    const [pg] = await tx<{ id: string; attendance_cutoff_day: number }[]>`select id, attendance_cutoff_day from pay_groups order by created_at limit 1 for update`;
+    if (pg && pg.attendance_cutoff_day !== v.cutoffDay) { await tx`update pay_groups set attendance_cutoff_day = ${v.cutoffDay}, updated_at = now() where id = ${pg.id}`; diff.cutoff_day = v.cutoffDay; }
+  }
+  if (Object.keys(diff).length) await audit(tx, actor, { entityType: "tenant", entityId: actor.tenant.id, action: "setup.policies", diff });
+  return mark(tx, actor, "policies", "done");
+}
+
+/** The holiday list the policies step edits: this year's first list, created if the company has none. */
+export async function setupHolidayList(tx: Tx, actor: Actor) {
+  assertSetup(actor);
+  const year = Number(todayIn().slice(0, 4));
+  const [hl] = await tx<{ id: string }[]>`select id from holiday_lists where year >= ${year} order by year, created_at limit 1`;
+  if (hl) return hl.id;
+  const [n] = await tx<{ id: string }[]>`insert into holiday_lists (tenant_id, name, year) values (${actor.tenant.id}, 'Company holidays', ${year}) returning id`;
+  await tx`update locations set default_holiday_list_id = coalesce(default_holiday_list_id, ${n.id})`;
+  return n.id;
 }
 
 /** Invite everyone who has never been sent an invite. */

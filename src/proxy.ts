@@ -22,6 +22,8 @@ export function proxy(req: NextRequest) {
     || path === "/offline" || path === "/manifest.webmanifest" || path === "/sw.js" || path.startsWith("/icons/") || path.startsWith("/brand/")
     || path.startsWith("/join/")   // joiner portal: token checked inside the subdomain's company
     || path === "/careers" || path.startsWith("/careers/") || path.startsWith("/p/")   // hiring: public careers page and candidate / interviewer token links
+    || path.startsWith("/sign/")   // erp Sign: signer token links (tenant from the subdomain, token checked inside)
+    || path === "/brand/background"
     || (process.env.NODE_ENV !== "production" && path.startsWith("/dev/"));
   if (sub && !isPublic && !req.cookies.has(process.env.SESSION_COOKIE ?? "erp_session")) {
     const url = new URL("/login", req.url);
@@ -29,7 +31,7 @@ export function proxy(req: NextRequest) {
     return NextResponse.redirect(url);
   }
   // the apex has no app pages: send people to sign up
-  if (!sub && !["/", "/signup", "/design"].some((p) => path === p) && !path.startsWith("/_next") && !path.startsWith("/api")) {
+  if (!sub && !["/", "/signup", "/design"].some((p) => path === p) && !path.startsWith("/_next") && !path.startsWith("/api") && !(process.env.NODE_ENV !== "production" && path.startsWith("/dev/"))) {
     return NextResponse.redirect(new URL("/signup", req.url));
   }
   return NextResponse.next({ request: { headers } });

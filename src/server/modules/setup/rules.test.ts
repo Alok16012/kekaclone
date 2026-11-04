@@ -34,7 +34,7 @@ describe("setup state", () => {
     s = markStep(s, "company", "done", T);
     s = markStep(s, "locations", "skipped", T);
     expect(nextStep(s)).toBe("departments");
-    expect(progress(s)).toMatchObject({ done: 1, visited: 2, total: 7 });
+    expect(progress(s)).toMatchObject({ done: 1, visited: 2, total: 9 });
     s = markStep(s, "company", "skipped", T2);
     expect(s.steps.company).toEqual({ status: "done", at: T });
     s = markStep(s, "locations", "done", T2);

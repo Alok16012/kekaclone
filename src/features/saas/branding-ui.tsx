@@ -8,7 +8,7 @@ import { Banner } from "@/ui/feedback";
 import { toast } from "@/ui/toast";
 import type { Branding } from "@/server/auth/session";
 import { accentProblem, derivePalette } from "@/server/modules/saas/branding-rules";
-import { removeLogoAction, saveBrandingAction, uploadLogoAction } from "@/app/(app)/settings/branding/actions";
+import { removeBackgroundAction, removeLogoAction, saveBrandingAction, uploadBackgroundAction, uploadLogoAction } from "@/app/(app)/settings/branding/actions";
 
 /** Settings → Branding: logo, accent colours (with a live contrast check) and the sign-in page note. */
 export function BrandingPage({ branding, canEdit, allowed, company }: { branding: Branding; canEdit: boolean; allowed: boolean; company: string }) {
@@ -16,7 +16,9 @@ export function BrandingPage({ branding, canEdit, allowed, company }: { branding
   const [error, setError] = React.useState<{ message: string; field?: string } | null>(null);
   const [pending, start] = React.useTransition();
   const [logoKey, setLogoKey] = React.useState(0);
+  const [bgKey, setBgKey] = React.useState(0);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const bgRef = React.useRef<HTMLInputElement>(null);
   const lightProblem = form.accent ? accentProblem(form.accent, "light") : null;
   const darkProblem = form.accentDark ? accentProblem(form.accentDark, "dark") : null;
   const disabled = !canEdit || !allowed || pending;
@@ -39,6 +41,23 @@ export function BrandingPage({ branding, canEdit, allowed, company }: { branding
               onChange={(e) => e.currentTarget.form?.requestSubmit()} />
             <Button asChild variant="secondary" disabled={disabled}><label htmlFor="logo-file" className={disabled ? "pointer-events-none opacity-50" : "cursor-pointer"}><ImageUp />Upload logo</label></Button>
             {branding.logo_file_id && canEdit && <Button type="button" variant="ghost" disabled={pending} onClick={() => start(async () => { const r = await removeLogoAction(); if (r.ok) toast.success("Logo removed"); else toast.error(r.error); })}><Trash2 />Remove</Button>}
+          </form>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Sign-in page background" description="A photo or pattern behind the sign-in card. PNG, JPEG or WebP up to 2 MB; the file's bytes are checked against its type. Keep it calm so the card stays readable." />
+        <CardBody className="flex flex-wrap items-center gap-4">
+          <div className="flex h-24 w-40 items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-surface-sunken">
+            {branding.login_bg_file_id ? (
+              // eslint-disable-next-line @next/next/no-img-element -- tenant file served by our own route
+              <img key={bgKey} src={`/brand/background?v=${bgKey}-${branding.login_bg_file_id.slice(0, 8)}`} alt={`${company} sign-in background`} className="size-full object-cover" />
+            ) : <span className="px-2 text-center text-sm text-text-muted">No background yet</span>}
+          </div>
+          <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); start(async () => { const r = await uploadBackgroundAction(fd); if (r.ok) { toast.success("Background updated"); setBgKey((k) => k + 1); if (bgRef.current) bgRef.current.value = ""; } else toast.error(r.error); }); }}>
+            <input ref={bgRef} type="file" name="background" accept="image/png,image/jpeg,image/webp" className="sr-only" id="bg-file" disabled={disabled} onChange={(e) => e.currentTarget.form?.requestSubmit()} />
+            <Button asChild variant="secondary" disabled={disabled}><label htmlFor="bg-file" className={disabled ? "pointer-events-none opacity-50" : "cursor-pointer"}><ImageUp />Upload background</label></Button>
+            {branding.login_bg_file_id && canEdit && <Button type="button" variant="ghost" disabled={pending} onClick={() => start(async () => { const r = await removeBackgroundAction(); if (r.ok) toast.success("Background removed"); else toast.error(r.error); })}><Trash2 />Remove</Button>}
           </form>
         </CardBody>
       </Card>

@@ -21,6 +21,9 @@ import { deliverDue } from "@/server/modules/reports/service";
 import { syncSeats, syncStatus, trialReminders } from "@/server/modules/billing/service";
 import { deliverWebhooks } from "@/server/modules/integrations/service";
 import { settleOvertime, settleShiftAllowance } from "@/server/modules/attendance/overtime";
+import { sendExpiryReminders } from "@/server/modules/documents/expiry";
+import { processPendingBatches } from "@/server/modules/documents/bulk";
+import { autoTickExitTasks } from "@/server/modules/exits/checklist";
 
 export type StepContext = { tenantId: string; today: string; now: Date };
 /**
@@ -68,6 +71,10 @@ export const STEPS: Step[] = [
     return { month, overtime: count((await settleOvertime(tx, c.tenantId, month, null)).lines), allowances: count((await settleShiftAllowance(tx, c.tenantId, month, null)).lines) };
   } },
   { key: "webhooks", label: "Retry outbound webhooks", daily: false, own: async (c) => { const r = await deliverWebhooks(c.tenantId, undefined, c.now); return { sent: r.sent, failed: r.failed }; } },
+  // docs2: document expiry reminders (30 / 7 days), bulk letter batches left unfinished, exit checklist auto-ticks
+  { key: "document_expiry", label: "Remind people and HR about expiring documents", daily: true, tx: async (tx, c) => sendExpiryReminders(tx, await tenantRow(tx, c.tenantId), c.today) },
+  { key: "letter_batches", label: "Finish bulk letter batches", daily: false, own: (c) => processPendingBatches(c.tenantId) },
+  { key: "exit_tasks", label: "Tick exit checklist tasks the system can prove", daily: false, tx: (tx) => autoTickExitTasks(tx) },
 ];
 
 async function tenantRow(tx: Tx, tenantId: string) {

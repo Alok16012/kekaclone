@@ -1,4 +1,5 @@
 import "server-only";
+import { autoTickExitTasks } from "@/server/modules/exits/checklist";
 import { z } from "zod";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
@@ -256,6 +257,7 @@ export async function finalizeSettlement(tx: Tx, actor: Actor, exitId: string) {
   const claimIds = s.items.filter((i) => i.key.startsWith("expense:") && (i.action === "pay" || i.action === "paid_outside")).map((i) => i.key.slice(8));
   await settleClaimsInFnf(tx, actor, claimIds, `Final settlement ${x.number}`);
   await tx`update fnf_settlements set status = 'finalized', net_paise = ${net}, statement_file_id = ${fileId}, settlement_month = ${lwdMonth}, updated_at = now() where id = ${s.id}`;
+  await autoTickExitTasks(tx, { employeeId: x.employee_id });   // the exit checklist's "Final settlement" task ticks itself
   await notifyEmployee(tx, actor.tenant.id, x.employee_id, "payroll.fnf", "Your full and final settlement is ready", "Open My finances to download the statement.", "/me/pay");
   await audit(tx, actor, { entityType: "fnf_settlement", entityId: exitId, action: "fnf.finalized", diff: { net, items: s.items.length } });
   return { net, fileId };
