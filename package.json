@@ -54,7 +54,7 @@
     "smoke:time3": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-time3.ts",
     "smoke:plat2": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.local db/smoke-plat2.ts",
     "push:keys": "tsx db/push-keys.ts",
-    "deploy:db": "tsx --env-file=.env.deploy db/deploy-db.ts",
+    "deploy:db": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.deploy db/deploy-db.ts",
     "jobs:daily:deploy": "tsx --conditions=react-server --tsconfig tsconfig.json --env-file=.env.deploy db/jobs-daily.ts"
   },
   "dependencies": {
