@@ -22,12 +22,11 @@ import { myOnboarding } from "@/server/modules/onboarding/service";
 import { mySurveys, processDueSurveys } from "@/server/modules/surveys/service";
 import { QuickLinksCard, RemoteTodayCard, SurveysWaiting } from "@/features/home/extras";
 import { OnboardingChecklist } from "@/features/onboarding/checklist";
+import { getT } from "@/i18n/server";
 
 export const metadata: Metadata = { title: "Home" };
 
-function greeting(hourIST: number) {
-  return hourIST < 12 ? "Good morning" : hourIST < 17 ? "Good afternoon" : "Good evening";
-}
+const greetingKey = (hourIST: number): "home.morning" | "home.afternoon" | "home.evening" => (hourIST < 12 ? "home.morning" : hourIST < 17 ? "home.afternoon" : "home.evening");
 
 export default async function HomePage(props: PageProps<"/home">) {
   const sp = await props.searchParams;
@@ -48,8 +47,9 @@ export default async function HomePage(props: PageProps<"/home">) {
       links, editLinks: canEditQuickLinks(actor), remote, onboarding: onboarding && onboarding.tasks.length ? onboarding : null, surveys: surveys.filter((x) => !x.answered),
     };
   });
+  const { t, date: fmtDate } = await getT();   // after load(): the request boundary has been crossed
   const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
-  const date = new Date(data.today + "T00:00:00Z").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+  const date = fmtDate(data.today);
   const types = data.bal.map((b) => ({ id: b.id, name: b.name, available: Number.isFinite(b.available) ? b.available : null, allowHalfDay: !!b.rules.allowHalfDay }));
   const compose = typeof sp.compose === "string" && (POST_KINDS as readonly string[]).includes(sp.compose) && (sp.compose !== "announcement" || data.composer.announce) ? (sp.compose as PostKind) : null;
 
@@ -57,7 +57,7 @@ export default async function HomePage(props: PageProps<"/home">) {
     <div className="flex flex-col gap-6">
       <div>
         <p className="text-sm text-text-muted">{date}</p>
-        <h1 className="text-2xl font-semibold tracking-tight">{greeting(hour)}, {data.actor.name.split(" ")[0]}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t(greetingKey(hour))}, {data.actor.name.split(" ")[0]}</h1>
       </div>
 
       {sp.welcome && data.admin && data.headcount <= 1 && (
@@ -75,7 +75,7 @@ export default async function HomePage(props: PageProps<"/home">) {
           {data.pending > 0 && (
             <Link href="/inbox" className="group flex items-center gap-4 rounded-lg border border-border bg-surface px-4 py-3 shadow-card hover:bg-surface-sunken">
               <span className="flex size-10 items-center justify-center rounded-pill bg-accent-soft text-accent-text"><Inbox className="size-5" aria-hidden /></span>
-              <span className="min-w-0 flex-1"><span className="block text-base font-medium">{data.pending} {data.pending === 1 ? "request needs" : "requests need"} your approval</span><span className="block text-sm text-text-muted">Open your Inbox</span></span>
+              <span className="min-w-0 flex-1"><span className="block text-base font-medium">{t("home.approvals", { count: data.pending })}</span><span className="block text-sm text-text-muted">{t("home.open_inbox")}</span></span>
               <ArrowRight className="size-4 text-text-muted transition-transform group-hover:translate-x-0.5" aria-hidden />
             </Link>
           )}
@@ -88,23 +88,23 @@ export default async function HomePage(props: PageProps<"/home">) {
         <div className="flex min-w-0 flex-col gap-4 self-start lg:col-start-2 lg:row-start-2">
           <CelebrationsCard data={data.celebrations} today={data.today} />
           <Card>
-            <CardHeader title="Leave balance" description="This leave year" action={<ApplyLeave types={types} marks={data.marks} people={data.people} trigger={<Button size="sm"><CalendarPlus />Apply</Button>} />} />
+            <CardHeader title={t("home.leave_balance")} description={t("home.this_leave_year")} action={<ApplyLeave types={types} marks={data.marks} people={data.people} trigger={<Button size="sm"><CalendarPlus />{t("home.apply")}</Button>} />} />
             <CardBody className="flex flex-wrap justify-around gap-4">
               {data.bal.filter((b) => b.quota != null).length === 0
-                ? <p className="text-base text-text-muted">No leave balances yet.</p>
+                ? <p className="text-base text-text-muted">{t("home.no_balances")}</p>
                 : data.bal.filter((b) => b.quota != null).map((b) => (
                   <BalanceRing key={b.id} size={76} label={b.name.replace(/ leave$/i, "")} available={b.available} total={b.credited} color={b.color} />
                 ))}
             </CardBody>
           </Card>
           <Card>
-            <CardHeader title="Off today" description={`${data.off.length} ${data.off.length === 1 ? "person" : "people"}`} />
+            <CardHeader title={t("home.off_today")} description={t("home.people_off", { count: data.off.length })} />
             {data.off.length === 0 ? (
-              <EmptyState compact icon={<PartyPopper />} title="Everyone's in today" />
+              <EmptyState compact icon={<PartyPopper />} title={t("home.everyone_in")} />
             ) : (
               <ul className="flex flex-col gap-3 px-5 pb-5">
                 {data.off.map((p) => (
-                  <li key={p.id} className="flex items-center gap-3"><Avatar name={p.name} size="sm" status="leave" /><span className="min-w-0"><span className="block truncate text-base font-medium">{p.name}</span><span className="block text-sm text-text-muted">{p.type}{p.half ? " · half day" : ""}</span></span></li>
+                  <li key={p.id} className="flex items-center gap-3"><Avatar name={p.name} size="sm" status="leave" /><span className="min-w-0"><span className="block truncate text-base font-medium">{p.name}</span><span className="block text-sm text-text-muted">{p.type}{p.half ? ` · ${t("home.half_day")}` : ""}</span></span></li>
                 ))}
               </ul>
             )}

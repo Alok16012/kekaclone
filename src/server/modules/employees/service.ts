@@ -3,6 +3,7 @@ import { AppError, type Tx } from "@/server/db";
 import { hashPassword } from "@/server/auth/password";
 import { creditOnJoining } from "@/server/modules/leave/accrual";
 import { emitWebhook } from "@/server/modules/integrations/service";
+import { emitEvent } from "@/server/modules/automations/service";
 import { addDaysISO } from "@/lib/dates";
 
 export type NewEmployee = {
@@ -13,7 +14,7 @@ export type NewEmployee = {
   // the add-employee wizard's job and work-policy steps (all optional; defaults apply when left out)
   middleName?: string | null; personalEmail?: string | null; dob?: string | null;
   legalEntityId?: string | null; businessUnitId?: string | null; bandId?: string | null; l2ManagerId?: string | null; dottedManagerId?: string | null;
-  workerType?: "permanent" | "contract" | "intern" | "consultant"; timeType?: "full_time" | "part_time";
+  workerType?: "permanent" | "contract" | "intern" | "consultant" | "daily" | "piece"; timeType?: "full_time" | "part_time";
   probationPolicyId?: string | null; noticePolicyId?: string | null;
   leavePlanId?: string | null; holidayListId?: string | null; shiftId?: string | null; weeklyOffId?: string | null;
   capturePolicyId?: string | null; penalizationPolicyId?: string | null; payGroupId?: string | null;
@@ -101,6 +102,7 @@ export async function createEmployee(tx: Tx, tenantId: string, input: NewEmploye
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, actor_user_id) values (${tenantId}, ${emp.id}, 'joined', ${input.joiningDate}, ${actorUserId})`;
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action) values (${tenantId}, ${actorUserId}, 'employee', ${emp.id}, 'create')`;
   await emitWebhook(tx, tenantId, "employee.created", { employee_id: emp.id, employee_number: number, joining_date: input.joiningDate });
+  await emitEvent(tx, tenantId, "employee.joined", { employeeId: emp.id, occurrence: emp.id });   // Settings → Automations
   return { employeeId: emp.id, userId: user.id, employeeNumber: number };
 }
 

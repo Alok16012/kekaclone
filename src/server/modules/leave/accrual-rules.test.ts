@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  accrualPostings, accrualSchedule, addMonthsISO, compOffExpiries, cycleEnd, cycleStart, inProbation, parseBalance, validateCompOff, yearEndSplit,
+  accrualPostings, accrualSchedule, addMonthsISO, applyAccrualStops, compOffExpiries, cycleEnd, cycleStart, inProbation, parseBalance, pickGrant, validateCompOff, yearEndSplit,
 } from "./accrual-rules";
 
 const person = (joining: string, extra: Partial<{ exit: string; probationEnd: string; probationStatus: string }> = {}) => ({ joining, ...extra });
@@ -160,5 +160,53 @@ describe("balance import values", () => {
   });
   it("rejects blanks, text and silly values", () => {
     expect(parseBalance("")).toBeNull(); expect(parseBalance("ten")).toBeNull(); expect(parseBalance(1.234)).toBeNull(); expect(parseBalance(5000)).toBeNull(); expect(parseBalance(null)).toBeNull();
+  });
+});
+
+describe("accrual stop rules", () => {
+  const due = [{ periodId: "2026-01", creditDate: "2026-01-01", amount: 1 }, { periodId: "2026-02", creditDate: "2026-02-01", amount: 1 }, { periodId: "2026-03", creditDate: "2026-03-01", amount: 1 }];
+  it("credits everything when no rule is set", () => {
+    const out = applyAccrualStops(due, { balance: 10, taken: 5 });
+    expect(out.map((o) => o.credited)).toEqual([1, 1, 1]);
+    expect(out.every((o) => o.withheld === 0 && o.reason === null)).toBe(true);
+  });
+  it("stops at the balance cap, crediting only the room left and carrying the running balance", () => {
+    const out = applyAccrualStops(due, { balance: 10.5, taken: 0, cap: 12 });
+    expect(out.map((o) => [o.credited, o.withheld, o.reason])).toEqual([[1, 0, null], [0.5, 0.5, "cap"], [0, 1, "cap"]]);
+  });
+  it("credits nothing once the balance already sits above the cap", () => {
+    const out = applyAccrualStops(due, { balance: 15, taken: 0, cap: 12 });
+    expect(out.map((o) => o.credited)).toEqual([0, 0, 0]);
+    expect(out.map((o) => o.withheld)).toEqual([1, 1, 1]);
+  });
+  it("stops for the rest of the year after N days taken", () => {
+    expect(applyAccrualStops(due, { balance: 2, taken: 6, stopAfterTaken: 6 }).map((o) => o.reason)).toEqual(["taken", "taken", "taken"]);
+    expect(applyAccrualStops(due, { balance: 2, taken: 5.5, stopAfterTaken: 6 }).map((o) => o.credited)).toEqual([1, 1, 1]);
+  });
+  it("ignores negative or missing limits", () => {
+    expect(applyAccrualStops(due, { balance: 100, taken: 100, cap: -1, stopAfterTaken: null }).map((o) => o.credited)).toEqual([1, 1, 1]);
+  });
+});
+
+describe("event-based grants", () => {
+  const g = (id: string, days: number, used: number, from: string, to: string) => ({ id, days, used, validFrom: from, validTo: to });
+  it("needs a grant", () => {
+    expect(pickGrant([], { from: "2026-05-01", to: "2026-05-03", days: 3 }).problem).toMatch(/Ask HR/);
+  });
+  it("uses a grant that covers the dates and has days left", () => {
+    const r = pickGrant([g("a", 5, 0, "2026-04-20", "2026-05-20")], { from: "2026-05-01", to: "2026-05-05", days: 5 });
+    expect(r.grant?.id).toBe("a");
+  });
+  it("rejects dates outside every window and says which window exists", () => {
+    const r = pickGrant([g("a", 5, 0, "2026-04-20", "2026-05-20")], { from: "2026-05-19", to: "2026-05-22", days: 4 });
+    expect(r.grant).toBeNull(); expect(r.problem).toMatch(/2026-04-20 to 2026-05-20/);
+  });
+  it("rejects when what's left is too little", () => {
+    const r = pickGrant([g("a", 5, 3, "2026-04-20", "2026-05-20")], { from: "2026-05-01", to: "2026-05-03", days: 3 });
+    expect(r.grant).toBeNull(); expect(r.problem).toMatch(/Only 2 days are left/);
+  });
+  it("prefers the grant that ends first when several fit", () => {
+    const r = pickGrant([g("late", 5, 0, "2026-04-01", "2026-12-31"), g("early", 5, 0, "2026-04-01", "2026-06-30")], { from: "2026-05-01", to: "2026-05-02", days: 2 });
+    expect(r.grant?.id).toBe("early");
   });
 });

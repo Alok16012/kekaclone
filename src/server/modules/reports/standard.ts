@@ -4,7 +4,7 @@ import type { ColType } from "./rules";
 
 export type Header = { key: string; label: string; type: ColType };
 export type ReportResult = { headers: Header[]; rows: Record<string, unknown>[]; note?: string };
-export type FilterDef = { key: string; label: string; type: "date_range" | "select" | "month"; options?: { value: string; label: string }[]; optionsFrom?: "departments" | "locations" | "courses" | "projects" };
+export type FilterDef = { key: string; label: string; type: "date_range" | "select" | "month"; options?: { value: string; label: string }[]; optionsFrom?: "departments" | "locations" | "courses" | "projects" | "people" };
 export type Params = { from: string; to: string; [k: string]: string };
 export type Ctx = { ids: string[]; params: Params; today: string };
 
@@ -64,6 +64,22 @@ export const STANDARD_REPORTS: StandardReport[] = [
           (select string_agg(r.name || ' (' || n || ')', ', ' order by n desc) from (select er.name, count(*) as n from exit_requests x join exit_reasons er on er.id = x.reason_id join employees e on e.id = x.employee_id
               where e.id = any(${ids}::uuid[]) and x.status = 'exited' and x.last_working_date >= m and x.last_working_date < m + interval '1 month' group by er.name limit 3) r) as reasons
         from months order by m`,
+    }),
+  },
+  {
+    key: "login_history", name: "Sign-in history", description: "Every sign-in attempt: who, when, how, from where, and whether it worked. Pick a person for their own history.", group: "People",
+    filters: [range, { key: "person", label: "Person", type: "select", optionsFrom: "people" }, { key: "result", label: "Result", type: "select", options: [{ value: "all", label: "All attempts" }, { value: "success", label: "Successful" }, { value: "failure", label: "Failed" }] }],
+    run: async (tx, { ids, params }) => ({
+      headers: [H("at", "When (IST)"), H("name", "Name"), H("email", "Email"), H("method", "Method"), H("success", "Signed in", "bool"), H("ip", "IP address"), H("user_agent", "Browser")],
+      // attempts against unknown addresses (no account) only show to readers who can see the whole company
+      rows: await tx`select to_char(l.created_at at time zone 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS') as at, e.display_name as name, coalesce(l.email::text, u.email::text) as email, l.method, l.success, host(l.ip) as ip, l.user_agent
+        from login_events l left join users u on u.id = l.user_id left join employees e on e.user_id = u.id
+        where (l.created_at at time zone 'Asia/Kolkata')::date between ${params.from} and ${params.to}
+          and (e.id = any(${ids}::uuid[]) or (e.id is null and ${uuid(params.person)}::uuid is null and (select count(*) from employees) = ${ids.length}))
+          and (${uuid(params.person)}::uuid is null or e.id = ${uuid(params.person)}::uuid)
+          and (${params.result === "success" ? true : null}::boolean is null or l.success) and (${params.result === "failure" ? true : null}::boolean is null or not l.success)
+        order by l.created_at desc limit 5000`,
+      note: "Up to 5,000 most recent attempts. Narrow the period or pick a person for more.",
     }),
   },
   {

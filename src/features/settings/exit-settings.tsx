@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { ListChecks, MoreHorizontal, Pencil, Plus, Star, Trash2, UserPlus, X } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, Star, Trash2, UserPlus, X } from "lucide-react";
 import { Card, CardBody, CardHeader } from "@/ui/card";
 import { Button, IconButton } from "@/ui/button";
 import { Badge } from "@/ui/badge";
@@ -13,12 +13,10 @@ import { EmployeePicker, type Person } from "@/ui/employee-picker";
 import { toast } from "@/ui/toast";
 import { addExitReasonAction, assignNoticePolicyAction, deleteExitReasonAction, deleteNoticePolicyAction, saveNoticePolicyAction } from "@/app/(app)/org/exits/actions";
 import type { NoticePolicyRow } from "@/server/modules/exits/service";
-import { OWNER_LABEL, type TaskOwner } from "@/server/modules/exits/rules";
+import { ExitChecklistEditor, type ChecklistItem } from "./exit-checklist-editor";
 import type { Reason } from "@/features/exits/initiate-exit";
 
-type ChecklistItem = { id: string; title: string; description: string | null; owner: TaskOwner; due_offset_days: number };
 const KINDS = { resignation: "Resignation", termination: "Company action", other: "Other" } as const;
-const offset = (n: number) => (n === 0 ? "On the last working day" : n < 0 ? `${-n} ${n === -1 ? "day" : "days"} before the last day` : `${n} ${n === 1 ? "day" : "days"} after the last day`);
 
 export function ExitSettings({ policies, reasons, checklist, people, canEdit }: { policies: NoticePolicyRow[]; reasons: Reason[]; checklist: ChecklistItem[]; people: Person[]; canEdit: boolean }) {
   const [editing, setEditing] = React.useState<NoticePolicyRow | "new" | null>(null);
@@ -49,20 +47,7 @@ export function ExitSettings({ policies, reasons, checklist, people, canEdit }: 
 
       <ReasonsCard reasons={reasons} canEdit={canEdit} />
 
-      <Card>
-        <CardHeader title="Exit checklist" description="Created for everyone whose exit starts. Due dates count from the last working day." />
-        {checklist.length === 0 ? <EmptyState compact icon={<ListChecks />} title="No checklist yet" description="It's set up the first time someone's exit starts." /> : (
-          <ol className="divide-y divide-border border-t border-border">
-            {checklist.map((c, i) => (
-              <li key={c.id} className="flex items-start gap-3 px-5 py-3">
-                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-pill bg-surface-hover text-sm tabular">{i + 1}</span>
-                <div className="min-w-0"><p className="text-base font-medium">{c.title}</p>{c.description && <p className="text-sm text-text-muted">{c.description}</p>}
-                  <p className="mt-0.5 text-sm text-text-muted">Owner: {OWNER_LABEL(c.owner)} · {offset(c.due_offset_days)}</p></div>
-              </li>
-            ))}
-          </ol>
-        )}
-      </Card>
+      <ExitChecklistEditor checklist={checklist} people={people} canEdit={canEdit} />
 
       {editing && <PolicyDialog policy={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {assigning && <AssignDialog policy={assigning} people={people} onClose={() => setAssigning(null)} />}

@@ -1,4 +1,5 @@
 import "server-only";
+import { fetchDailyRates } from "@/server/modules/expenses/fx";
 import { withTenant, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor } from "@/server/auth/permissions";
@@ -13,6 +14,8 @@ import { applyDueJobChanges, autoConfirmProbation } from "./lifecycle";
 import { reassignPending, runApprovalTimers, EVERYWHERE } from "./approvals-admin";
 import { digestIn } from "@/server/modules/notifications/digest";
 import { expireOffers } from "@/server/modules/hire/offers";
+import { sendInterviewReminders } from "@/server/modules/hire/reminders";
+import { retentionSweep } from "@/server/modules/hire/privacy";
 import { runAutoCycles } from "@/server/modules/performance/reviews";
 import { checkInReminders } from "@/server/modules/performance/goals";
 import { processDueSurveys } from "@/server/modules/surveys/service";
@@ -21,6 +24,12 @@ import { deliverDue } from "@/server/modules/reports/service";
 import { syncSeats, syncStatus, trialReminders } from "@/server/modules/billing/service";
 import { deliverWebhooks } from "@/server/modules/integrations/service";
 import { settleOvertime, settleShiftAllowance } from "@/server/modules/attendance/overtime";
+import { sendExpiryReminders } from "@/server/modules/documents/expiry";
+import { processPendingBatches } from "@/server/modules/documents/bulk";
+import { autoTickExitTasks } from "@/server/modules/exits/checklist";
+import { runDaily as runAutomations } from "@/server/modules/automations/service";
+import { deliverPush } from "@/server/modules/push/service";
+import { syncCalendars } from "@/server/modules/calendar/service";
 
 export type StepContext = { tenantId: string; today: string; now: Date };
 /**
@@ -54,6 +63,8 @@ export const STEPS: Step[] = [
   { key: "approval_digest", label: "Email approvers what's waiting", daily: true, tx: (tx, c) => digestIn(tx, c.tenantId, c.now) },
   // the other packages' housekeeping (each is also available as its own pnpm jobs:* script)
   { key: "hire", label: "Expire offers past their deadline", daily: false, tx: async (tx, c) => ({ expired: await expireOffers(tx, c.today) }) },
+  { key: "hire_reminders", label: "Remind candidates and panels about interviews in the next day", daily: false, tx: async (tx, c) => ({ sent: await sendInterviewReminders(tx, c.tenantId, c.now) }) },
+  { key: "hire_privacy", label: "Anonymise candidates past the company's retention period", daily: true, own: (c) => retentionSweep(c.tenantId, c.today) },
   { key: "performance", label: "Automatic review cycles and goal check-in reminders", daily: true, tx: async (tx, c) => ({ added: await runAutoCycles(tx, c.tenantId, c.today), reminded: await checkInReminders(tx, c.tenantId) }) },
   { key: "surveys", label: "Open, roll over and close scheduled surveys", daily: false, tx: async (tx, c) => ({ processed: await processDueSurveys(tx, c.today) }) },
   { key: "learn", label: "Enrol people by course rules and send learning reminders", daily: true, tx: async (tx, c) => {
@@ -68,6 +79,14 @@ export const STEPS: Step[] = [
     return { month, overtime: count((await settleOvertime(tx, c.tenantId, month, null)).lines), allowances: count((await settleShiftAllowance(tx, c.tenantId, month, null)).lines) };
   } },
   { key: "webhooks", label: "Retry outbound webhooks", daily: false, own: async (c) => { const r = await deliverWebhooks(c.tenantId, undefined, c.now); return { sent: r.sent, failed: r.failed }; } },
+  // docs2: document expiry reminders (30 / 7 days), bulk letter batches left unfinished, exit checklist auto-ticks
+  { key: "document_expiry", label: "Remind people and HR about expiring documents", daily: true, tx: async (tx, c) => sendExpiryReminders(tx, await tenantRow(tx, c.tenantId), c.today) },
+  { key: "letter_batches", label: "Finish bulk letter batches", daily: false, own: (c) => processPendingBatches(c.tenantId) },
+  { key: "exit_tasks", label: "Tick exit checklist tasks the system can prove", daily: false, tx: (tx) => autoTickExitTasks(tx) },
+  { key: "fx_rates", label: "Fetch today's exchange rates for expenses (when a provider is configured)", daily: true, tx: (tx, c) => fetchDailyRates(tx, c.tenantId, c.today) },
+  { key: "automations", label: "Run birthday, anniversary and date-based automations", daily: true, tx: (tx, c) => runAutomations(tx, c.tenantId, c.today) },
+  { key: "push", label: "Send queued push notifications", daily: false, own: async (c) => deliverPush(c.tenantId) },
+  { key: "calendar", label: "Sync calendar events (Google / Microsoft)", daily: false, own: async (c) => syncCalendars(c.tenantId, c.now) },
 ];
 
 async function tenantRow(tx: Tx, tenantId: string) {

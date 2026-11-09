@@ -2,7 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, Banknote, Calculator, CheckCircle2, ChevronRight, Download, FileSpreadsheet, FileText, Lock, MoreHorizontal, Plus, RotateCcw, Send, Trash2, Undo2,
+  AlertTriangle, Banknote, Calculator, CheckCircle2, ChevronRight, Download, FileSpreadsheet, FileText, Lock, MoreHorizontal, Plus, RotateCcw, Send, Trash2, Undo2, Upload, XCircle,
 } from "lucide-react";
 import { PageHeader } from "@/ui/app-shell";
 import { Button, IconButton } from "@/ui/button";
@@ -11,7 +11,7 @@ import { Badge } from "@/ui/badge";
 import { Field, Input, MoneyInput, Textarea } from "@/ui/field";
 import { Select } from "@/ui/select";
 import { ConfirmDialog, Drawer, Menu, Modal } from "@/ui/overlay";
-import { Banner, EmptyState } from "@/ui/feedback";
+import { Banner, EmptyState, Skeleton } from "@/ui/feedback";
 import { DataTable, type Column } from "@/ui/table";
 import { toast } from "@/ui/toast";
 import { cn } from "@/lib/cn";
@@ -22,14 +22,14 @@ import * as A from "@/app/(app)/payroll/actions";
 import { ACTION_LABEL, fmtDate, fmtMonth, INPUT_LABEL, money, OVERRIDE_LABEL, RUN_LABEL, RUN_TONE } from "./format";
 
 export type RunData = Awaited<ReturnType<typeof runView>>;
-type Ctx = { joining?: string; lastDay?: string | null; exitStatus?: string | null; currentLop?: number; rolledLop?: number; lateLop?: number; unpaidLeaveDays?: number; absentNoLop?: number; overtimeMinutes?: number; employedDays?: number };
+type Ctx = { joining?: string; lastDay?: string | null; exitStatus?: string | null; currentLop?: number; rolledLop?: number; lateLop?: number; unpaidLeaveDays?: number; absentNoLop?: number; overtimeMinutes?: number; employedDays?: number; workerType?: string; units?: number | null };
 const ctx = (l: LineRow) => (l.statutory?.context ?? {}) as Ctx;
 const STEP_KINDS: Record<string, string[]> = {
-  attendance: ["lop_adjust", "lop_reversal"],
+  attendance: ["lop_adjust", "lop_reversal", "payable_units"],
   variable: ["bonus", "arrear", "overtime", "shift_allowance"],
   claims: ["adhoc_earning", "adhoc_deduction", "component_claim", "loan_emi", "leave_encashment"],
 };
-const DAY_KINDS = ["lop_adjust", "lop_reversal"];
+const DAY_KINDS = ["lop_adjust", "lop_reversal", "payable_units"];
 
 /** Wraps an action call: toast on error, optional success message. Returns whether it worked. */
 async function act<T>(p: Promise<{ ok: true; data?: T } | { ok: false; error: string }>, success?: string) {
@@ -114,11 +114,13 @@ function RunActions({ d, pending, onCalc, allDone }: { d: RunData; pending: bool
   const run = d.run, v = run.lock_version;
   const open = run.status === "draft" || run.status === "in_progress";
   const [rollback, setRollback] = React.useState(false);
+  const [importing, setImporting] = React.useState(false);
   const [busy, start] = React.useTransition();
   const exp = (k: string) => `/payroll/runs/${run.id}/export/${k}`;
   const reports = run.status !== "draft" && run.status !== "rolled_back";
   return (
     <>
+      {open && <Button variant="secondary" onClick={() => setImporting(true)}><Upload />Import inputs</Button>}
       {open && run.status !== "draft" && <Button variant="secondary" loading={pending} onClick={onCalc}><Calculator />Recalculate</Button>}
       {reports && (
         <Menu trigger={<Button variant="secondary"><FileSpreadsheet />Reports</Button>} items={[
@@ -126,9 +128,13 @@ function RunActions({ d, pending, onCalc, allDone }: { d: RunData; pending: bool
           { label: "PF return (ECR text)", icon: <FileText />, onSelect: () => window.location.assign(exp("pf-ecr")) },
           { label: "ESI contributions (CSV)", icon: <FileText />, onSelect: () => window.location.assign(exp("esi")) },
           { label: "Professional tax by state (CSV)", icon: <FileText />, onSelect: () => window.location.assign(exp("pt")) },
+          { label: "Labour Codes 50% wages check (CSV)", icon: <FileText />, onSelect: () => window.location.assign(exp("labour-code")) },
           { label: "Journal summary (CSV)", icon: <FileText />, onSelect: () => window.location.assign(exp("journal")) },
+          { label: "Tally journal voucher (XML)", icon: <FileText />, onSelect: () => window.location.assign(exp("tally")) },
+          { label: "Zoho Books journal (CSV)", icon: <FileText />, onSelect: () => window.location.assign(exp("zoho")) },
         ]} />
       )}
+      {importing && <ImportInputsDialog d={d} onClose={() => setImporting(false)} />}
       {open && run.status === "in_progress" && (
         <ConfirmDialog title={`Finalise ${run.label}?`} tone="primary" confirmLabel="Finalise"
           description={<>This locks the run and everyone&apos;s attendance up to the cut-off. Later changes go into next month as arrears or LOP adjustments. A payroll admin can roll it back until salaries are marked paid.</>}
@@ -248,12 +254,12 @@ function StepBody({ d, stepKey, onLine, onInput }: { d: RunData; stepKey: StepKe
                 {rows.map((l) => { const c = ctx(l); return (
                   <tr key={l.id} className="border-b border-border last:border-0">
                     <td className="py-2 pr-3"><button type="button" className="text-left hover:underline" onClick={() => onLine(l)}>{l.name}</button></td>
-                    <td className="px-2 text-right tabular">{l.payable_days} / {l.period_days}</td>
+                    <td className="px-2 text-right tabular">{c.units != null ? `${l.payable_days} ${c.workerType === "piece" ? "pieces" : "days"}` : `${l.payable_days} / ${l.period_days}`}</td>
                     <td className="px-2 text-right tabular">{days(l.lop_days)}</td>
                     <td className="px-2 text-right tabular">{days(c.unpaidLeaveDays)}</td>
                     <td className="px-2 text-right tabular">{days(c.rolledLop)}</td>
                     <td className="px-2 text-right tabular">{days(c.lateLop)}</td>
-                    <td className="pl-2 text-sm">{c.absentNoLop ? <Badge tone="warning">{c.absentNoLop} absent, not LOP</Badge> : <span className="text-text-muted">OK</span>}</td>
+                    <td className="pl-2 text-sm">{c.units != null && !c.units ? <Badge tone="warning">No units entered</Badge> : c.absentNoLop ? <Badge tone="warning">{c.absentNoLop} absent, not LOP</Badge> : <span className="text-text-muted">OK</span>}</td>
                   </tr>
                 ); })}
               </tbody>
@@ -340,6 +346,7 @@ function StepBody({ d, stepKey, onLine, onInput }: { d: RunData; stepKey: StepKe
   const sumDed = (code: string) => d.lines.reduce((t, l) => t + l.deduction_items.filter((x) => x.code === code).reduce((s, x) => s + x.paise, 0), 0);
   const sumEmp = (code: string) => d.lines.reduce((t, l) => t + l.employer_items.filter((x) => x.code === code).reduce((s, x) => s + x.paise, 0), 0);
   const overrides = d.inputs.filter((i) => i.kind === "statutory_override");
+  const belowHalf = d.lines.filter((l) => l.statutory?.labourCode && !l.statutory.labourCode.ok);
   const columns: Column<LineRow>[] = [
     { key: "name", header: "Person", cell: (l) => <span className="flex flex-col"><span className="font-medium">{l.name}</span><span className="text-sm text-text-muted">{l.number}{l.action !== "process" ? ` · ${ACTION_LABEL[l.action]}` : ""}</span></span>, sortValue: (l) => l.name },
     { key: "days", header: "Days", align: "right", cell: (l) => <span className="tabular">{l.payable_days}/{l.period_days}</span>, hideBelow: "md" },
@@ -361,6 +368,12 @@ function StepBody({ d, stepKey, onLine, onInput }: { d: RunData; stepKey: StepKe
             ))}
           </dl>
           {overrides.length > 0 && <div><h3 className="mb-1 text-base font-semibold">Overrides</h3><ul className="text-base">{overrides.map((o) => <li key={o.id}>{o.name}: {OVERRIDE_LABEL[String(o.source_ref?.code)]} set to {money(o.amount ?? 0)} — {o.note}</li>)}</ul></div>}
+          {belowHalf.length > 0 ? (
+            <Banner tone="warning" title={`Labour Codes check: ${belowHalf.length} ${belowHalf.length === 1 ? "person's wages are" : "people's wages are"} below half of remuneration`}
+              action={<a className="shrink-0 text-base font-medium underline underline-offset-4" href={`/payroll/runs/${d.run.id}/export/labour-code`}>Download the report</a>}>
+              The Code on Wages expects basic, DA and retaining allowance to be at least 50% of total remuneration. {belowHalf.map((l) => `${l.name} (${l.statutory.labourCode!.pct}%)`).join(", ")}. An advisory check; erp doesn&apos;t change the pay.
+            </Banner>
+          ) : <p className="text-sm text-text-muted">Labour Codes check: everyone&apos;s wages (basic, DA, retaining allowance) are at least half of their remuneration.</p>}
         </CardBody>
       </Card>
       <DataTable caption="Payroll register" rows={rows} columns={columns} rowKey={(l) => l.id} onRowClick={onLine}
@@ -448,7 +461,7 @@ function InputDialog({ d, kinds, row, onClose }: { d: RunData; kinds: string[]; 
   const save = () => start(async () => {
     const r = await A.saveInputAction(d.run.id, row?.id ?? null, {
       employeeId, kind, amountPaise: byDays ? null : amount, days: byDays || kind === "leave_encashment" ? (daysV ? Number(daysV) : null) : null,
-      sourceMonth: byDays ? source : null, note: note || null,
+      sourceMonth: byDays && kind !== "payable_units" ? source : null, note: note || null,
     }, d.run.lock_version);
     if (!r.ok) { setError({ message: r.error, field: r.field }); return; }
     toast.success(row ? "Saved" : "Added — recalculate to see it in the numbers"); onClose();
@@ -461,7 +474,9 @@ function InputDialog({ d, kinds, row, onClose }: { d: RunData; kinds: string[]; 
         {error && !error.field && <Banner tone="danger">{error.message}</Banner>}
         <Field label="Person" required error={fe("employeeId")}><Select value={employeeId} onValueChange={setEmployee} placeholder="Pick a person" options={d.people.filter((p) => p.id !== d.lines.find((l) => l.self)?.employee_id).map((p) => ({ value: p.id, label: `${p.name} (${p.number})` }))} /></Field>
         <Field label="What" required><Select value={kind} onValueChange={setKind} options={kinds.map((k) => ({ value: k, label: INPUT_LABEL[k] }))} /></Field>
-        {byDays ? (
+        {kind === "payable_units" ? (
+          <Field label="Units worked this month" required error={fe("days")} help="Days for daily-wage workers, pieces for piece-rate workers. Their salary breakup holds the rate per unit."><Input inputMode="decimal" value={daysV} onChange={(e) => setDays(e.target.value.replace(/[^\d.]/g, ""))} /></Field>
+        ) : byDays ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Days" required error={fe("days")} help="Whole or half days."><Input inputMode="decimal" value={daysV} onChange={(e) => setDays(e.target.value.replace(/[^\d.]/g, ""))} /></Field>
             <Field label="For which month" error={fe("sourceMonth")} help="Up to three months back, valued at that month's salary."><Select value={source} onValueChange={setSource} options={months.map((m) => ({ value: m, label: fmtMonth(m) }))} /></Field>
@@ -501,6 +516,7 @@ function LineDrawer({ d, line, onClose }: { d: RunData; line: LineRow; onClose: 
         <section aria-label="Deductions"><h3 className="mb-1 text-base font-semibold">Deductions</h3>{items(line.deduction_items)}<p className="mt-1 flex justify-between border-t border-border pt-1 font-medium"><span>Total</span><span className="tabular">{money(line.deductions)}</span></p></section>
         <p className="flex justify-between rounded-md bg-surface-sunken px-3 py-2 text-md font-semibold"><span>Net pay</span><span className="tabular">{money(line.net)}</span></p>
         <section aria-label="Employer contributions"><h3 className="mb-1 text-base font-semibold">Paid by the company</h3>{items(line.employer_items)}</section>
+        <StatutoryBreakdown line={line} />
         {s?.tds && <section aria-label="Income tax"><h3 className="mb-1 text-base font-semibold">Income tax projection</h3>
           <p className="text-sm text-text-muted">FY {s.tds.fy}, {s.tds.regime} regime{s.tds.standardDeductionOnly ? ", standard deduction only (no submitted tax declaration)" : ", with their submitted tax declaration"}. Projected income {money(s.tds.annualIncomePaise)}, tax {money(s.tds.annualTaxPaise)}, already deducted {money(s.tds.ytdTdsPaise)}, spread over {s.tds.remainingMonths} {s.tds.remainingMonths === 1 ? "month" : "months"}.</p></section>}
         {open && !line.self && (
@@ -528,5 +544,108 @@ function LineDrawer({ d, line, onClose }: { d: RunData; line: LineRow; onClose: 
         {line.self && <p className="text-sm text-text-muted">This is your own pay, so another payroll admin has to make any changes to it.</p>}
       </div>
     </Drawer>
+  );
+}
+
+/** Per-line statutory breakdown: how PF, ESI, PT, LWF and TDS were worked out, plus the Labour Codes wages check. */
+function StatutoryBreakdown({ line }: { line: LineRow }) {
+  const s = line.statutory;
+  if (!s) return null;
+  const row = (k: string, v: React.ReactNode) => <div key={k} className="flex justify-between gap-3 py-0.5 text-sm"><dt className="text-text-muted">{k}</dt><dd className="tabular">{v}</dd></div>;
+  const lc = s.labourCode;
+  return (
+    <section aria-label="Statutory breakdown" className="rounded-md border border-border p-3">
+      <h3 className="mb-2 text-base font-semibold">Statutory breakdown</h3>
+      <p className="mb-2 text-xs text-text-muted">Rates from Settings → Payroll → Statutory rates, not yet CA-verified unless your company recorded a check.</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <dl><h4 className="mb-1 text-sm font-medium">Provident fund</h4>
+          {!s.pf ? <p className="text-sm text-text-muted">Not covered.</p> : <>{row("PF wages", money(s.pf.wagePaise))}{row("Employee 12%", money(s.pf.employeePaise))}{row("Employer: EPS", money(s.pf.epsPaise))}{row("Employer: EPF", money(s.pf.epfPaise))}{row("EDLI", money(s.pf.edliPaise))}{row("Admin charge", money(s.pf.adminPaise))}</>}</dl>
+        <dl><h4 className="mb-1 text-sm font-medium">ESI</h4>
+          {!s.esi ? <p className="text-sm text-text-muted">Not covered.</p> : <>{row("ESI wages", money(s.esi.wagePaise))}{row("Covered", s.esi.covered ? "Yes" : "No (above the wage ceiling)")}{row("Employee", money(s.esi.employeePaise))}{row("Employer", money(s.esi.employerPaise))}</>}</dl>
+        <dl><h4 className="mb-1 text-sm font-medium">Professional tax</h4>
+          {!s.pt ? <p className="text-sm text-text-muted">None.</p> : <>{row("State", s.pt.state ?? "Not set")}{row("Gross for PT", money(s.pt.grossPaise))}{row("This month", money(s.pt.amountPaise))}{row("Due this month", s.pt.due ? "Yes" : "No")}</>}</dl>
+        <dl><h4 className="mb-1 text-sm font-medium">Labour welfare fund</h4>
+          {!s.lwf ? <p className="text-sm text-text-muted">None for this state or month.</p> : <>{row("Employee", money(s.lwf.employeePaise))}{row("Employer", money(s.lwf.employerPaise))}</>}</dl>
+      </div>
+      {row("Taxable salary this month", money(s.taxablePaise))}
+      {lc && (
+        <p className={cn("mt-2 text-sm", lc.ok ? "text-text-muted" : "text-warning-text")}>
+          Labour Codes check: wages {money(lc.wagesPaise)} of {money(lc.remunerationPaise)} remuneration ({lc.pct ?? 0}%){lc.ok ? ", at least half." : `: ${money(lc.shortfallPaise)} short of the 50% the Code on Wages expects.`}
+        </p>
+      )}
+      {Object.keys(s.overrides ?? {}).length > 0 && <p className="mt-1 text-sm text-text-muted">Overrides this month: {Object.entries(s.overrides).map(([k, v]) => `${OVERRIDE_LABEL[k] ?? k} ${money(v as number)}`).join(", ")}.</p>}
+    </section>
+  );
+}
+
+type ImportPreview = { valid: boolean; total: number; toAdd: number; alreadyAdded: number; results: { rowNumber: number; employee: string; name: string | null; kindLabel: string | null; amountPaise: number | null; days: number | null; note: string | null; existing: boolean; errors: string[] }[] };
+
+/** Excel import of this month's inputs: template → fill → check → save. Re-uploading a file adds nothing twice. */
+function ImportInputsDialog({ d, onClose }: { d: RunData; onClose: () => void }) {
+  const [file, setFile] = React.useState<File | null>(null);
+  const [preview, setPreview] = React.useState<ImportPreview | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [checking, startCheck] = React.useTransition();
+  const [saving, startSave] = React.useTransition();
+  const choose = (f: File | undefined) => {
+    setError(null); setPreview(null); setFile(null);
+    if (!f) return;
+    if (!/\.xlsx$/i.test(f.name)) { setError("Choose an Excel .xlsx file."); return; }
+    if (f.size > 5 * 1024 * 1024) { setError("The file is larger than 5 MB."); return; }
+    setFile(f);
+    const fd = new FormData(); fd.set("file", f);
+    startCheck(async () => { const r = await A.previewInputsAction(d.run.id, fd); if (r.ok) setPreview(r.data!); else setError(r.error); });
+  };
+  const commit = () => startSave(async () => {
+    const fd = new FormData(); fd.set("file", file!);
+    const r = await A.commitInputsAction(d.run.id, fd, d.run.lock_version);
+    if (!r.ok) { setError(r.error); return; }
+    toast.success(r.data!.added ? `${r.data!.added} ${r.data!.added === 1 ? "input" : "inputs"} added` : "Nothing new to add", { description: r.data!.added ? "Recalculate to see them in the numbers." : "Every row was already in this run." });
+    onClose();
+  });
+  const bad = preview?.results.filter((r) => r.errors.length) ?? [], good = preview?.results.filter((r) => !r.errors.length) ?? [];
+  return (
+    <Modal open onOpenChange={(o) => !o && onClose()} size="lg" title={`Import inputs for ${d.run.label}`} description="Bonuses, one-time payments and deductions, overtime, leave encashment and payable units for many people from one Excel file."
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={commit} loading={saving} disabled={!preview?.valid || checking || !preview?.toAdd}>{preview?.valid ? `Add ${preview.toAdd} ${preview.toAdd === 1 ? "input" : "inputs"}` : "Add"}</Button></>}>
+      <div className="flex flex-col gap-4">
+        <ol className="list-decimal space-y-1 pl-5 text-base text-text-muted">
+          <li><a href={`/payroll/runs/${d.run.id}/export/inputs-template`} download className="text-accent-text underline-offset-4 hover:underline">Download the template</a>. It lists everyone in the pay group.</li>
+          <li>One row per payment, deduction or units entry: pick the kind, enter the amount or units, add a note for the payslip.</li>
+          <li>Upload it here. erp checks every row before saving anything, and skips rows it already has.</li>
+        </ol>
+        <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border-strong px-6 py-8 text-center hover:border-accent hover:bg-accent-soft/40 focus-within:outline-2 focus-within:outline-focus">
+          {file ? <FileSpreadsheet className="size-6 text-accent-text" aria-hidden /> : <Upload className="size-6 text-accent-text" aria-hidden />}
+          <span className="text-base font-medium">{file ? file.name : "Choose the filled file"}</span>
+          <span className="text-sm text-text-muted">.xlsx, up to 5 MB</span>
+          <input type="file" accept=".xlsx" className="sr-only" onChange={(e) => { choose(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+        {error && <Banner tone="danger">{error}</Banner>}
+        {checking && <div className="flex flex-col gap-2" aria-busy aria-label="Checking the file"><Skeleton className="h-6 w-1/2" /><Skeleton className="h-24" /></div>}
+        {preview && !checking && (preview.valid
+          ? <Banner tone="success" title={preview.toAdd ? `${preview.toAdd} of ${preview.total} rows are new` : "Every row is already in this run"}>{preview.alreadyAdded ? `${preview.alreadyAdded} already added and skipped.` : "Nothing is saved until you choose Add."}</Banner>
+          : <Banner tone="danger" title={`${bad.length} of ${preview.total} rows need fixing`}>Nothing is saved until every row is valid.</Banner>)}
+        {preview && preview.results.length > 0 && (
+          <div className="max-h-72 overflow-auto rounded-md border border-border">
+            <table className="w-full text-base">
+              <caption className="sr-only">Rows in the file</caption>
+              <thead className="sticky top-0 bg-surface-sunken text-left text-sm text-text-muted"><tr><th className="px-3 py-2 font-medium">Row</th><th className="px-3 py-2 font-medium">Person</th><th className="px-3 py-2 font-medium">Result</th></tr></thead>
+              <tbody>
+                {[...bad, ...good].map((r) => (
+                  <tr key={r.rowNumber} className="border-t border-border align-top">
+                    <td className="px-3 py-2 tabular text-text-muted">{r.rowNumber}</td>
+                    <td className="px-3 py-2">{r.name ?? (r.employee || "—")}</td>
+                    <td className="px-3 py-2">{r.errors.length ? (
+                      <ul className="flex flex-col gap-0.5 text-sm text-danger-text">{r.errors.map((e) => <li key={e} className="flex gap-1"><XCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />{e}</li>)}</ul>
+                    ) : (
+                      <span className="flex flex-wrap items-center gap-1 text-sm"><CheckCircle2 className="size-3.5 text-success-text" aria-hidden />{r.kindLabel}{r.amountPaise != null ? ` · ${money(r.amountPaise)}` : ""}{r.days != null ? ` · ${r.days} ${r.kindLabel?.startsWith("Payable") ? "units" : "days"}` : ""}{r.note ? ` · ${r.note}` : ""}{r.existing && <Badge>Already added</Badge>}</span>
+                    )}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }

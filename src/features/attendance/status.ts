@@ -27,10 +27,10 @@ export const TONE_CELL: Record<Tone, string> = {
   neutral: "bg-neutral-soft text-neutral-text",
 };
 
-export const REQUEST_KIND: Record<string, string> = { regularization: "Regularize", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty", overtime: "Overtime", shift_change: "Shift change", weekly_off_change: "Weekly off swap" };
+export const REQUEST_KIND: Record<string, string> = { regularization: "Regularize", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty", overtime: "Overtime", shift_change: "Shift change", weekly_off_change: "Weekly off swap", remote_clock_in: "New device clock-in" };
 export const PENALTY_RULE: Record<string, string> = { late_arrival: "Late arrival", hours_shortage: "Short hours", no_attendance: "No attendance", missing_swipe: "Missing swipe" };
 
 export const hm = (m: number) => (m ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : "—");
 export const clock = (iso: string | null, tz = "Asia/Kolkata") => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: tz }) : "—");
-export const dayLabel = (d: string, opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short" }) =>
-  new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { ...opts, timeZone: "UTC" });
+export const dayLabel = (d: string, opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short" }, tag = "en-IN") =>
+  new Date(d + "T00:00:00Z").toLocaleDateString(tag, { ...opts, timeZone: "UTC" });

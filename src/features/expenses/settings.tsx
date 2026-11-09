@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { MoreHorizontal, Pencil, Plus, Star, Trash2, UserPlus } from "lucide-react";
+import { Coins, MoreHorizontal, Pencil, Plus, Star, Trash2, UserPlus } from "lucide-react";
 import { Card, CardHeader } from "@/ui/card";
 import { Button, IconButton } from "@/ui/button";
 import { Badge } from "@/ui/badge";
@@ -11,7 +11,9 @@ import { Checkbox } from "@/ui/choice";
 import { Banner, EmptyState } from "@/ui/feedback";
 import { EmployeePicker, type Person } from "@/ui/employee-picker";
 import { toast } from "@/ui/toast";
-import { assignPolicyAction, deleteCategoryAction, deletePolicyAction, saveCategoryAction, savePolicyAction } from "@/app/(app)/expenses/actions";
+import { assignPolicyAction, deleteCategoryAction, deletePolicyAction, deleteRateAction, saveCategoryAction, savePolicyAction, saveRateAction } from "@/app/(app)/expenses/actions";
+import { CURRENCIES } from "@/server/modules/expenses/fx-rules";
+import type { FxRateView } from "@/server/modules/expenses/fx";
 import { CATEGORY_KINDS, inr, LIMIT_PERIODS, rupeesText, type Category } from "@/server/modules/expenses/rules";
 import type { PolicyRow } from "@/server/modules/expenses/admin";
 
@@ -19,7 +21,7 @@ type Cat = Category & { used: number };
 const kindLabel = (k: string) => CATEGORY_KINDS.find((x) => x.value === k)?.label ?? k;
 const periodLabel = (p: string | null) => LIMIT_PERIODS.find((x) => x.value === p)?.label ?? "";
 
-export function ExpenseSettings({ policies, people, canEdit }: { policies: PolicyRow[]; people: Person[]; canEdit: boolean }) {
+export function ExpenseSettings({ policies, people, canEdit, rates, canEditRates, fx }: { policies: PolicyRow[]; people: Person[]; canEdit: boolean; rates: FxRateView[]; canEditRates: boolean; fx: { configured: boolean; reason?: string } }) {
   const [editing, setEditing] = React.useState<PolicyRow | "new" | null>(null);
   const [assigning, setAssigning] = React.useState<PolicyRow | null>(null);
   const [deleting, setDeleting] = React.useState<PolicyRow | null>(null);
@@ -73,6 +75,7 @@ export function ExpenseSettings({ policies, people, canEdit }: { policies: Polic
           )}
         </Card>
       ))}
+      <RatesCard rates={rates} canEdit={canEditRates} fx={fx} />
       {editing && <PolicyDialog policy={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {cat && <CategoryDialog policyId={cat.policy.id} cat={cat.cat} onClose={() => setCat(null)} />}
       {assigning && <AssignDialog policy={assigning} people={people} onClose={() => setAssigning(null)} />}
@@ -173,5 +176,50 @@ function AssignDialog({ policy, people, onClose }: { policy: PolicyRow; people: 
       {error && <Banner tone="danger" className="mb-4">{error}</Banner>}
       <Field label="People"><EmployeePicker multiple people={people} value={ids} onChange={setIds} /></Field>
     </Modal>
+  );
+}
+
+/** Exchange rates for expenses in other currencies: INR per unit, dated. Finance keeps them; a daily job can add fetched ones when a provider is configured. */
+function RatesCard({ rates, canEdit, fx }: { rates: FxRateView[]; canEdit: boolean; fx: { configured: boolean; reason?: string } }) {
+  const [v, setV] = React.useState({ currency: "USD", asOf: new Date().toISOString().slice(0, 10), rate: "" });
+  const [error, setError] = React.useState<{ message: string; field?: string } | null>(null);
+  const [pending, start] = React.useTransition();
+  const err = (f: string) => (error?.field === f ? error.message : undefined);
+  const save = () => start(async () => {
+    const r = await saveRateAction(v);
+    if (!r.ok) { setError({ message: r.error, field: r.field }); return; }
+    setError(null); setV((s) => ({ ...s, rate: "" })); toast.success(`${v.currency} rate saved`);
+  });
+  return (
+    <Card>
+      <CardHeader title="Exchange rates" description={`People can enter expenses in another currency; erp converts them to rupees at the rate dated on or before the expense. Policy limits apply to the rupee amount. ${fx.configured ? "Today's rates are also fetched by the daily job." : `Daily fetching is off: ${fx.reason ?? ""}`}`} />
+      {canEdit && (
+        <form className="grid gap-3 border-t border-border px-5 py-4 sm:grid-cols-[10rem_11rem_1fr_auto] sm:items-end" onSubmit={(e) => { e.preventDefault(); save(); }}>
+          <Field label="Currency" error={err("currency")}><Select value={v.currency} onValueChange={(c) => setV({ ...v, currency: c })} options={CURRENCIES.filter((c) => c.code !== "INR").map((c) => ({ value: c.code, label: `${c.code} · ${c.name}` }))} /></Field>
+          <Field label="From date" error={err("asOf")}><Input type="date" value={v.asOf} onChange={(e) => setV({ ...v, asOf: e.target.value })} /></Field>
+          <Field label="INR per unit" error={err("rate")} help="Up to 6 decimals, e.g. 83.25"><Input inputMode="decimal" value={v.rate} onChange={(e) => setV({ ...v, rate: e.target.value })} className="tabular" placeholder="83.25" /></Field>
+          <Button type="submit" loading={pending}><Plus />Add rate</Button>
+          {error && !error.field && <Banner tone="danger" className="sm:col-span-4">{error.message}</Banner>}
+        </form>
+      )}
+      {rates.length === 0 ? <EmptyState compact icon={<Coins />} title="No exchange rates yet" description={canEdit ? "Add one and people can claim in that currency." : "Finance adds rates here."} /> : (
+        <div className="overflow-x-auto border-t border-border">
+          <table className="w-full text-base">
+            <caption className="sr-only">Exchange rates</caption>
+            <thead><tr className="border-b border-border text-left text-sm text-text-muted"><th scope="col" className="px-5 py-2 font-medium">Currency</th><th scope="col" className="px-3 py-2 font-medium">From</th><th scope="col" className="px-3 py-2 text-right font-medium">INR per unit</th><th scope="col" className="hidden px-3 py-2 font-medium md:table-cell">Source</th>{canEdit && <th scope="col" className="w-12 px-3"><span className="sr-only">Actions</span></th>}</tr></thead>
+            <tbody>
+              {rates.map((r) => (
+                <tr key={r.id} className="border-b border-border last:border-0">
+                  <td className="px-5 py-2 font-medium">{r.currency}<span className="ml-2 text-sm font-normal text-text-muted">{CURRENCIES.find((c) => c.code === r.currency)?.name ?? ""}</span></td>
+                  <td className="px-3 py-2">{r.asOf}</td><td className="px-3 py-2 text-right tabular">{r.rate}</td>
+                  <td className="hidden px-3 py-2 md:table-cell">{r.source === "fetched" ? "Fetched" : "Entered by finance"}</td>
+                  {canEdit && <td className="px-3 py-2"><IconButton size="icon-sm" variant="ghost" label={`Delete the ${r.currency} rate from ${r.asOf}`} disabled={pending} onClick={() => start(async () => { const x = await deleteRateAction(r.id); if (x.ok) toast.success("Rate deleted"); else toast.error(x.error); })}><Trash2 /></IconButton></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }

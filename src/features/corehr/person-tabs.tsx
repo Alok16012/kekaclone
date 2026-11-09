@@ -21,9 +21,13 @@ export type TimeData = {
   summary: { present: number; absent: number; halfDay: number; leave: number; wfh: number; offDays: number; lateDays: number; lateMinutes: number; avgEffectiveMinutes: number };
   leaveRequests: { id: string; type: string; color: string; from: string; to: string; days: number; status: string }[];
   attendanceRequests: { id: string; kind: string; from_date: string; to_date: string; status: string; reason: string | null }[];
+  clockIns: { id: string; at: string; direction: string; source: string; status: string; selfieFileId: string | null; lat: number | null; lng: number | null; accuracy: number | null; device: string | null }[];
 };
+const SOURCE: Record<string, string> = { web: "Browser", mobile: "Location", biometric: "Device", api: "API", regularization: "Regularized" };
+const PUNCH_STATUS: Record<string, string> = { valid: "", pending_approval: "waiting for approval", rejected: "declined" };
+const clockTime = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
 const fmt = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
-const KIND: Record<string, string> = { regularization: "Regularization", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty", remote_clock_in: "Remote clock-in", shift_change: "Shift change", weekly_off_change: "Weekly-off change", overtime: "Overtime" };
+const KIND: Record<string, string> = { regularization: "Regularization", partial_day: "Partial day", wfh: "Work from home", on_duty: "On duty", remote_clock_in: "New device clock-in", shift_change: "Shift change", weekly_off_change: "Weekly-off change", overtime: "Overtime" };
 const hm = (m: number) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 const shiftMonth = (m: string, by: number) => { const d = new Date(m + "T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() + by); return d.toISOString().slice(0, 10); };
 
@@ -89,6 +93,24 @@ export function TimeTab({ employeeId, initial, thisMonth }: { employeeId: string
           )}
         </Card>
       </div>
+      <Card>
+        <CardHeader title="Clock-ins from locations and devices" description="This month's clock-ins that came from a phone's location, a biometric device, or are waiting for approval. Selfies are for a person to look at; erp never matches faces." />
+        {d.clockIns.length === 0 ? <EmptyState compact title="Nothing from locations or devices this month" /> : (
+          <ul className="divide-y divide-border border-t border-border">{d.clockIns.map((c) => (
+            <li key={c.id} className="flex items-center gap-3 px-5 py-3">
+              {c.selfieFileId ? (
+                // eslint-disable-next-line @next/next/no-img-element -- private, permission-checked image served by our own route
+                <a href={`/files/${c.selfieFileId}`} target="_blank" rel="noopener" className="shrink-0 rounded-md focus-visible:outline-offset-2"><img src={`/files/${c.selfieFileId}`} alt={`Selfie at clock-${c.direction === "out" ? "out" : "in"} on ${clockTime(c.at)}`} className="size-12 rounded-md object-cover" /></a>
+              ) : <span aria-hidden className="size-12 shrink-0 rounded-md bg-surface-sunken" />}
+              <span className="min-w-0 flex-1">
+                <span className="block text-base font-medium tabular">{clockTime(c.at)} · {c.direction === "out" ? "out" : c.direction === "in" ? "in" : "punch"}</span>
+                <span className="block text-sm text-text-muted">{SOURCE[c.source] ?? c.source}{c.device ? ` · ${c.device}` : ""}{c.lat != null && c.lng != null ? ` · ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}${c.accuracy != null ? ` (±${Math.round(c.accuracy)} m)` : ""}` : ""}{PUNCH_STATUS[c.status] ? ` · ${PUNCH_STATUS[c.status]}` : ""}</span>
+              </span>
+              {c.status !== "valid" && <Badge tone={c.status === "rejected" ? "danger" : "warning"}>{c.status === "rejected" ? "Declined" : "Pending"}</Badge>}
+            </li>
+          ))}</ul>
+        )}
+      </Card>
     </div>
   );
 }

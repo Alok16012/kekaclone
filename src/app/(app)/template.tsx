@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { AckGate } from "@/features/documents/ack-gate-server";
 import { BrandStyle } from "@/features/saas/brand-style";
 import { PlanNotice } from "@/features/saas/plan-notice";
+import { LocaleProvider } from "@/i18n/provider-server";
 
 /**
  * Wraps every signed-in page (between the (app) layout and the page) without touching the layout.
@@ -13,7 +14,7 @@ export default function AppTemplate({ children }: { children: React.ReactNode })
     <>
       <Suspense fallback={null}><BrandStyle /></Suspense>
       <Suspense fallback={null}><PlanNotice /></Suspense>
-      {children}
+      <Suspense fallback={null}><LocaleProvider>{children}</LocaleProvider></Suspense>
       <Suspense fallback={null}><AckGate /></Suspense>
     </>
   );

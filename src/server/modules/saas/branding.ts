@@ -4,7 +4,7 @@ import type { Actor, Branding } from "@/server/auth/session";
 import { saveFile } from "@/server/storage";
 import { audit } from "@/server/modules/audit/service";
 import { assertFeature, assertWorkspace } from "./gate";
-import { accentProblem, LOGO_MAX_BYTES, LOGO_MIMES, loginNoteProblem } from "./branding-rules";
+import { accentProblem, BG_MAX_BYTES, imageProblem, LOGO_MAX_BYTES, LOGO_MIMES, loginNoteProblem } from "./branding-rules";
 
 export async function brandingSettings(tx: Tx): Promise<Branding> {
   const [t] = await tx<{ branding: Branding | null }[]>`select branding from tenants`;
@@ -43,6 +43,32 @@ export async function removeLogo(tx: Tx, actor: Actor) {
   assertWorkspace(actor, "settings.org");
   await tx`update tenants set branding = branding - 'logo_file_id' where id = ${actor.tenant.id}`;
   await audit(tx, actor, { entityType: "tenant", entityId: actor.tenant.id, action: "branding.logo", diff: { fileId: null } });
+}
+
+/** Sign-in page background image (PNG/JPEG/WebP up to 2 MB, bytes checked). Served publicly at /brand/background. */
+export async function saveLoginBackground(tx: Tx, actor: Actor, file: { name: string; mime: string; bytes: Uint8Array }) {
+  assertWorkspace(actor, "settings.org");
+  assertFeature(actor, "branding");
+  const p = imageProblem({ mime: file.mime, size: file.bytes.byteLength, head: file.bytes.subarray(0, 16) }, BG_MAX_BYTES, "background");
+  if (p) throw new AppError("invalid", p, "background");
+  const ext = file.mime === "image/png" ? "png" : file.mime === "image/webp" ? "webp" : "jpg";
+  const id = await saveFile(tx, { tenantId: actor.tenant.id, userId: actor.userId, name: file.name.slice(0, 120) || `login-background.${ext}`, mime: file.mime, bytes: file.bytes, ext });
+  await tx`update tenants set branding = branding || ${tx.json({ login_bg_file_id: id })} where id = ${actor.tenant.id}`;
+  await audit(tx, actor, { entityType: "tenant", entityId: actor.tenant.id, action: "branding.background", diff: { fileId: id } });
+  return id;
+}
+
+export async function removeLoginBackground(tx: Tx, actor: Actor) {
+  assertWorkspace(actor, "settings.org");
+  await tx`update tenants set branding = branding - 'login_bg_file_id' where id = ${actor.tenant.id}`;
+  await audit(tx, actor, { entityType: "tenant", entityId: actor.tenant.id, action: "branding.background", diff: { fileId: null } });
+}
+
+export async function backgroundFile(tx: Tx, branding: Branding | undefined) {
+  const id = branding?.login_bg_file_id;
+  if (!id) return null;
+  const [f] = await tx<{ storage_key: string; mime: string }[]>`select storage_key, mime from files where id = ${id}`;
+  return f ?? null;
 }
 
 /** The logo file for the public /brand/logo route: only the file the tenant row points at, nothing else. */

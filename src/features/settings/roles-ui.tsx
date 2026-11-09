@@ -17,12 +17,26 @@ import { PERMISSIONS, SCOPE_LABELS, type Scope, type ScopeType } from "@/server/
 import type { Member, RoleRow } from "@/server/modules/settings/roles";
 import { assignRoleAction, deleteRoleAction, saveRoleAction, unassignRoleAction } from "@/app/(app)/actions";
 
+const SYSTEM_ROLES: { key: string; what: string }[] = [
+  { key: "global_admin", what: "Everything, including billing and sign-in security." },
+  { key: "hr_admin", what: "People, leave, attendance, documents, exits, onboarding, hiring and performance set-up." },
+  { key: "payroll_admin", what: "Salaries, bank and statutory details, payroll runs and settlements." },
+  { key: "finance", what: "Second-level expense approval and payouts." },
+  { key: "recruiter", what: "Jobs, candidates, interviews and offers for the jobs they're on." },
+];
+
 export function RoleList({ roles, canEdit }: { roles: RoleRow[]; canEdit: boolean }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
   const [pending, start] = React.useTransition();
+  const have = new Set(roles.map((r) => r.key));
   return (
+    <div className="flex flex-col gap-4">
+    <Banner tone="info" title="Built-in roles and the manager">
+      <p>erp ships with {SYSTEM_ROLES.filter((s) => have.has(s.key)).map((s) => roles.find((r) => r.key === s.key)?.name).join(", ")}. {SYSTEM_ROLES.map((s) => `${roles.find((r) => r.key === s.key)?.name ?? s.key}: ${s.what}`).join(" ")}</p>
+      <p className="mt-1"><strong>Manager</strong> isn&apos;t a role you assign: whoever is set as someone&apos;s reporting manager on their profile approves their requests, sees their team pages and gets their checklist tasks, automatically. Employees need no role at all for their own pages.</p>
+    </Banner>
     <Card>
       <CardHeader title="Roles" description="A role is a set of permissions. Give it to people, optionally only for some departments or locations."
         action={canEdit ? (
@@ -50,6 +64,7 @@ export function RoleList({ roles, canEdit }: { roles: RoleRow[]; canEdit: boolea
         ))}
       </ul>
     </Card>
+    </div>
   );
 }
 

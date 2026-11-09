@@ -1,4 +1,5 @@
 import "server-only";
+import { autoTickExitTasks } from "@/server/modules/exits/checklist";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
@@ -250,6 +251,10 @@ export async function returnAssets(tx: Tx, actor: Actor, items: ReturnItem[], no
       await notify(tx, actor.tenant.id, g.employee_id, "assets.recovery", `Recovery recorded for ${g.tag}`, `An amount will be recovered in your settlement for this asset (${cond}).`, "/me/assets");
     }
     total += rec.paise;
+  }
+  for (const id of new Set(items.map((i) => i.assignmentId))) {
+    const [g] = await tx<{ employee_id: string }[]>`select employee_id from asset_assignments where id = ${id}`;
+    if (g) await autoTickExitTasks(tx, { employeeId: g.employee_id });   // a leaver's "return assets" task ticks itself once nothing is left out
   }
   return { returned: items.length, recoveryPaise: total };
 }

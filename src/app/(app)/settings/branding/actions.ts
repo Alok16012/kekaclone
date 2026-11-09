@@ -20,6 +20,18 @@ export async function uploadLogoAction(form: FormData) {
   return runAction((tx, actor) => branding.saveLogo(tx, actor, { name: f.name, mime: f.type, bytes }));
 }
 
+export async function uploadBackgroundAction(form: FormData) {
+  const f = form.get("background");
+  if (!(f instanceof File) || !f.size) return bad("Choose an image to upload.", "background");
+  if (f.size > 2 * 1024 * 1024 + 1024) return bad("Keep the background under 2 MB.", "background");
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  return runAction((tx, actor) => branding.saveLoginBackground(tx, actor, { name: f.name, mime: f.type, bytes }));
+}
+
+export async function removeBackgroundAction() {
+  return runAction((tx, actor) => branding.removeLoginBackground(tx, actor));
+}
+
 export async function removeLogoAction() {
   return runAction((tx, actor) => branding.removeLogo(tx, actor));
 }

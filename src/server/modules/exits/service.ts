@@ -1,4 +1,5 @@
 import "server-only";
+import { emitEvent } from "@/server/modules/automations/service";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { canFor, type Placement } from "@/server/auth/permissions";
@@ -9,9 +10,11 @@ import { cycleStartFor } from "@/server/modules/leave/effects";
 import { emitWebhook } from "@/server/modules/integrations/service";
 import {
   DEFAULT_EXIT_REASONS, DEFAULT_EXIT_TASKS, DEFAULT_NOTICE_POLICIES, canCompleteNow, dueForRelieving, lastWorkingDay, nextStatus, noticeDays,
-  stageOf, validateExitDates, waivedDays, OWNER_LABEL, type ExitAction, type ExitKind, type ExitStatus, type TaskOwner,
+  stageOf, validateExitDates, waivedDays, OWNER_LABEL, type AutoKind, type ExitAction, type ExitKind, type ExitStatus, type TaskOwner,
 } from "./rules";
 import { onExitDecided, startExitProcess } from "./effects";
+import { ensureExitSurveyDefaults } from "./survey";
+import { autoTickExitTasks } from "./checklist";
 
 const PERM = "exits.manage";
 const EVERYWHERE: Placement = { department_id: null, location_id: null, legal_entity_id: null, business_unit_id: null };
@@ -31,10 +34,11 @@ export async function ensureExitDefaults(tx: Tx, tenantId: string) {
   if (!tpl) {
     const [t] = await tx<{ id: string }[]>`insert into task_templates (tenant_id, kind, name) values (${tenantId}, 'exit', 'Standard exit checklist') returning id`;
     for (const [i, it] of DEFAULT_EXIT_TASKS.entries()) {
-      await tx`insert into task_template_items (tenant_id, template_id, title, description, owner, due_offset_days, position)
-               values (${tenantId}, ${t.id}, ${it.title}, ${it.description}, ${tx.json(it.owner)}, ${it.due_offset_days}, ${i})`;
+      await tx`insert into task_template_items (tenant_id, template_id, title, description, owner, due_offset_days, config, position)
+               values (${tenantId}, ${t.id}, ${it.title}, ${it.description}, ${tx.json(it.owner)}, ${it.due_offset_days}, ${tx.json(it.auto ? { auto: it.auto } : {})}, ${i})`;
     }
   }
+  await ensureExitSurveyDefaults(tx, tenantId);
 }
 
 // ---------- notice periods ----------
@@ -269,9 +273,11 @@ export async function relieve(tx: Tx, exitId: string, actorUserId: string | null
     await tx`update users set status = 'disabled' where id = ${e.user_id}`;
     await tx`delete from sessions where user_id = ${e.user_id}`;
   }
+  await autoTickExitTasks(tx, { employeeId: x.employee_id });   // "revoke access" (and anything else provable) ticks itself
   if (x.process_id) await tx`update lifecycle_processes set status = 'completed' where id = ${x.process_id} and status = 'in_progress'`;
   await withdrawOpenRequests(tx, x.employee_id, x.last_working_date);
   await emitWebhook(tx, x.tenant_id, "employee.exited", { employee_id: x.employee_id, exit_id: exitId, last_working_date: x.last_working_date });
+  await emitEvent(tx, x.tenant_id, "employee.exited", { employeeId: x.employee_id, occurrence: exitId, vars: { "exit.last_working_date": x.last_working_date } });
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${x.tenant_id}, ${x.employee_id}, 'exited', ${x.last_working_date}, ${tx.json({ exit_id: exitId })}, ${actorUserId})`;
   await tx`insert into audit_logs (tenant_id, actor_user_id, entity_type, entity_id, action, diff)
@@ -369,7 +375,8 @@ export type ExitDetail = {
   exit: { id: string; status: ExitStatus; kind: ExitKind; reason: string | null; reason_id: string | null; comments: string | null; resignation_date: string; requested_lwd: string | null; last_working_date: string; notice_waived_days: number; ok_to_rehire: boolean | null; created_at: string; initiated_by: string | null };
   employee: { id: string; name: string; number: string; designation: string | null; department: string | null; manager: string | null; joining_date: string };
   notice: { policy: string | null; days: number; lastWorkingDate: string };
-  tasks: { id: string; title: string; description: string | null; owner: string; assignee: string | null; assignee_id: string | null; due_date: string | null; status: "open" | "done" | "skipped"; mine: boolean }[];
+  tasks: { id: string; title: string; description: string | null; owner: string; assignee: string | null; assignee_id: string | null; due_date: string | null; status: "open" | "done" | "skipped"; mine: boolean; auto: boolean; autoDone: boolean }[];
+  survey: { sent: boolean; submitted_at: string | null } | null;
   approvals: { level: number; status: "approved" | "rejected" | "pending" | "waiting" | "skipped"; comment: string | null; acted_at: string | null; approver: string; title: string | null }[];
   letters: { id: string; title: string; created_at: string; file_id: string }[];
   can: { manage: boolean; withdraw: boolean; complete: boolean; decide: boolean; pendingForMe: boolean };
@@ -394,8 +401,8 @@ export async function exitDetail(tx: Tx, actor: Actor, exitId: string): Promise<
     select e.id, e.display_name as name, e.employee_number as number, d.title as designation, dp.name as department, m.display_name as manager, e.joining_date::text
     from employees e left join designations d on d.id = e.designation_id left join departments dp on dp.id = e.department_id left join employees m on m.id = e.manager_id
     where e.id = ${x.employee_id}`;
-  const tasks = x.process_id ? await tx<{ id: string; title: string; config: { description?: string; owner?: TaskOwner }; assignee: string | null; assignee_id: string | null; due_date: string | null; status: "open" | "done" | "skipped" }[]>`
-    select t.id, t.title, t.config, a.display_name as assignee, t.assignee_employee_id as assignee_id, t.due_date::text, t.status
+  const tasks = x.process_id ? await tx<{ id: string; title: string; config: { description?: string; owner?: TaskOwner; auto_done?: boolean }; auto: string | null; assignee: string | null; assignee_id: string | null; due_date: string | null; status: "open" | "done" | "skipped" }[]>`
+    select t.id, t.title, t.config, i.config->>'auto' as auto, a.display_name as assignee, t.assignee_employee_id as assignee_id, t.due_date::text, t.status
     from tasks t left join employees a on a.id = t.assignee_employee_id left join task_template_items i on i.id = t.template_item_id
     where t.process_id = ${x.process_id} order by i.position nulls last, t.created_at` : [];
   const steps = await timeline(tx, "exit", exitId);
@@ -409,7 +416,8 @@ export async function exitDetail(tx: Tx, actor: Actor, exitId: string): Promise<
       last_working_date: x.last_working_date, notice_waived_days: x.notice_waived_days, ok_to_rehire: x.ok_to_rehire, initiated_by: x.initiated_by, created_at: x.created_at_ts.toISOString() },
     employee: emp,
     notice: { policy: notice.policy, days: notice.days, lastWorkingDate: notice.lastWorkingDate },
-    tasks: tasks.map((t) => ({ id: t.id, title: t.title, description: t.config?.description ?? null, owner: t.config?.owner ? OWNER_LABEL(t.config.owner) : "—", assignee: t.assignee, assignee_id: t.assignee_id, due_date: t.due_date, status: t.status, mine: t.assignee_id === actor.employeeId })),
+    tasks: tasks.map((t) => ({ id: t.id, title: t.title, description: t.config?.description ?? null, owner: t.config?.owner ? OWNER_LABEL(t.config.owner) : "—", assignee: t.assignee, assignee_id: t.assignee_id, due_date: t.due_date, status: t.status, mine: t.assignee_id === actor.employeeId, auto: !!t.auto, autoDone: !!t.config?.auto_done })),
+    survey: manage || self ? await (async () => { const [r] = await tx<{ submitted_at: Date | null }[]>`select submitted_at from exit_survey_responses where exit_request_id = ${exitId}`; return r ? { sent: true, submitted_at: r.submitted_at?.toISOString() ?? null } : { sent: false, submitted_at: null }; })() : null,
     approvals: steps.map((s) => ({ ...s, acted_at: s.acted_at ? s.acted_at.toISOString() : null })),
     letters: letters.map((l) => ({ ...l, created_at: l.created_at.toISOString() })),
     can: {
@@ -450,8 +458,8 @@ export async function deleteReason(tx: Tx, actor: Actor, id: string) {
 }
 
 export async function exitChecklist(tx: Tx) {
-  return tx<{ id: string; title: string; description: string | null; owner: TaskOwner; due_offset_days: number }[]>`
-    select i.id, i.title, i.description, i.owner, i.due_offset_days from task_template_items i
+  return tx<{ id: string; title: string; description: string | null; owner: TaskOwner; due_offset_days: number; auto: AutoKind | null }[]>`
+    select i.id, i.title, i.description, i.owner, i.due_offset_days, i.config->>'auto' as auto from task_template_items i
     where i.template_id = (select id from task_templates where kind = 'exit' order by created_at limit 1) order by i.position, i.created_at`;
 }
 

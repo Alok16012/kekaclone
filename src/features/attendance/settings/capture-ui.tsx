@@ -34,7 +34,7 @@ export function CaptureSettings({ rows, canEdit }: { rows: CaptureRow[]; canEdit
                 <p className="text-sm text-text-muted">
                   {[
                     r.web.enabled ? (r.web.ip_ranges.length ? `Browser from ${r.web.ip_ranges.length} office ${r.web.ip_ranges.length === 1 ? "network" : "networks"}` : "Browser from anywhere") : "Browser off",
-                    r.mobile.enabled && r.fences.length ? `location at ${r.fences.map((f) => f.name).join(", ")}` : null,
+                    r.mobile.enabled && r.fences.length ? `location at ${r.fences.map((f) => f.name).join(", ")}${r.mobile.selfie ? " with selfie" : ""}${r.mobile.first_clock_in_approval ? ", new devices approved" : ""}` : null,
                     `${r.limits.regularization_per_month} regularizations a month`,
                     `${r.people} ${r.people === 1 ? "person" : "people"}`,
                   ].filter(Boolean).join(" · ")}
@@ -63,6 +63,9 @@ function CaptureDialog({ row, onClose }: { row: CaptureRow | null; onClose: () =
   const [comment, setComment] = React.useState(row?.web.comment_required ?? false);
   const [ranges, setRanges] = React.useState((row?.web.ip_ranges ?? []).join("\n"));
   const [geoOn, setGeoOn] = React.useState(row?.mobile.enabled ?? true);
+  const [selfie, setSelfie] = React.useState(row?.mobile.selfie ?? false);
+  const [firstApproval, setFirstApproval] = React.useState(row?.mobile.first_clock_in_approval ?? false);
+  const [accuracy, setAccuracy] = React.useState(row?.mobile.accuracy_m == null ? "" : String(row.mobile.accuracy_m));
   const [fences, setFences] = React.useState<FenceDraft[]>((row?.fences ?? []).map((f) => ({ key: newKey(), id: f.id, name: f.name, lat: String(f.lat), lng: String(f.lng), radius: String(f.radius_m) })));
   const [wfh, setWfh] = React.useState(row?.remote.wfh ?? true);
   const [od, setOd] = React.useState(row?.remote.od ?? true);
@@ -89,7 +92,7 @@ function CaptureDialog({ row, onClose }: { row: CaptureRow | null; onClose: () =
     const r = await saveCaptureAction(row?.id ?? null, {
       name,
       web: { enabled: webOn, comment_required: comment, ip_ranges: ranges.split(/[\n,]/).map((x) => x.trim()).filter(Boolean) },
-      mobile: { enabled: geoOn, fences: fences.map((f) => ({ id: f.id ?? null, name: f.name, lat: Number(f.lat), lng: Number(f.lng), radius_m: Math.round(Number(f.radius)) })) },
+      mobile: { enabled: geoOn, fences: fences.map((f) => ({ id: f.id ?? null, name: f.name, lat: Number(f.lat), lng: Number(f.lng), radius_m: Math.round(Number(f.radius)) })), selfie, first_clock_in_approval: firstApproval, accuracy_m: accuracy.trim() === "" ? null : Math.round(Number(accuracy)) },
       remote: { wfh, od },
       limits: { regularization_per_month: Number(regs), regularization_past_days: Number(days), partial_day_minutes_per_month: Math.round(Number(partial) * 60) },
     });
@@ -117,7 +120,7 @@ function CaptureDialog({ row, onClose }: { row: CaptureRow | null; onClose: () =
         <fieldset className="flex flex-col gap-3">
           <legend className="mb-1 text-base font-semibold">Location clock-in</legend>
           <Switch label="Allow clocking in from inside these locations (browser location)" checked={geoOn} onCheckedChange={setGeoOn} />
-          <p className="text-sm text-text-muted">When someone isn&apos;t on an office network, their browser shares its location and must be inside one of these circles. Selfies aren&apos;t collected.</p>
+          <p className="text-sm text-text-muted">When someone isn&apos;t on an office network, their browser shares its location and must be inside one of these circles. Only a fresh reading counts, never a remembered position.</p>
           {fences.length === 0 && <p className="rounded-md bg-surface-sunken px-3 py-2 text-sm text-text-muted">No locations yet.</p>}
           <ul className="flex flex-col gap-3">
             {fences.map((f, i) => (
@@ -136,6 +139,13 @@ function CaptureDialog({ row, onClose }: { row: CaptureRow | null; onClose: () =
             ))}
           </ul>
           <Button type="button" variant="secondary" size="sm" className="self-start" onClick={() => setFences((fs) => [...fs, { key: newKey(), name: "", lat: "", lng: "", radius: "200" }])} disabled={fences.length >= 20}><MapPin />Add location</Button>
+          <Field label="Location accuracy limit (m)" help="Readings less precise than this are refused. Empty for no limit; 100 suits most phones outdoors." className="max-w-xs">
+            <Input type="number" inputMode="numeric" min={10} max={5000} value={accuracy} onChange={(e) => setAccuracy(e.target.value)} disabled={!geoOn} placeholder="No limit" />
+          </Field>
+          <Switch label="Take a selfie with every location clock-in" checked={selfie} onCheckedChange={setSelfie} disabled={!geoOn} />
+          <p className="text-sm text-text-muted">The photo is stored with the clock-in and shown to the person, their manager and attendance admins on the person&apos;s Time tab. erp never compares faces or recognises anyone from it.</p>
+          <Switch label="The first clock-in from a new device needs the manager's approval" checked={firstApproval} onCheckedChange={setFirstApproval} disabled={!geoOn} />
+          <p className="text-sm text-text-muted">A clock-in from a browser the person hasn&apos;t used at that location before waits in the manager&apos;s inbox. Once approved, that device is trusted there.</p>
         </fieldset>
 
         <fieldset className="flex flex-col gap-3">

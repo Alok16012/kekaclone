@@ -2,7 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, ClipboardList, Lock, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users } from "lucide-react";
+import { BookOpenText, ChevronRight, ClipboardList, Lock, MoreHorizontal, Pencil, Plus, Trash2, UserPlus, Users } from "lucide-react";
 import { Button, IconButton } from "@/ui/button";
 import { Card, CardBody, CardHeader } from "@/ui/card";
 import { Badge } from "@/ui/badge";
@@ -117,8 +117,10 @@ export function PlanEditor({ plan, rules, members, types, people }: { plan: Plan
       <Card>
         <CardHeader title={<span className="flex flex-wrap items-center gap-2">{plan.name}{plan.is_default && <Badge tone="accent">Default for new joiners</Badge>}</span>}
           description={plan.description ?? undefined}
-          action={<Menu trigger={<IconButton label="Plan actions" size="icon-sm" variant="ghost"><MoreHorizontal /></IconButton>}
-            items={[{ label: "Edit details", icon: <Pencil />, onSelect: () => setEditing(true) }, { label: "Delete plan", icon: <Trash2 />, danger: true, onSelect: () => setDeleting(true) }]} />} />
+          action={<div className="flex items-center gap-1">
+            <Button asChild variant="secondary" size="sm"><Link href={`/settings/leave/plans/${plan.id}/policy`}><BookOpenText />Policy document</Link></Button>
+            <Menu trigger={<IconButton label="Plan actions" size="icon-sm" variant="ghost"><MoreHorizontal /></IconButton>}
+            items={[{ label: "Edit details", icon: <Pencil />, onSelect: () => setEditing(true) }, { label: "Delete plan", icon: <Trash2 />, danger: true, onSelect: () => setDeleting(true) }]} /></div>} />
         <CardBody className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
           <span className="flex items-center gap-1.5 text-text-muted"><Lock className="size-3.5" aria-hidden />Leave year: <span className="font-medium text-text">{YEAR_START_LABEL[plan.year_start]}</span></span>
           <span className="text-text-muted"><span className="font-medium text-text tabular">{members.length}</span> {members.length === 1 ? "person" : "people"}</span>

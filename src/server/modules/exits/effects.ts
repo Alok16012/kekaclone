@@ -3,6 +3,7 @@ import type { Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { addDaysISO } from "@/lib/dates";
 import { resolveOwner, type TaskOwner } from "./rules";
+import { inviteToExitSurvey } from "./survey";
 
 /** In-app notification (kept local so the approvals engine can import this file without a cycle). */
 async function notify(tx: Tx, tenantId: string, employeeId: string, kind: string, title: string, body: string, link: string) {
@@ -50,6 +51,10 @@ export async function startExitProcess(tx: Tx, exitId: string, actorUserId: stri
   }
   await tx`insert into timeline_events (tenant_id, employee_id, kind, effective_date, data, actor_user_id)
            values (${x.tenant_id}, ${x.employee_id}, 'exit_started', current_date, ${tx.json({ exit_id: exitId, last_working_date: x.last_working_date })}, ${actorUserId})`;
+  await inviteToExitSurvey(tx, x.tenant_id, exitId);   // the leaver is asked for feedback while they're still around to answer
+  // hiring: undecided requisitions the leaver raised are closed (loaded lazily: the approvals engine imports this file)
+  const { closeLeaverRequisitions } = await import("@/server/modules/hire/leaver");
+  await closeLeaverRequisitions(tx, x.tenant_id, x.employee_id, actorUserId);
   return true;
 }
 

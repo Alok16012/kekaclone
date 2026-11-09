@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
   const name = tenant ? `${tenant.name} · erp` : "erp";
   const manifest = {
     id: "/home", name, short_name: tenant ? tenant.name.slice(0, 12) : "erp", description: "People, time and payroll in one place.",
-    start_url: "/home", scope: "/", display: "standalone", orientation: "portrait", background_color: "#ffffff", theme_color: accent, lang: "en-IN",
+    start_url: "/home", scope: "/", display: "standalone", display_override: ["standalone", "minimal-ui"], orientation: "portrait", background_color: "#ffffff", theme_color: accent, lang: "en-IN",
+    categories: ["business", "productivity"], prefer_related_applications: false,
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },

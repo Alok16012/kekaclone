@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import postgres from "postgres";
 import { pooled } from "@/server/db";
-import { runDaily } from "@/server/modules/corehr/daily";
+import { runDaily } from "@/server/modules/corehr/daily-run";
 
 export const maxDuration = 300;
 
@@ -17,14 +17,16 @@ export async function GET(req: Request) {
   }
   const url = new URL(req.url);
   const admin = postgres(process.env.DATABASE_ADMIN_URL!, { max: 1, prepare: !pooled(process.env.DATABASE_ADMIN_URL), onnotice: () => {} });
+  const lines: string[] = [];
   try {
     const r = await runDaily(admin, {
+      log: (l) => { lines.push(l); console.log(l); },
       date: url.searchParams.get("date") ?? undefined,
       tenant: url.searchParams.get("tenant") ?? undefined,
       force: url.searchParams.get("force") === "1",
       only: url.searchParams.get("only")?.split(",").filter(Boolean),
     });
-    return Response.json(r, { status: r.failed ? 500 : 200 });
+    return Response.json({ ...r, log: lines }, { status: r.failed ? 500 : 200 });
   } catch (e) {
     console.error("cron daily", e);
     return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });

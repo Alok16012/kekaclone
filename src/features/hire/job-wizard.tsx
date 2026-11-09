@@ -14,6 +14,7 @@ import { toast } from "@/ui/toast";
 import { JOB_TYPES, TEAM_ROLES } from "@/server/modules/hire/rules";
 import { saveJobAction } from "@/app/(app)/hire/actions";
 import { RichText } from "./shared";
+import { JdDraftButton, type AssistantInfo } from "./assist";
 
 export type WizardData = {
   departments: { id: string; name: string }[]; locations: { id: string; name: string }[];
@@ -33,7 +34,7 @@ const toPaise = (s: string) => { const t = s.replace(/[₹,\s]/g, ""); return t 
 const toInt = (s: string) => (s.trim() === "" ? null : Number(s));
 
 /** S136: create or edit a job in four steps. Drafts save any time; publishing opens it to the chosen audiences. */
-export function JobWizard({ data, job }: { data: WizardData; job: WizardJob }) {
+export function JobWizard({ data, job, assistant }: { data: WizardData; job: WizardJob; assistant?: AssistantInfo }) {
   const router = useRouter();
   const [step, setStep] = React.useState(0);
   const [f, setF] = React.useState({
@@ -97,6 +98,12 @@ export function JobWizard({ data, job }: { data: WizardData; job: WizardJob }) {
                 <Select placeholder="Pick a job description template" onValueChange={(v) => { const t = data.jds.find((j) => j.id === v); if (t) { set("html", t.description_html); setJdKey((k) => k + 1); } }}
                   options={data.jds.map((j) => ({ value: j.id, label: j.name }))} />
               </Field>
+            )}
+            {assistant && (
+              <div className="flex justify-end">
+                <JdDraftButton assistant={assistant} hasText={!!f.html.replace(/<[^>]+>/g, "").trim()} onDraft={(h) => { set("html", h); setJdKey((k) => k + 1); }}
+                  brief={{ title: f.title, departmentId: f.departmentId, locationId: f.locationId, expMin: f.expMin, expMax: f.expMax, jobType: f.jobType }} />
+              </div>
             )}
             <RichText key={jdKey} label="Job description" initial={f.html} onChange={(h) => set("html", h)} minHeight="min-h-64" />
           </>

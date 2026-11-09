@@ -6,6 +6,9 @@ import { AppError } from "@/server/db";
 import { candidateProfile } from "@/server/modules/hire/candidates";
 import { visibleJobIds } from "@/server/modules/hire/access";
 import { CandidateProfile } from "@/features/hire/candidate-profile";
+import { applicationScore, assistantState } from "@/server/modules/hire/assist";
+import { erasureBlockerFor } from "@/server/modules/hire/privacy";
+import { CandidateScores, EraseCandidateButton, type AppScore } from "@/features/hire/assist";
 import { HireHeader, hireTabs } from "../../header";
 
 export const metadata: Metadata = { title: "Candidate" };
@@ -23,7 +26,14 @@ export default async function CandidatePage(props: PageProps<"/hire/candidates/[
         tx<{ id: string; name: string }[]>`select id, name from letter_templates where kind = 'offer' order by name`,
         tx<{ id: string; title: string }[]>`select id, title from jobs where status in ('open','on_hold','draft') and (${ids === null} or id = any(${ids ?? []}::uuid[])) order by title`,
       ]);
-      return { p, tabs, people, designations, templates, openJobs, me: actor.employeeId };
+      const [assistant, [flags]] = await Promise.all([assistantState(tx), tx<{ anonymised: boolean }[]>`select anonymised_at is not null as anonymised from candidates where id = ${id}`]);
+      const scores: AppScore[] = [];
+      for (const a of p.apps) {
+        const s = await applicationScore(tx, actor, a.id);
+        scores.push({ applicationId: a.id, job: a.job, canAct: p.actable.includes(a.id) && a.status === "active", score: s && { ...s, created_at: s.created_at.toISOString() } });
+      }
+      const erase = p.canAdmin && !flags.anonymised && p.candidate.employee_id !== actor.employeeId ? { blocker: await erasureBlockerFor(tx, id) } : null;
+      return { p, tabs, people, designations, templates, openJobs, me: actor.employeeId, assistant, scores, erase, anonymised: flags.anonymised };
     } catch (e) { if (e instanceof AppError && e.code === "not_found") return null; throw e; }
   });
   if (!d) notFound();
@@ -31,9 +41,11 @@ export default async function CandidatePage(props: PageProps<"/hire/candidates/[
   return (
     <>
       <HireHeader tabs={d.tabs} title={[c.first_name, c.last_name].filter(Boolean).join(" ")} description={[c.current_title, c.current_company].filter(Boolean).join(" at ") || c.email}
-        breadcrumb={<Link href="/hire/candidates" className="hover:underline">← Candidates</Link>} />
+        breadcrumb={<Link href="/hire/candidates" className="hover:underline">← Candidates</Link>}
+        actions={d.erase && <EraseCandidateButton candidateId={c.id} name={[c.first_name, c.last_name].filter(Boolean).join(" ")} blocker={d.erase.blocker} />} />
       <CandidateProfile data={d.p} people={d.people} designations={d.designations} templates={d.templates} openJobs={d.openJobs} me={d.me}
         initialApp={typeof sp.app === "string" ? sp.app : null} initialTab={typeof sp.tab === "string" ? sp.tab : "overview"} />
+      <CandidateScores items={d.scores} assistant={d.assistant} anonymised={d.anonymised} />
     </>
   );
 }

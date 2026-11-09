@@ -8,7 +8,13 @@ export type YearStart = "jan" | "apr" | "joining_date";
 export type Frequency = "monthly" | "quarterly" | "half_yearly" | "yearly" | "upfront";
 
 /** Stored in leave_plan_rules.accrual. `upfront: true` is the older spelling of frequency 'upfront'. */
-export type AccrualRule = { frequency?: Frequency; day?: number; prorate_joining?: boolean; stop_in_probation?: boolean; upfront?: boolean };
+export type AccrualRule = {
+  frequency?: Frequency; day?: number; prorate_joining?: boolean; stop_in_probation?: boolean; upfront?: boolean;
+  /** stop rules: no credit while the balance is at or above this many days … */
+  cap_balance?: number | null;
+  /** … and none for the rest of the leave year once this many days have been taken in it */
+  stop_after_days_taken?: number | null;
+};
 /** Stored in leave_plan_rules.year_end. `action: 'reset'` (the column default) means nothing carries. */
 export type YearEndRule = { carry?: "none" | "all" | "upto"; carry_max?: number; encash_max?: number; action?: string };
 
@@ -120,6 +126,52 @@ export function accrualPostings(schedule: AccrualPeriod[], alreadyAccrued: numbe
     if (add > 0) { out.push({ periodId: p.periodId, creditDate: p.creditDate, amount: add }); have = round2(have + add); }
   }
   return out;
+}
+
+export type StoppedPosting = { periodId: string; creditDate: ISODate; amount: number; credited: number; withheld: number; reason: "cap" | "taken" | null };
+
+/**
+ * Accrual stop rules applied to what's due. The whole period amount still counts as accrued (so a later run never
+ * re-credits it); the part the rule withholds lapses the same day. `balance` = the person's balance of the type right
+ * now (credits − leave taken), `taken` = days of the type taken in this leave year.
+ */
+export function applyAccrualStops(postings: { periodId: string; creditDate: ISODate; amount: number }[], s: { balance: number; taken: number; cap?: number | null; stopAfterTaken?: number | null }): StoppedPosting[] {
+  const cap = s.cap != null && s.cap >= 0 ? s.cap : null;
+  const stopAt = s.stopAfterTaken != null && s.stopAfterTaken >= 0 ? s.stopAfterTaken : null;
+  let balance = s.balance;
+  return postings.map((p) => {
+    let credited = p.amount;
+    let reason: StoppedPosting["reason"] = null;
+    if (stopAt != null && s.taken >= stopAt) { credited = 0; reason = "taken"; }
+    else if (cap != null) {
+      const room = round2(Math.max(0, cap - balance));
+      if (room < p.amount) { credited = room; reason = "cap"; }
+    }
+    credited = round2(credited);
+    balance = round2(balance + credited);
+    return { ...p, credited, withheld: round2(p.amount - credited), reason };
+  });
+}
+
+export type GrantLike = { id: string; days: number; used: number; validFrom: ISODate; validTo: ISODate };
+
+/**
+ * Event-based leave: the grant a request should draw on, or why none fits. The request must lie inside the grant's
+ * validity window and fit what's left of it; when several fit, the one that ends first is used.
+ */
+export function pickGrant(grants: GrantLike[], r: { from: ISODate; to: ISODate; days: number }): { grant: GrantLike | null; problem: string | null } {
+  if (!grants.length) return { grant: null, problem: "This leave is granted for a specific event. Ask HR to grant it before you apply." };
+  const inWindow = grants.filter((g) => g.validFrom <= r.from && g.validTo >= r.to);
+  if (!inWindow.length) {
+    const soonest = [...grants].sort((a, b) => (a.validTo < b.validTo ? -1 : 1))[0];
+    return { grant: null, problem: `Your grant for ${soonest.validFrom === soonest.validTo ? soonest.validFrom : `${soonest.validFrom} to ${soonest.validTo}`} doesn't cover these dates.` };
+  }
+  const fits = inWindow.filter((g) => round2(g.days - g.used) >= r.days).sort((a, b) => (a.validTo < b.validTo ? -1 : 1));
+  if (!fits.length) {
+    const best = Math.max(...inWindow.map((g) => round2(g.days - g.used)));
+    return { grant: null, problem: `Only ${best} ${best === 1 ? "day is" : "days are"} left of this grant and this request needs ${r.days}.` };
+  }
+  return { grant: fits[0], problem: null };
 }
 
 export function carryModeOf(rule: YearEndRule | null | undefined): "none" | "all" | "upto" {

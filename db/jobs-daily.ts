@@ -12,10 +12,12 @@
  *   pnpm jobs:daily -- --date 2026-11-02          as of another day (catch up a missed run)
  *   pnpm jobs:daily -- --tenant acme --force      one tenant, re-run once-a-day steps
  *   pnpm jobs:daily -- --only attendance,leave    just these steps
+ *
+ * Prefer cron (see README). `pnpm jobs:scheduler` is the lightweight in-app alternative that calls the same code at a set time.
  */
 import postgres from "postgres";
 import { pooled, sql } from "@/server/db";
-import { runDaily } from "@/server/modules/corehr/daily";
+import { runDaily } from "@/server/modules/corehr/daily-run";
 
 const admin = postgres(process.env.DATABASE_ADMIN_URL!, { max: 1, prepare: !pooled(process.env.DATABASE_ADMIN_URL), onnotice: () => {} });
 
@@ -28,14 +30,7 @@ function arg(name: string) {
 
 async function main() {
   const only = arg("only")?.split(",").map((s) => s.trim()).filter(Boolean);
-  const force = process.argv.includes("--force");
-  const r = await runDaily(admin, { date: arg("date"), only, force, tenant: arg("tenant") });
-  if (r.skipped === "locked") { console.log("Another daily run is still going. Nothing to do."); return; }
-  console.log(`daily jobs for ${r.date} across ${r.tenants.length} tenant(s)${only ? ` (only ${only.join(", ")})` : ""}${force ? " (forced)" : ""}`);
-  for (const t of r.tenants) {
-    console.log(`  ${t.subdomain}: ${t.results.map((x) => `${x.key} ${x.status === "ok" ? "✓" : x.status === "skipped" ? "(done earlier)" : "✗"}`).join(" · ")}`);
-    for (const x of t.results) if (x.status === "failed") console.error(`    ${x.key}: ${x.error}`);
-  }
+  const r = await runDaily(admin, { date: arg("date"), only, force: process.argv.includes("--force"), tenant: arg("tenant") });
   if (r.failed) process.exitCode = 1;
 }
 

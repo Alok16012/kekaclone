@@ -2,8 +2,12 @@ import "server-only";
 import { AppError, type Tx } from "@/server/db";
 import type { Actor } from "@/server/auth/session";
 import { addDaysISO, eachDay, todayIn, type ISODate } from "@/lib/dates";
+import { sha256 } from "@/server/auth/password";
+import { saveFile } from "@/server/storage";
+import { notifyEmployee, startApproval } from "@/server/modules/approvals/service";
 import { attendanceDateOf, checkPunch, dayWindow, normalizeIp, timingFor, type DayType } from "./rules";
 import { calendarFor, capturePolicyFor, personFor, processAttendance, shiftsFor, type StoredPenalty } from "./process";
+import { describe, onAttendanceRequestDecided } from "./requests";
 
 export { recomputeDay, processAttendance } from "./process";
 
@@ -11,7 +15,9 @@ export type TodayState = {
   computedAt: string; date: ISODate; clockedIn: boolean; since: string | null; firstIn: string | null; workedSeconds: number;
   shift: { name: string; start: string; end: string } | null; dayType: string;
   /** hints for the clock card; the server re-checks everything on punch */
-  capture: { commentRequired: boolean; remoteToday: "wfh" | "on_duty" | null; locationCapture: boolean; webEnabled: boolean };
+  capture: { commentRequired: boolean; remoteToday: "wfh" | "on_duty" | null; locationCapture: boolean; webEnabled: boolean; selfie: boolean; firstClockInApproval: boolean; accuracyM: number | null };
+  /** a location clock-in from a new device that is still waiting for the manager */
+  pendingClockIn: { at: string; requestId: string | null } | null;
 };
 
 async function remoteOn(tx: Tx, employeeId: string, date: ISODate) {
@@ -38,6 +44,9 @@ export async function today(tx: Tx, employeeId: string): Promise<TodayState> {
   const t = timingFor(shift, date);
   const typeOn = await calendarFor(tx, employeeId, date, date);
   const cap = await capturePolicyFor(tx, employeeId);
+  const [pending] = await tx<{ at: Date; request_id: string | null }[]>`
+    select p.at, (select r.id from attendance_requests r where r.kind = 'remote_clock_in' and r.status = 'pending' and r.payload->>'punchId' = p.id::text limit 1) as request_id
+    from punches p where p.employee_id = ${employeeId} and p.status = 'pending_approval' and p.at >= ${w.start} and p.at < ${w.end} order by p.at desc limit 1`;
   return {
     computedAt: now.toISOString(), date,
     clockedIn: punches.length % 2 === 1,
@@ -49,34 +58,93 @@ export async function today(tx: Tx, employeeId: string): Promise<TodayState> {
     capture: {
       commentRequired: !!cap.policy.web.comment_required, remoteToday: await remoteOn(tx, employeeId, date),
       locationCapture: cap.policy.mobile.enabled && cap.fences.length > 0, webEnabled: cap.policy.web.enabled,
+      selfie: !!cap.policy.mobile.selfie && cap.policy.mobile.enabled && cap.fences.length > 0,
+      firstClockInApproval: !!cap.policy.mobile.first_clock_in_approval && cap.policy.mobile.enabled && cap.fences.length > 0,
+      accuracyM: cap.policy.mobile.accuracy_m ?? null,
     },
+    pendingClockIn: pending ? { at: pending.at.toISOString(), requestId: pending.request_id } : null,
   };
 }
 
-export type PunchMeta = { ip: string | null; lat?: number | null; lng?: number | null; accuracy?: number | null; comment?: string | null; expect: "in" | "out" };
+export type PunchMeta = {
+  ip: string | null; lat?: number | null; lng?: number | null; accuracy?: number | null; comment?: string | null; expect: "in" | "out";
+  /** how old the browser's position fix was when sent (ms); a cached last-known position is refused */
+  fixAgeMs?: number | null;
+  /** JPEG data URL from the clock card's camera, when the policy asks for a selfie */
+  selfie?: string | null;
+  /** the browser's random clock-in id (kept in its storage) and a short label like "Chrome on Android" */
+  deviceKey?: string | null; deviceLabel?: string | null;
+};
+
+const SELFIE_MAX = 1_500_000;   // bytes of JPEG; the clock card sends ~640 px at 0.7 quality (≈60 KB)
+
+/** A JPEG data URL from the clock card → bytes, or an error the person can act on. */
+function decodeSelfie(dataUrl: string | null | undefined): Uint8Array | null {
+  if (!dataUrl) return null;
+  const m = dataUrl.match(/^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) throw new AppError("invalid", "The selfie didn't come through. Take it again.", "selfie");
+  const bytes = Buffer.from(m[1], "base64");
+  if (bytes.byteLength < 500 || bytes.byteLength > SELFIE_MAX) throw new AppError("invalid", "The selfie didn't come through. Take it again.", "selfie");
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) throw new AppError("invalid", "The selfie must be a JPEG photo from the camera.", "selfie");
+  return new Uint8Array(bytes);
+}
 
 /**
  * Clock in or out (alternates). The capture policy is enforced here, not in the browser: office IP allowlist,
  * or a location inside a geofence, or anywhere on an approved WFH / on-duty day.
- * Errors that the clock card can fix carry a field: "location" (ask for location) or "comment".
+ * Location clock-ins may also need a selfie (stored, shown to HR; never matched against anything) and, from a browser the
+ * person hasn't used at that location before, the manager's approval: the punch waits as 'pending_approval' behind an
+ * attendance request of kind 'remote_clock_in' until then.
+ * Errors that the clock card can fix carry a field: "location" (ask for location), "comment" or "selfie".
  */
 export async function punch(tx: Tx, actor: Actor, meta: PunchMeta) {
   await tx`select pg_advisory_xact_lock(hashtext(${"punch:" + actor.employeeId}))`;
   const state = await today(tx, actor.employeeId);
+  if (state.pendingClockIn) throw new AppError("conflict", "Your clock-in from this new device is still waiting for your manager. Once it's approved you can clock out.");
   if ((meta.expect === "in") === state.clockedIn) throw new AppError("conflict", state.clockedIn ? "You're already clocked in." : "You're already clocked out.");
   const cap = await capturePolicyFor(tx, actor.employeeId);
   const ip = normalizeIp(meta.ip);
   const lat = meta.lat != null && Number.isFinite(meta.lat) && Math.abs(meta.lat) <= 90 ? meta.lat : null;
   const lng = meta.lng != null && Number.isFinite(meta.lng) && Math.abs(meta.lng) <= 180 ? meta.lng : null;
   const accuracy = meta.accuracy != null && Number.isFinite(meta.accuracy) && meta.accuracy >= 0 ? Math.min(meta.accuracy, 100000) : null;
-  const check = checkPunch(cap.policy, cap.fences, { ip, lat, lng, accuracy, comment: meta.comment, remoteToday: !!state.capture.remoteToday });
-  if (!check.ok) throw new AppError("invalid", check.message, check.code === "location_needed" || check.code === "outside" ? "location" : check.code === "comment" ? "comment" : undefined);
-  const [p] = await tx<{ at: Date }[]>`
-    insert into punches (tenant_id, employee_id, at, direction, source, ip, lat, lng, accuracy_m, comment)
-    values (${actor.tenant.id}, ${actor.employeeId}, now(), ${meta.expect}, ${check.source}, ${ip}, ${lat}, ${lng}, ${accuracy}, ${meta.comment?.trim().slice(0, 500) || null})
-    returning at`;
+  const fixAgeMs = meta.fixAgeMs != null && Number.isFinite(meta.fixAgeMs) ? Math.max(0, meta.fixAgeMs) : null;
+  const selfie = decodeSelfie(meta.selfie);
+  const check = checkPunch(cap.policy, cap.fences, { ip, lat, lng, accuracy, fixAgeMs, hasSelfie: !!selfie, comment: meta.comment, remoteToday: !!state.capture.remoteToday });
+  if (!check.ok) {
+    const field = ["location_needed", "outside", "accuracy", "stale"].includes(check.code) ? "location" : check.code === "comment" ? "comment" : check.code === "selfie" ? "selfie" : undefined;
+    throw new AppError("invalid", check.message, field);
+  }
+  // selfies are kept only for location clock-ins under a policy that asks for them
+  const selfieFileId = check.source === "mobile" && cap.policy.mobile.selfie && selfie
+    ? await saveFile(tx, { tenantId: actor.tenant.id, userId: actor.userId, name: `clock-in selfie ${state.date}.jpg`, mime: "image/jpeg", bytes: selfie, ext: "jpg" })
+    : null;
+  // first clock-in from a browser the person hasn't used at this location: wait for the manager
+  const deviceHash = meta.deviceKey && /^[A-Za-z0-9_-]{16,64}$/.test(meta.deviceKey) ? sha256(`clock-in:${actor.employeeId}:${meta.deviceKey}`) : null;
+  const deviceLabel = meta.deviceLabel?.trim().slice(0, 80) || null;
+  let needsApproval = false;
+  if (check.source === "mobile" && cap.policy.mobile.first_clock_in_approval && meta.expect === "in") {
+    const [trusted] = deviceHash ? await tx`select 1 from clock_in_trust where employee_id = ${actor.employeeId} and device_hash = ${deviceHash} and geofence_id is not distinct from ${check.fenceId}` : [];
+    needsApproval = !trusted;
+  }
+  const [p] = await tx<{ id: string; at: Date }[]>`
+    insert into punches (tenant_id, employee_id, at, direction, source, ip, lat, lng, accuracy_m, comment, selfie_file_id, status)
+    values (${actor.tenant.id}, ${actor.employeeId}, now(), ${meta.expect}, ${check.source}, ${ip}, ${lat}, ${lng}, ${accuracy}, ${meta.comment?.trim().slice(0, 500) || null}, ${selfieFileId}, ${needsApproval ? "pending_approval" : "valid"})
+    returning id, at`;
+  if (needsApproval) {
+    const payload = { punchId: p.id, deviceHash, deviceLabel, fenceId: check.fenceId, fence: check.fence, lat, lng, accuracy, selfieFileId, at: p.at.toISOString() };
+    const [r] = await tx<{ id: string }[]>`
+      insert into attendance_requests (tenant_id, employee_id, kind, from_date, to_date, payload, reason)
+      values (${actor.tenant.id}, ${actor.employeeId}, 'remote_clock_in', ${state.date}, ${state.date}, ${tx.json(payload)}, ${`First clock-in from ${deviceLabel ?? "a new device"} at ${check.fence ?? "a location"}`}) returning id`;
+    const { status } = await startApproval(tx, { tenantId: actor.tenant.id, entityType: "attendance_request", entityId: r.id, requesterId: actor.employeeId, summary: `${actor.name} · ${describe("remote_clock_in", state.date, state.date, payload)}` });
+    if (status === "approved") await onAttendanceRequestDecided(tx, actor, r.id, "approved");   // nobody to ask: counts at once
+    else {
+      await notifyEmployee(tx, actor.tenant.id, actor.employeeId, "attendance.clock_in_review", "Your clock-in is waiting for approval",
+        `First clock-in from ${deviceLabel ?? "this device"} at ${check.fence ?? "this location"}. It counts once your manager approves it.`, "/me/attendance");
+      return { at: p.at.toISOString(), direction: meta.expect, fence: check.fence, pendingApproval: true as const };
+    }
+  }
   await processAttendance(tx, actor.tenant.id, actor.employeeId, state.date);
-  return { at: p.at.toISOString(), direction: meta.expect, fence: check.source === "mobile" ? check.fence : null };
+  return { at: p.at.toISOString(), direction: meta.expect, fence: check.source === "mobile" ? check.fence : null, pendingApproval: false as const };
 }
 
 export type LogRow = {

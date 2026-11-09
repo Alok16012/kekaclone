@@ -39,7 +39,10 @@ export async function deleteWeeklyOffAction(id: string) {
 const captureInput = z.object({
   name: z.string().max(80),
   web: z.object({ enabled: z.boolean(), comment_required: z.boolean(), ip_ranges: z.array(z.string().max(60)).max(60) }),
-  mobile: z.object({ enabled: z.boolean(), fences: z.array(z.object({ id: uuid.nullable().optional(), name: z.string().max(80), lat: z.number(), lng: z.number(), radius_m: z.number().int() })).max(20) }),
+  mobile: z.object({
+    enabled: z.boolean(), fences: z.array(z.object({ id: uuid.nullable().optional(), name: z.string().max(80), lat: z.number(), lng: z.number(), radius_m: z.number().int() })).max(20),
+    selfie: z.boolean().optional(), first_clock_in_approval: z.boolean().optional(), accuracy_m: z.number().int().nullable().optional(),
+  }),
   remote: z.object({ wfh: z.boolean(), od: z.boolean() }),
   limits: z.object({ regularization_per_month: z.number().int(), regularization_past_days: z.number().int(), partial_day_minutes_per_month: z.number().int() }),
 });
@@ -176,7 +179,10 @@ export async function deleteShiftRuleAction(id: string) {
   return runAction((tx, actor) => roster.deleteShiftRule(tx, actor, uuid.parse(id)));
 }
 
-const deviceInput = z.object({ name: z.string().max(80), serial: z.string().max(64), vendor: z.string().max(20), locationId: uuid.nullable() });
+const deviceInput = z.object({
+  name: z.string().max(80), serial: z.string().max(64), vendor: z.string().max(20), locationId: uuid.nullable(),
+  protocol: z.enum(["json", "adms"]).optional(), timezone: z.string().max(64).optional(), clockOffsetSeconds: z.number().int().optional(),
+});
 export async function createDeviceAction(input: z.input<typeof deviceInput>) {
   const p = deviceInput.safeParse(input);
   if (!p.success) return bad;
@@ -192,4 +198,23 @@ export async function rotateDeviceKeyAction(id: string) {
 }
 export async function deleteDeviceAction(id: string) {
   return runAction((tx, actor) => devices.deleteDevice(tx, actor, uuid.parse(id)));
+}
+
+// ---------------------------------------------------------------- time3: assignments from Excel
+import { commitAssignmentImport, previewAssignmentImport } from "@/server/modules/attendance/assignments-import";
+
+async function fileFrom(form: FormData) {
+  const f = form.get("file");
+  if (!(f instanceof File) || f.size === 0) return null;
+  return f.arrayBuffer();
+}
+export async function previewAssignmentImportAction(form: FormData) {
+  const bytes = await fileFrom(form);
+  if (!bytes) return { ok: false as const, error: "Choose an .xlsx file first." };
+  return runAction((tx, actor) => previewAssignmentImport(tx, actor, bytes), { refresh: false });
+}
+export async function commitAssignmentImportAction(form: FormData) {
+  const bytes = await fileFrom(form);
+  if (!bytes) return { ok: false as const, error: "Choose an .xlsx file first." };
+  return runAction((tx, actor) => commitAssignmentImport(tx, actor, bytes));
 }

@@ -51,6 +51,23 @@ export function AttendanceRequestDetail({ id, comment, onComment }: { id: string
             <div><dt className="text-sm text-text-muted">Works instead</dt><dd className="font-medium">{p.workDate ? dayLabel(p.workDate) : "—"}</dd></div>
           </>
         )}
+        {detail.kind === "remote_clock_in" && (
+          <>
+            <div><dt className="text-sm text-text-muted">Clocked in at</dt><dd className="font-medium tabular">{clock(p.at ?? null)}{p.fence ? ` · ${p.fence}` : ""}</dd></div>
+            <div><dt className="text-sm text-text-muted">Device</dt><dd className="font-medium">{p.deviceLabel ?? "Unknown browser"}</dd></div>
+            {p.lat != null && p.lng != null && <div className="col-span-2"><dt className="text-sm text-text-muted">Position</dt><dd className="font-medium tabular">{p.lat.toFixed(5)}, {p.lng.toFixed(5)}{p.accuracy != null ? ` (±${Math.round(p.accuracy)} m)` : ""} · <a className="text-accent-text underline-offset-4 hover:underline" href={`https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}#map=17/${p.lat}/${p.lng}`} target="_blank" rel="noopener noreferrer">open map</a></dd></div>}
+            {p.selfieFileId && (
+              <div className="col-span-2"><dt className="text-sm text-text-muted">Selfie</dt>
+                <dd className="mt-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- private, permission-checked image served by our own route */}
+                  <img src={`/files/${p.selfieFileId}`} alt="Selfie taken at clock-in" className="h-40 w-40 rounded-md object-cover" />
+                  <span className="mt-1 block text-xs text-text-muted">For a human to look at. erp doesn&apos;t match faces.</span>
+                </dd>
+              </div>
+            )}
+            <div className="col-span-2 text-sm text-text-muted">Approving trusts this device at that location, so later clock-ins from it count straight away.</div>
+          </>
+        )}
         {(detail.kind === "wfh" || detail.kind === "on_duty") && (
           <div><dt className="text-sm text-text-muted">How long</dt><dd className="font-medium">{p.half ? `${p.half === "first" ? "First" : "Second"} half` : "Full day"}</dd></div>
         )}

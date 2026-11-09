@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { CalendarHeart, Copy, MapPin, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Users } from "lucide-react";
+import { CalendarHeart, CheckCircle2, Copy, FileSpreadsheet, MapPin, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload, Users, XCircle } from "lucide-react";
 import { Button, IconButton } from "@/ui/button";
 import { Card, CardHeader } from "@/ui/card";
 import { Badge } from "@/ui/badge";
@@ -13,8 +13,9 @@ import { EmployeePicker, type Person } from "@/ui/employee-picker";
 import { toast } from "@/ui/toast";
 import { cn } from "@/lib/cn";
 import {
-  assignHolidayListAction, copyHolidayListAction, deleteHolidayAction, deleteHolidayListAction, holidayListPeopleAction, saveHolidayAction, saveHolidayListAction,
+  assignHolidayListAction, commitHolidayImportAction, copyHolidayListAction, deleteHolidayAction, deleteHolidayListAction, holidayListPeopleAction, previewHolidayImportAction, saveHolidayAction, saveHolidayListAction,
 } from "@/app/(app)/settings/leave/actions";
+import type { HolidayImportPreview } from "@/server/modules/leave/holidays-import";
 import { fmtDate } from "./labels";
 
 type List = { id: string; name: string; year: number; floater_limit: number; holidays: number; floaters: number; locations: { id: string; name: string }[]; people: number };
@@ -23,12 +24,13 @@ type Location = { id: string; name: string; listId: string | null };
 
 export function HolidayLists({ lists, holidays, locations, people, years, year }: { lists: List[]; holidays: Holiday[]; locations: Location[]; people: Person[]; years: number[]; year: number }) {
   const [editingList, setEditingList] = React.useState<List | "new" | null>(null);
+  const [importing, setImporting] = React.useState(false);
   const shown = lists.filter((l) => l.year === year);
   return (
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader title="Holiday lists" description="Company holidays per year. Each location gets a default list; you can give a person a different one. Optional (floater) holidays are picked by each person, up to the list's limit."
-          action={<Button size="sm" onClick={() => setEditingList("new")}><Plus />New list</Button>} />
+          action={<div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => setImporting(true)}><Upload />Import from Excel</Button><Button size="sm" onClick={() => setEditingList("new")}><Plus />New list</Button></div>} />
         <nav aria-label="Years" className="flex flex-wrap gap-2 px-5 pb-4">
           {years.map((y) => (
             <Link key={y} href={`?year=${y}`} aria-current={y === year ? "page" : undefined}
@@ -43,7 +45,84 @@ export function HolidayLists({ lists, holidays, locations, people, years, year }
         <ListCard key={l.id} list={l} holidays={holidays.filter((h) => h.holiday_list_id === l.id)} locations={locations} people={people} onEdit={() => setEditingList(l)} />
       ))}
       {editingList && <ListDialog list={editingList === "new" ? null : editingList} year={year} onClose={() => setEditingList(null)} />}
+      {importing && <ImportDialog year={year} onClose={() => setImporting(false)} />}
     </div>
+  );
+}
+
+/** Excel import: template (pre-filled with the year's lists) → upload → per-row check → import. Lists are created as needed. */
+function ImportDialog({ year, onClose }: { year: number; onClose: () => void }) {
+  const [file, setFile] = React.useState<File | null>(null);
+  const [preview, setPreview] = React.useState<HolidayImportPreview | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [checking, startCheck] = React.useTransition();
+  const [saving, startSave] = React.useTransition();
+  const choose = (f: File | undefined) => {
+    setError(null); setPreview(null); setFile(null);
+    if (!f) return;
+    if (!/\.xlsx$/i.test(f.name)) { setError("Choose an Excel .xlsx file."); return; }
+    if (f.size > 5 * 1024 * 1024) { setError("The file is larger than 5 MB."); return; }
+    setFile(f);
+    const fd = new FormData(); fd.set("file", f);
+    startCheck(async () => { const r = await previewHolidayImportAction(fd); if (r.ok) setPreview(r.data!); else setError(r.error); });
+  };
+  const commit = () => startSave(async () => {
+    const fd = new FormData(); fd.set("file", file!);
+    const r = await commitHolidayImportAction(fd);
+    if (!r.ok) { setError(r.error); return; }
+    toast.success(r.data!.added ? `${r.data!.added} ${r.data!.added === 1 ? "holiday" : "holidays"} added` : "Nothing new to add", { description: r.data!.createdLists ? `${r.data!.createdLists} new ${r.data!.createdLists === 1 ? "list" : "lists"}. Assign them to locations next.` : undefined });
+    onClose();
+  });
+  const bad = preview?.results.filter((r) => r.errors.length) ?? [];
+  const adds = preview?.results.filter((r) => !r.errors.length && !r.exists) ?? [];
+  return (
+    <Modal open onOpenChange={(o) => !o && onClose()} size="lg" title="Import holidays from Excel" description="One row per holiday, per list. Lists that don't exist yet are created."
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={commit} loading={saving} disabled={!preview?.valid || checking || !preview?.toAdd}>{preview?.valid ? `Import ${preview.toAdd} ${preview.toAdd === 1 ? "holiday" : "holidays"}` : "Import"}</Button></>}>
+      <div className="flex flex-col gap-4">
+        <ol className="list-decimal space-y-1 pl-5 text-base text-text-muted">
+          <li><a href={`/settings/holidays/template?year=${year}`} download className="text-accent-text underline-offset-4 hover:underline">Download the template for {year}</a>. It lists this year’s holidays per list.</li>
+          <li>Add rows, one per holiday. Use a new list name for another location.</li>
+          <li>Upload it here. erp checks every row before saving anything; rows already on a list are skipped.</li>
+        </ol>
+        <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border-strong px-6 py-8 text-center hover:border-accent hover:bg-accent-soft/40 focus-within:outline-2 focus-within:outline-focus">
+          {file ? <FileSpreadsheet className="size-6 text-accent-text" aria-hidden /> : <Upload className="size-6 text-accent-text" aria-hidden />}
+          <span className="text-base font-medium">{file ? file.name : "Choose the filled file"}</span>
+          <span className="text-sm text-text-muted">.xlsx, up to 5 MB</span>
+          <input type="file" accept=".xlsx" className="sr-only" onChange={(e) => { choose(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+        {error && <Banner tone="danger">{error}</Banner>}
+        {checking && <div className="flex flex-col gap-2" aria-busy aria-label="Checking the file"><Skeleton className="h-6 w-1/2" /><Skeleton className="h-24" /></div>}
+        {preview && !checking && (
+          preview.valid ? (
+            <Banner tone="success" title={`${preview.toAdd} of ${preview.total} rows will be added${preview.skipped ? `, ${preview.skipped} already there` : ""}`}>
+              {preview.newLists.length ? `New lists: ${preview.newLists.join(", ")}. Assign them to locations after importing.` : "All rows go onto existing lists."}
+            </Banner>
+          ) : (
+            <Banner tone="danger" title={`${bad.length} of ${preview.total} rows need fixing`}>Nothing is saved until every row is valid.</Banner>
+          )
+        )}
+        {preview && (bad.length > 0 || adds.length > 0) && (
+          <div className="max-h-72 overflow-auto rounded-md border border-border">
+            <table className="w-full text-base">
+              <caption className="sr-only">Rows in the file</caption>
+              <thead className="sticky top-0 bg-surface-sunken text-left text-sm text-text-muted"><tr><th className="px-3 py-2 font-medium">Row</th><th className="px-3 py-2 font-medium">List</th><th className="px-3 py-2 font-medium">Holiday</th><th className="px-3 py-2 font-medium">Result</th></tr></thead>
+              <tbody>
+                {[...bad, ...adds].map((r) => (
+                  <tr key={r.rowNumber} className="border-t border-border align-top">
+                    <td className="px-3 py-2 tabular text-text-muted">{r.rowNumber}</td>
+                    <td className="px-3 py-2">{r.list || "—"}{r.newList && !r.errors.length && <Badge className="ml-1" tone="accent">New</Badge>}</td>
+                    <td className="px-3 py-2">{r.name || "—"}<span className="block text-sm text-text-muted">{r.date ?? ""}{r.optional ? " · optional" : ""}</span></td>
+                    <td className="px-3 py-2">{r.errors.length ? (
+                      <ul className="flex flex-col gap-0.5 text-sm text-danger-text">{r.errors.map((e) => <li key={e} className="flex gap-1"><XCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />{e}</li>)}</ul>
+                    ) : <span className="flex items-center gap-1 text-sm"><CheckCircle2 className="size-3.5 text-success-text" aria-hidden />Will be added</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 

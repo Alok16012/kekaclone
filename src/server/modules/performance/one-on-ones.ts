@@ -1,4 +1,5 @@
 import "server-only";
+import { cancelCalendarEvent, pushCalendarEvent } from "@/server/modules/calendar/service";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AppError, type Tx } from "@/server/db";
@@ -43,6 +44,7 @@ export async function scheduleOneOnOne(tx: Tx, actor: Actor, raw: unknown) {
     values (${actor.tenant.id}, ${v.recurrence ? randomUUID() : null}, ${actor.employeeId}, ${v.attendeeId}, ${starts}, ${ends}, ${v.recurrence}, ${v.purpose || null}) returning id`;
   for (const body of v.agenda) await tx`insert into one_on_one_items (tenant_id, meeting_id, kind, author_employee_id, body) values (${actor.tenant.id}, ${m.id}, 'agenda', ${actor.employeeId}, ${body})`;
   await audit(tx, actor, { entityType: "one_on_one", entityId: m.id, action: "schedule", diff: { employeeId: v.attendeeId, startsAt: v.startsAt, recurrence: v.recurrence } });
+  await pushCalendarEvent(tx, actor.tenant.id, "one_on_one", m.id, [actor.employeeId, v.attendeeId], { title: `1:1: ${actor.name} & ${a.display_name}`, start: starts.toISOString(), end: ends.toISOString(), description: v.purpose || "1:1 scheduled in erp" });
   await notifyEmployee(tx, actor.tenant.id, v.attendeeId, "one_on_one.scheduled", "1:1 scheduled", `${actor.name} set up a 1:1 on ${when(starts)}${v.recurrence ? ` (repeats ${v.recurrence === "biweekly" ? "every two weeks" : v.recurrence})` : ""}.`, `/me/performance/one-on-ones?open=${m.id}`);
   return m;
 }
@@ -91,6 +93,7 @@ export async function completeMeeting(tx: Tx, actor: Actor, id: string) {
 export async function cancelMeeting(tx: Tx, actor: Actor, id: string, endSeries = false) {
   const m = await meeting(tx, actor, id, true);
   if (m.status !== "scheduled") throw new AppError("invalid", "Only upcoming meetings can be cancelled.");
+  await cancelCalendarEvent(tx, "one_on_one", id);
   await tx`update one_on_ones set status = 'cancelled' where id = ${id}`;
   let nextId: string | null = null;
   if (endSeries && m.series_id) await tx`update one_on_ones set status = 'cancelled' where series_id = ${m.series_id} and status = 'scheduled'`;

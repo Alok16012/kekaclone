@@ -10,7 +10,7 @@ import { todayIn } from "@/lib/dates";
 import { assertNotSelf, assertRollback, assertRunPayroll } from "./access";
 import { bumpVersion, computeRun, getRun, type RunRow, type StepState } from "./engine";
 import {
-  addMonths, attendanceWindows, isLockedStatus, isMonth, LINE_ACTIONS, monthLabel, monthStart, slipped, STEPS, variancePct,
+  addMonths, attendanceWindows, isLockedStatus, isMonth, isUnitWorker, LINE_ACTIONS, monthLabel, monthStart, slipped, STEPS, variancePct,
   type LineAction, type PayItem, type StatutoryDetail, type StepKey,
 } from "./rules";
 
@@ -111,7 +111,7 @@ export type InputView = {
 };
 export type StepView = { key: StepKey; title: string; exceptions: number; done: boolean; reviewed: { by: string; at: string } | null };
 
-const INPUT_KINDS = ["lop_adjust", "lop_reversal", "bonus", "adhoc_earning", "adhoc_deduction", "arrear", "overtime", "shift_allowance", "component_claim", "expense", "loan_emi", "leave_encashment"] as const;
+const INPUT_KINDS = ["lop_adjust", "lop_reversal", "bonus", "adhoc_earning", "adhoc_deduction", "arrear", "overtime", "shift_allowance", "component_claim", "expense", "loan_emi", "leave_encashment", "payable_units"] as const;
 
 export async function runView(tx: Tx, actor: Actor, runId: string) {
   assertRunPayroll(actor);
@@ -171,7 +171,7 @@ export function stepViews(run: Pick<RunRow, "step_state" | "period_month" | "tot
     variable: lines.filter((l) => (ctx(l).overtimeMinutes ?? 0) > 0 && !inputs.some((i) => i.employee_id === l.employee_id && i.kind === "overtime")).length,
     claims: inputs.filter((i) => ["expense", "component_claim", "adhoc_earning", "adhoc_deduction", "loan_emi", "leave_encashment"].includes(i.kind) && i.action === "hold").length,
     holds: lines.filter((l) => l.action === "hold_processing" || l.action === "hold_payout").length,
-    review: lines.filter((l) => l.net < 0 || (l.variance != null && Math.abs(l.variance) > 25) || l.warnings.some((w) => /PAN/.test(w))).length,
+    review: lines.filter((l) => l.net < 0 || (l.variance != null && Math.abs(l.variance) > 25) || l.warnings.some((w) => /PAN|Labour Codes|payable (days|pieces)/.test(w))).length,
   };
   return STEPS.map((s) => {
     const reviewed = run.step_state.reviewed?.[s.key] ?? null;
@@ -199,7 +199,7 @@ export const inputSchema = z.object({
   employeeId: z.uuid("Pick a person"),
   kind: z.enum(INPUT_KINDS),
   amountPaise: z.number().int("Amounts are in whole paise").positive("Enter an amount more than zero").max(1_00_00_000_00, "That amount is too large").nullable().optional(),
-  days: z.number().positive("Enter the number of days").max(31, "That's more days than a month has").multipleOf(0.5, "Use whole or half days").nullable().optional(),
+  days: z.number().positive("Enter the number of days").max(999.99, "That's too many units for one month").multipleOf(0.01).nullable().optional(),
   sourceMonth: z.string().refine(isMonth, "Pick a month").nullable().optional(),
   componentId: z.uuid().nullable().optional(),
   note: z.string().trim().max(200, "Keep the note under 200 characters").nullable().optional(),
@@ -214,13 +214,21 @@ export async function saveInput(tx: Tx, actor: Actor, runId: string, inputId: st
   const run = await openRun(tx, actor, runId, expected);
   assertNotSelf(actor, v.employeeId, "add or change payroll inputs for yourself");
   await personInGroup(tx, run, v.employeeId);
-  const byDays = v.kind === "lop_adjust" || v.kind === "lop_reversal";
-  if (byDays && !v.days) throw new AppError("invalid", "Enter the number of days.", "days");
+  const byDays = v.kind === "lop_adjust" || v.kind === "lop_reversal" || v.kind === "payable_units";
+  if (byDays && !v.days) throw new AppError("invalid", v.kind === "payable_units" ? "Enter the units worked this month." : "Enter the number of days.", "days");
+  if ((v.kind === "lop_adjust" || v.kind === "lop_reversal") && v.days && (v.days > 31 || Math.round(v.days * 2) !== v.days * 2)) throw new AppError("invalid", "Use whole or half days, up to 31.", "days");
+  if (v.kind === "payable_units") {
+    const [w] = await tx<{ worker_type: string }[]>`select worker_type from employees where id = ${v.employeeId}`;
+    if (!isUnitWorker(w?.worker_type)) throw new AppError("invalid", "Payable units are for daily-wage or piece-rate workers. Set the worker type on their profile first.", "kind");
+    if (v.days! > 744) throw new AppError("invalid", "Units can't be more than 744 in a month.", "days");
+    const [dup] = await tx<{ id: string }[]>`select id from payroll_inputs where pay_group_id = ${run.pay_group_id} and period_month = ${run.period_month} and employee_id = ${v.employeeId} and kind = 'payable_units' and id is distinct from ${inputId}`;
+    if (dup) throw new AppError("conflict", "This person already has payable units for the month. Edit that entry instead.", "kind");
+  }
   if (!byDays && v.kind !== "leave_encashment" && !v.amountPaise) throw new AppError("invalid", "Enter an amount.", "amountPaise");
   if (v.kind === "leave_encashment" && !v.amountPaise && !v.days) throw new AppError("invalid", "Enter the days to encash, or an amount.", "days");
   if (v.kind === "expense") throw new AppError("invalid", "Expense claims are scheduled from the expense desk.");
   let sourceMonth: string | null = null;
-  if (byDays) {
+  if (byDays && v.kind !== "payable_units") {
     sourceMonth = v.sourceMonth ?? run.period_month;
     if (sourceMonth > run.period_month || sourceMonth < addMonths(run.period_month, -3)) throw new AppError("invalid", "LOP changes can go back up to three months.", "sourceMonth");
   }

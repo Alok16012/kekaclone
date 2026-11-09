@@ -45,6 +45,7 @@ export async function filterOptions(tx: Tx, report: LibraryEntry) {
     else if (f.optionsFrom === "locations") out[f.key] = await tx<{ value: string; label: string }[]>`select id as value, name as label from locations order by name`;
     else if (f.optionsFrom === "courses") out[f.key] = await tx<{ value: string; label: string }[]>`select id as value, title as label from courses where status <> 'draft' order by title`;
     else if (f.optionsFrom === "projects") out[f.key] = await tx<{ value: string; label: string }[]>`select id as value, name as label from projects order by name`;
+    else if (f.optionsFrom === "people") out[f.key] = await tx<{ value: string; label: string }[]>`select e.id as value, e.display_name || ' (' || e.employee_number || ')' as label from employees e where e.user_id is not null order by e.display_name`;
   }
   return out;
 }

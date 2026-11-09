@@ -7,6 +7,7 @@ import { todayIn } from "@/lib/dates";
 import { PageHeader } from "@/ui/app-shell";
 import { Banner } from "@/ui/feedback";
 import { MyExpenses } from "@/features/expenses/my-expenses";
+import { ocrStatus } from "@/server/ocr";
 
 export const metadata: Metadata = { title: "Expenses" };
 
@@ -14,7 +15,8 @@ export default async function MyExpensesPage(props: PageProps<"/me/expenses">) {
   const sp = await props.searchParams;
   const d = await load(async (tx, actor) => {
     const [mine, queue] = await Promise.all([myExpenses(tx, actor), approvalQueue(tx, actor)]);
-    return { ...mine, waiting: queue.filter((q) => q.mine).length, desk: hasAnywhere(actor, EXP_APPROVE) || hasAnywhere(actor, EXP_PAYOUT) };
+    const o = ocrStatus();
+    return { ...mine, waiting: queue.filter((q) => q.mine).length, desk: hasAnywhere(actor, EXP_APPROVE) || hasAnywhere(actor, EXP_PAYOUT), ocr: o.configured ? { configured: true } : { configured: false, reason: o.reason } };
   });
   return (
     <>
@@ -24,7 +26,7 @@ export default async function MyExpensesPage(props: PageProps<"/me/expenses">) {
           {d.waiting > 0 ? `${d.waiting} expense ${d.waiting === 1 ? "request is" : "requests are"} waiting for your approval.` : "You review or pay out expenses for your team."}
         </Banner>
       )}
-      <MyExpenses startAdding={sp.add === "1"} d={{ categories: d.policy?.categories ?? [], policyName: d.policy?.name ?? null, unclaimed: d.unclaimed, claims: d.claims, advances: d.advances, today: todayIn() }} />
+      <MyExpenses startAdding={sp.add === "1"} d={{ categories: d.policy?.categories ?? [], policyName: d.policy?.name ?? null, unclaimed: d.unclaimed, claims: d.claims, advances: d.advances, today: todayIn(), currencies: d.currencies, ocr: d.ocr }} />
     </>
   );
 }

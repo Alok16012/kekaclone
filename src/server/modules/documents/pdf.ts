@@ -105,3 +105,48 @@ export async function renderLetterPdf(a: { html: string; title: string; company:
   });
   return doc.save();
 }
+
+// ---------- erp Sign: the signature page ----------
+export type SignatureBlock = { name: string; title: string | null; method: "typed" | "drawn"; typedName: string | null; png: Uint8Array | null; audit: string; hash: string };
+
+/**
+ * The original letter plus one "Signatures" page listing every signature so far (name, drawn image or typed name,
+ * and the audit line: method, time, IP, the hash of the document the signer saw). Rebuilt from the original each
+ * time someone signs, so the page is always complete and in order.
+ */
+export async function appendSignaturePage(original: Uint8Array, blocks: SignatureBlock[], a: { company: string; title: string }): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(original, { updateMetadata: false });
+  const f = { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold), i: await doc.embedFont(StandardFonts.HelveticaOblique) };
+  const clean = printable(f.r, new Map());
+  const ink = rgb(0.11, 0.12, 0.14), muted = rgb(0.42, 0.44, 0.48), rule = rgb(0.85, 0.86, 0.88);
+  let page = doc.addPage([A4.w, A4.h]);
+  let y = A4.h - 72;
+  const header = () => {
+    page.drawText(clean(a.company), { x: M.x, y: A4.h - 48, size: 12, font: f.b, color: ink });
+    page.drawLine({ start: { x: M.x, y: A4.h - 56 }, end: { x: A4.w - M.x, y: A4.h - 56 }, thickness: 0.6, color: rule });
+  };
+  header();
+  page.drawText("Signatures", { x: M.x, y, size: 16, font: f.b, color: ink }); y -= 22;
+  page.drawText(clean(`${a.title} · signed electronically with erp Sign`), { x: M.x, y, size: 10, font: f.r, color: muted }); y -= 28;
+  for (const [i, b] of blocks.entries()) {
+    const needed = b.method === "drawn" ? 150 : 110;
+    if (y - needed < M.bottom) { page = doc.addPage([A4.w, A4.h]); header(); y = A4.h - 72; }
+    page.drawText(clean(`${i + 1}. ${b.name}${b.title ? `, ${b.title}` : ""}`), { x: M.x, y, size: 11, font: f.b, color: ink }); y -= 16;
+    if (b.method === "drawn" && b.png) {
+      try {
+        const img = await doc.embedPng(b.png);
+        const w = Math.min(220, img.width), h = (img.height * w) / img.width, hh = Math.min(h, 70), ww = (img.width * hh) / img.height;
+        page.drawImage(img, { x: M.x, y: y - hh, width: ww, height: hh });
+        y -= hh + 6;
+      } catch {
+        page.drawText("[signature image]", { x: M.x, y: y - 12, size: 10, font: f.i, color: muted }); y -= 20;
+      }
+    } else {
+      page.drawText(clean(b.typedName ?? b.name), { x: M.x, y: y - 20, size: 20, font: f.i, color: ink }); y -= 30;
+    }
+    page.drawLine({ start: { x: M.x, y }, end: { x: M.x + 240, y }, thickness: 0.6, color: ink }); y -= 14;
+    page.drawText(clean(b.audit), { x: M.x, y, size: 8.5, font: f.r, color: muted }); y -= 12;
+    page.drawText(clean(`Document fingerprint (SHA-256): ${b.hash}`), { x: M.x, y, size: 8.5, font: f.r, color: muted }); y -= 24;
+  }
+  return doc.save();
+}
