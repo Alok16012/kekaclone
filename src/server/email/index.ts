@@ -1,3 +1,4 @@
+import { tenantUrl } from "@/lib/tenancy";
 import "server-only";
 import { withTenant, type Tx } from "@/server/db";
 
@@ -55,7 +56,5 @@ async function deliverBatch(tenantId: string): Promise<number> {
 }
 
 export function appUrl(subdomain: string, path: string) {
-  const root = process.env.ROOT_DOMAIN ?? "erp.app";
-  const proto = root.startsWith("localhost") ? "http" : "https";
-  return `${proto}://${subdomain}.${root}${path}`;
+  return tenantUrl(subdomain, path);
 }

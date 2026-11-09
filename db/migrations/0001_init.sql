@@ -2311,7 +2311,13 @@ create policy tenant_self on tenants using (id = app_tenant()) with check (id = 
 -- Roles. erp_app = the web app (subject to RLS). erp_admin = migrations, platform console, cross-tenant jobs.
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'erp_app') then create role erp_app nologin; end if;
-  if not exists (select 1 from pg_roles where rolname = 'erp_admin') then create role erp_admin nologin bypassrls; end if;
+  if not exists (select 1 from pg_roles where rolname = 'erp_admin') then
+    begin
+      create role erp_admin nologin bypassrls;
+    exception when insufficient_privilege then
+      create role erp_admin nologin;   -- hosted Postgres (no superuser): the owner connection already bypasses RLS
+    end;
+  end if;
 end $$;
 grant usage on schema public to erp_app, erp_admin;
 grant select, insert, update, delete on all tables in schema public to erp_app, erp_admin;

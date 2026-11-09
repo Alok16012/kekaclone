@@ -3,11 +3,15 @@ import postgres from "postgres";
 
 declare global { var __erpSql: postgres.Sql | undefined }
 
+/** True for a transaction-mode pooler URL (Supabase pooler on 6543, or ?pgbouncer=true). */
+export const pooled = (url = "") => /:6543\b/.test(url) || /[?&]pgbouncer=true/.test(url) || process.env.DATABASE_POOLED === "1";
+
 /** The app's pool. Connects as erp_app_user (RLS enforced). Reused across hot reloads in dev. */
 export const sql: postgres.Sql =
   globalThis.__erpSql ??
   postgres(process.env.DATABASE_URL!, {
-    max: 10,
+    max: Number(process.env.DATABASE_POOL_MAX ?? 10),
+    prepare: !pooled(process.env.DATABASE_URL),   // transaction-mode poolers (Supabase :6543, pgbouncer) reject named prepared statements
     idle_timeout: 20,
     onnotice: () => {},
     types: { bigint: postgres.BigInt },

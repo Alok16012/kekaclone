@@ -4,11 +4,12 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import type { Tx } from "@/server/db";
 import { AppError } from "@/server/db";
+import { SupabaseStorage } from "./supabase";
 
 /**
  * Where file bytes live. Metadata (name, MIME, size, owner) is in the `files` table; bytes go to a Storage.
- * Dev: a local directory (STORAGE_DIR, default ./.storage). Production swaps in an S3 / Supabase Storage
- * implementation of this same interface (put/get/remove by key) without touching callers.
+ * Dev: a local directory (STORAGE_DIR, default ./.storage). With SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY set, bytes go to
+ * a private Supabase Storage bucket instead (see ./supabase.ts); callers never notice.
  */
 export interface Storage {
   put(key: string, bytes: Uint8Array, mime: string): Promise<void>;
@@ -37,7 +38,9 @@ export class LocalStorage implements Storage {
 
 declare global { var __erpStorage: Storage | undefined }
 export function storage(): Storage {
-  return (globalThis.__erpStorage ??= new LocalStorage(process.env.STORAGE_DIR ?? join(process.cwd(), ".storage")));
+  return (globalThis.__erpStorage ??= process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? new SupabaseStorage(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, process.env.SUPABASE_BUCKET || undefined)
+    : new LocalStorage(process.env.STORAGE_DIR ?? join(process.cwd(), ".storage")));
 }
 
 /**

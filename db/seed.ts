@@ -15,6 +15,7 @@ import { addDaysISO, todayIn, weekday } from "@/lib/dates";
 import type { Actor } from "@/server/auth/session";
 
 import { DEMO_PASSWORD, DEMO_SUBDOMAIN } from "./demo";
+import { tenantUrl } from "@/lib/tenancy";
 
 const admin = postgres(process.env.DATABASE_ADMIN_URL!, { max: 1, onnotice: () => {} });
 
@@ -118,7 +119,7 @@ async function main() {
   await (await import("./seed-hire")).seedHire(tenantId);
   await (await import("./seed-performance")).seedPerformance(tenantId);
   await (await import("./seed-workspace")).seedWorkspace(tenantId);
-  console.log(`Seeded http://${DEMO_SUBDOMAIN}.${process.env.ROOT_DOMAIN} — ${Object.keys(ids).length} people. Password for every account is in db/demo.ts (DEMO_PASSWORD).`);
+  console.log(`Seeded ${tenantUrl(DEMO_SUBDOMAIN, "/")} — ${Object.keys(ids).length} people. Password for every account is in db/demo.ts (DEMO_PASSWORD).`);
   await admin.end(); await sql.end();
 }
 

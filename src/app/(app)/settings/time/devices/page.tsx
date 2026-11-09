@@ -1,3 +1,4 @@
+import { tenantHost } from "@/lib/tenancy";
 import type { Metadata } from "next";
 import { load } from "@/server/page-data";
 import { todayIn } from "@/lib/dates";
@@ -12,7 +13,7 @@ export default async function DevicesPage() {
   const d = await load(async (tx, actor) => {
     if (!canManagePolicies(actor)) return null;   // device keys are company-wide secrets
     const [rows, locations] = await Promise.all([listDevices(tx, todayIn()), tx<{ id: string; name: string }[]>`select id, name from locations order by name`]);
-    return { rows, locations, host: `${actor.tenant.subdomain}.${process.env.ROOT_DOMAIN ?? "erp.app"}` };
+    return { rows, locations, host: tenantHost(actor.tenant.subdomain) };
   });
   return d ? <DevicesSettings rows={d.rows} locations={d.locations} host={d.host} /> : <NoAccess />;
 }

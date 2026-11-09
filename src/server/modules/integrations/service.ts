@@ -1,3 +1,4 @@
+import { ROOT_DOMAIN } from "@/lib/tenancy";
 import "server-only";
 import { randomBytes, randomUUID } from "node:crypto";
 import { AppError, withTenant, type Tx } from "@/server/db";
@@ -89,7 +90,7 @@ export async function createEndpoint(tx: Tx, actor: Actor, input: { url: string;
   assertWorkspace(actor, "settings.integrations");
   assertFeature(actor, "webhooks");
   const url = input.url.trim();
-  const problem = endpointUrlProblem(url, (process.env.ROOT_DOMAIN ?? "").split(":")[0] || null);
+  const problem = endpointUrlProblem(url, ROOT_DOMAIN.split(":")[0] || null);
   if (problem) throw new AppError("invalid", problem, "url");
   const events = [...new Set(input.events.filter(isEvent))];
   if (!events.length) throw new AppError("invalid", "Pick at least one event.", "events");

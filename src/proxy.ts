@@ -1,17 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
-
-const ROOT = process.env.ROOT_DOMAIN ?? "localhost:3100";
+import { DEFAULT_TENANT, tenantFromHost } from "@/lib/tenancy";
 
 /**
- * Tenant from the subdomain: acme.erp.app (prod) or acme.localhost:3100 (dev).
- * Passed to the app as a request header. Apex domain = marketing + signup only.
+ * Tenant from the subdomain: acme.erp.app (prod) or acme.localhost:3100 (dev); or the one fixed workspace when
+ * ERP_DEFAULT_TENANT is set (see src/lib/tenancy.ts). Passed to the app as a request header.
+ * Apex domain = marketing + signup only (there is no apex in single-tenant mode).
  */
 export function proxy(req: NextRequest) {
-  const host = (req.headers.get("host") ?? "").toLowerCase();
-  const sub = host.endsWith("." + ROOT) ? host.slice(0, -(ROOT.length + 1)) : null;
+  const sub = tenantFromHost(req.headers.get("host"));
   const headers = new Headers(req.headers);
   headers.delete("x-erp-tenant");
-  if (sub && sub !== "www") headers.set("x-erp-tenant", sub);
+  if (sub) headers.set("x-erp-tenant", sub);
 
   const path = req.nextUrl.pathname;
   if (sub && path === "/") return NextResponse.redirect(new URL("/home", req.url));
@@ -22,14 +21,14 @@ export function proxy(req: NextRequest) {
     || path === "/offline" || path === "/manifest.webmanifest" || path === "/sw.js" || path.startsWith("/icons/") || path.startsWith("/brand/")
     || path.startsWith("/join/")   // joiner portal: token checked inside the subdomain's company
     || path === "/careers" || path.startsWith("/careers/") || path.startsWith("/p/")   // hiring: public careers page and candidate / interviewer token links
-    || (process.env.NODE_ENV !== "production" && path.startsWith("/dev/"));
+    || ((process.env.NODE_ENV !== "production" || process.env.ERP_DEMO === "1") && path.startsWith("/dev/"));   // dev mailbox / sms: also on the hosted demo
   if (sub && !isPublic && !req.cookies.has(process.env.SESSION_COOKIE ?? "erp_session")) {
     const url = new URL("/login", req.url);
     if (path !== "/home") url.searchParams.set("next", path);
     return NextResponse.redirect(url);
   }
   // the apex has no app pages: send people to sign up
-  if (!sub && !["/", "/signup", "/design"].some((p) => path === p) && !path.startsWith("/_next") && !path.startsWith("/api")) {
+  if (!sub && !DEFAULT_TENANT && !["/", "/signup", "/design"].some((p) => path === p) && !path.startsWith("/_next") && !path.startsWith("/api")) {
     return NextResponse.redirect(new URL("/signup", req.url));
   }
   return NextResponse.next({ request: { headers } });

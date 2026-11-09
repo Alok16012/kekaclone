@@ -1,4 +1,5 @@
 "use server";
+import { DEFAULT_TENANT, tenantUrl } from "@/lib/tenancy";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -35,13 +36,14 @@ export async function signupAction(_: FormState, form: FormData): Promise<FormSt
     for (const i of parsed.error.issues) fields[String(i.path[0])] ??= i.message;
     return { fields, values };
   }
+  if (DEFAULT_TENANT) return { error: "Sign-up is switched off on this installation.", values };
   let target: string;
   try {
     const t = await provisionTenant(parsed.data);
     const token = await createHandoff(t.tenantId, t.userId);
     const h = await headers();
     const proto = h.get("x-forwarded-proto") ?? "http";
-    target = `${proto}://${t.subdomain}.${process.env.ROOT_DOMAIN}/auth/handoff?t=${encodeURIComponent(token)}`;
+    target = tenantUrl(t.subdomain, `/auth/handoff?t=${encodeURIComponent(token)}`, proto);
   } catch (e) {
     if (e instanceof AppError) return e.field ? { fields: { [e.field]: e.message }, values } : { error: e.message, values };
     console.error(e);
